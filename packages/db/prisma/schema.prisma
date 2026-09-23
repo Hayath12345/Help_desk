@@ -1,0 +1,701 @@
+// Loons Help Desk — Prisma schema
+//
+// Conventions
+// - Config records are never hard-deleted: archive with `isActive = false`. Tickets keep
+//   referencing archived rows and still render them.
+// - Every config record has a stable `key` separate from its EN/AR labels.
+// - Ticket numbers are human IDs rendered as `LG-<number>` (sequence-backed, see migration).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Role {
+  CLIENT
+  AGENT
+  TEAM_LEAD
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING_APPROVAL // self-signup whose email domain matched no organisation
+  DISABLED
+}
+
+enum Locale {
+  en
+  ar
+}
+
+enum AuthProvider {
+  GOOGLE
+  MICROSOFT_ENTRA_ID
+}
+
+enum ContractType {
+  AMC
+  BILLABLE
+}
+
+enum TeamMemberRole {
+  MEMBER
+  LEAD
+}
+
+enum TicketType {
+  INCIDENT
+  SERVICE_REQUEST
+  CHANGE_REQUEST
+  SECURITY_INCIDENT
+  ENQUIRY
+}
+
+enum Priority {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum Impact {
+  SINGLE_USER
+  DEPARTMENT
+  ENTIRE_SITE
+  MULTIPLE_SITES
+}
+
+enum TicketStatus {
+  NEW
+  OPEN
+  PENDING
+  SOLVED
+  CLOSED
+}
+
+enum TicketChannel {
+  PORTAL
+  EMAIL
+  PHONE
+  API
+}
+
+enum MessageType {
+  PUBLIC
+  INTERNAL
+  SYSTEM
+}
+
+enum TicketEventType {
+  CREATED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNEE_CHANGED
+  TEAM_CHANGED
+  CATEGORY_CHANGED
+  SUBTYPE_CHANGED
+  TYPE_CHANGED
+  TAGS_CHANGED
+  FIRST_REPLY
+  REOPENED
+  SLA_AT_RISK
+  SLA_BREACHED
+  P1_ACKNOWLEDGED
+  ESCALATED
+  AUTO_CLOSED
+}
+
+enum AttachmentStatus {
+  PENDING // pre-signed URL issued, upload not confirmed
+  UPLOADED // object exists, awaiting scan
+  CLEAN
+  INFECTED
+  REJECTED
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DROPDOWN
+  MULTI_SELECT
+  DATE
+  YES_NO
+  ASSET_ID
+}
+
+enum EscalationTargetType {
+  ON_CALL // the team's on-call user
+  ROLE // every member of the team holding `targetRole` (e.g. TEAM_LEAD)
+  USER // a specific user (e.g. the manager)
+}
+
+enum EscalationChannel {
+  EMAIL
+  TEAMS
+  SMS
+}
+
+enum NotificationType {
+  TICKET_CREATED
+  TICKET_ASSIGNED
+  CLIENT_REPLY
+  AGENT_REPLY
+  STATUS_CHANGED
+  SLA_AT_RISK
+  SLA_BREACHED
+  P1_CREATED
+  P1_ESCALATED
+  P1_ACKNOWLEDGED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  ARCHIVE
+  RESTORE
+  REORDER
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model Organization {
+  id               String       @id @default(uuid()) @db.Uuid
+  key              String       @unique
+  name             String
+  nameAr           String?
+  contractType     ContractType @default(AMC)
+  amcExpiry        DateTime?    @db.Date
+  accountManagerId String?      @db.Uuid
+  /// Lower-case email domains whose sign-ups auto-join this organisation (e.g. "qnb.com").
+  emailDomains     String[]     @default([])
+  phone            String?
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  accountManager User?    @relation("AccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  sites          Site[]
+  users          User[]   @relation("OrgUsers")
+  tickets        Ticket[]
+
+  @@index([isActive])
+}
+
+model Site {
+  id        String   @id @default(uuid()) @db.Uuid
+  orgId     String   @db.Uuid
+  key       String
+  name      String
+  nameAr    String?
+  address   String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  tickets Ticket[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  /// Always stored lower-cased.
+  email           String     @unique
+  name            String
+  role            Role
+  status          UserStatus @default(ACTIVE)
+  /// Set for CLIENT users only.
+  orgId           String?    @db.Uuid
+  locale          Locale     @default(en)
+  phone           String?
+  jobTitle        String?
+  /// argon2id hash. Null for SSO-only accounts.
+  passwordHash    String?
+  /// Incremented to revoke every existing session and API token — password reset now; admin
+  /// disable / role change later. Web sessions and API tokens carry the value they were issued
+  /// with (`sv`) and are rejected once it differs.
+  sessionVersion  Int        @default(0)
+  emailVerifiedAt DateTime?
+  /// MFA-ready: staff sign in through Entra ID (MFA enforced there). These fields allow a
+  /// local TOTP factor to be added later without a schema change.
+  mfaEnabled      Boolean    @default(false)
+  mfaSecret       String?
+  /// Company name typed at self-signup when no organisation matched (for admin review).
+  signupCompany   String?
+  lastLoginAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  org                 Organization?        @relation("OrgUsers", fields: [orgId], references: [id], onDelete: Restrict)
+  accounts            AuthAccount[]
+  passwordResetTokens PasswordResetToken[]
+  teamMemberships     TeamMember[]
+  onCallForTeams      Team[]               @relation("TeamOnCall")
+  managedOrgs         Organization[]       @relation("AccountManager")
+  requestedTickets    Ticket[]             @relation("TicketRequester")
+  assignedTickets     Ticket[]             @relation("TicketAssignee")
+  p1AckedTickets      Ticket[]             @relation("TicketP1Ack")
+  messages            Message[]
+  attachments         Attachment[]
+  ticketEvents        TicketEvent[]
+  notifications       Notification[]
+  macrosCreated       Macro[]
+  escalationTargets   EscalationRule[]
+  auditLogs           AdminAuditLog[]
+  emailTemplateEdits  EmailTemplate[]
+
+  @@index([orgId])
+  @@index([role])
+}
+
+/// Linked external identities (Google for clients, Microsoft Entra ID for staff).
+model AuthAccount {
+  id                String       @id @default(uuid()) @db.Uuid
+  userId            String       @db.Uuid
+  provider          AuthProvider
+  providerAccountId String
+  email             String
+  createdAt         DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// SHA-256 of the token sent by email; the raw token is never stored.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ───────────────────────────── Teams ─────────────────────────────
+
+model Team {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  nameEn          String
+  nameAr          String
+  /// Distribution list notified on new tickets routed to this team.
+  emails          String[] @default([])
+  /// Microsoft Teams incoming-webhook URL (secret; never exposed to clients).
+  teamsWebhookUrl String?
+  onCallUserId    String?  @db.Uuid
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  onCallUser      User?            @relation("TeamOnCall", fields: [onCallUserId], references: [id], onDelete: SetNull)
+  members         TeamMember[]
+  categories      Category[]
+  tickets         Ticket[]
+  macros          Macro[]
+  escalationRules EscalationRule[]
+}
+
+model TeamMember {
+  teamId    String         @db.Uuid
+  userId    String         @db.Uuid
+  role      TeamMemberRole @default(MEMBER)
+  createdAt DateTime       @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+// ───────────────────────────── Tickets ─────────────────────────────
+
+model Ticket {
+  id           String        @id @default(uuid()) @db.Uuid
+  /// Human ID, displayed as `LG-<number>`. Backed by a Postgres sequence.
+  number       Int           @unique @default(autoincrement())
+  type         TicketType
+  subject      String
+  description  String
+  categoryId   String        @db.Uuid
+  subtypeId    String?       @db.Uuid
+  priority     Priority
+  impact       Impact        @default(SINGLE_USER)
+  status       TicketStatus  @default(NEW)
+  channel      TicketChannel @default(PORTAL)
+  orgId        String        @db.Uuid
+  siteId       String?       @db.Uuid
+  /// Free-text asset / device identifier (e.g. CAM-014).
+  assetId      String?
+  requesterId  String        @db.Uuid
+  assigneeId   String?       @db.Uuid
+  teamId       String        @db.Uuid
+  /// Values for configured custom fields, keyed by CustomField.key.
+  customFields Json          @default("{}")
+
+  firstReplyDueAt DateTime?
+  resolveDueAt    DateTime?
+  firstRepliedAt  DateTime?
+  solvedAt        DateTime?
+  closedAt        DateTime?
+  slaAtRiskAt     DateTime?
+  slaBreached     Boolean   @default(false)
+  slaBreachedAt   DateTime?
+  /// Set while the ticket is PENDING (resolution clock paused); cleared on resume.
+  slaPausedAt     DateTime?
+  p1AckedAt       DateTime?
+  p1AckedById     String?   @db.Uuid
+  lastMessageAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category      Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  subtype       Subtype?       @relation(fields: [subtypeId], references: [id], onDelete: Restrict)
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  site          Site?          @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  requester     User           @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assignee      User?          @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team          Team           @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  p1AckedBy     User?          @relation("TicketP1Ack", fields: [p1AckedById], references: [id], onDelete: SetNull)
+  messages      Message[]
+  attachments   Attachment[]
+  tags          TicketTag[]
+  events        TicketEvent[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([teamId, status])
+  @@index([assigneeId, status])
+  @@index([orgId, status])
+  @@index([requesterId])
+  @@index([firstReplyDueAt])
+  @@index([resolveDueAt])
+  @@index([createdAt])
+}
+
+model Message {
+  id           String      @id @default(uuid()) @db.Uuid
+  ticketId     String      @db.Uuid
+  /// Null for SYSTEM messages.
+  authorId     String?     @db.Uuid
+  type         MessageType
+  body         String
+  /// Client-generated temp ID used to reconcile optimistic UI; unique per ticket (idempotency).
+  clientTempId String?
+  createdAt    DateTime    @default(now())
+
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  attachments Attachment[]
+
+  @@unique([ticketId, clientTempId])
+  @@index([ticketId, createdAt])
+}
+
+model Attachment {
+  id         String           @id @default(uuid()) @db.Uuid
+  ticketId   String?          @db.Uuid
+  messageId  String?          @db.Uuid
+  uploaderId String           @db.Uuid
+  storageKey String           @unique
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  status     AttachmentStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+
+  ticket   Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message  Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  uploader User     @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId])
+  @@index([messageId])
+}
+
+model Tag {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  label     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tickets TicketTag[]
+}
+
+model TicketTag {
+  ticketId String @db.Uuid
+  tagId    String @db.Uuid
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([ticketId, tagId])
+  @@index([tagId])
+}
+
+/// Append-only history of every ticket change.
+model TicketEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  ticketId  String          @db.Uuid
+  /// Null when the change was made by the system (SLA worker, auto-close, escalation).
+  actorId   String?         @db.Uuid
+  type      TicketEventType
+  fromValue String?
+  toValue   String?
+  meta      Json?
+  createdAt DateTime        @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ───────────────────────────── Configuration ─────────────────────────────
+
+model Category {
+  id               String   @id @default(uuid()) @db.Uuid
+  key              String   @unique
+  labelEn          String
+  labelAr          String   @default("")
+  /// lucide-react icon name.
+  icon             String   @default("circle-question-mark")
+  /// Example shown in the Asset / device ID input (e.g. "e.g. CAM-014").
+  assetPlaceholder String?
+  teamId           String   @db.Uuid
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  team     Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  subtypes Subtype[]
+  fields   CategoryField[]
+  tickets  Ticket[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Subtype {
+  id              String   @id @default(uuid()) @db.Uuid
+  categoryId      String   @db.Uuid
+  key             String
+  labelEn         String
+  labelAr         String   @default("")
+  defaultPriority Priority @default(P3)
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  tickets  Ticket[]
+
+  @@unique([categoryId, key])
+  @@index([categoryId, isActive, sortOrder])
+}
+
+model CustomField {
+  id            String          @id @default(uuid()) @db.Uuid
+  key           String          @unique
+  labelEn       String
+  labelAr       String          @default("")
+  type          CustomFieldType
+  /// For DROPDOWN / MULTI_SELECT: [{ "value": "...", "labelEn": "...", "labelAr": "..." }].
+  options       Json?
+  placeholderEn String?
+  placeholderAr String?
+  required      Boolean         @default(false)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  categories CategoryField[]
+}
+
+model CategoryField {
+  categoryId String @db.Uuid
+  fieldId    String @db.Uuid
+  sortOrder  Int    @default(0)
+
+  category Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  field    CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, fieldId])
+  @@index([fieldId])
+}
+
+model SlaPolicy {
+  id                String   @id @default(uuid()) @db.Uuid
+  priority          Priority @unique
+  /// Minutes of (business or calendar) time allowed for the first public agent reply.
+  firstReplyMins    Int
+  /// Minutes of (business or calendar) time allowed until SOLVED. PENDING pauses this clock.
+  resolveMins       Int
+  /// When true only business hours (minus holidays) count; otherwise the clock runs 24/7.
+  businessHoursOnly Boolean
+  /// Percentage of the window after which the ticket is flagged "SLA at risk".
+  atRiskPercent     Int      @default(75)
+  updatedAt         DateTime @updatedAt
+}
+
+model BusinessHours {
+  id      String  @id @default(uuid()) @db.Uuid
+  /// 0 = Sunday … 6 = Saturday.
+  weekday Int     @unique
+  isOpen  Boolean @default(true)
+  /// "HH:mm" in the configured business timezone (AppSetting "business.timezone").
+  open    String  @default("07:30")
+  close   String  @default("16:30")
+}
+
+model Holiday {
+  id        String   @id @default(uuid()) @db.Uuid
+  date      DateTime @unique @db.Date
+  name      String
+  nameAr    String?
+  createdAt DateTime @default(now())
+}
+
+model EscalationRule {
+  id           String               @id @default(uuid()) @db.Uuid
+  priority     Priority
+  /// Null = applies to every team.
+  teamId       String?              @db.Uuid
+  step         Int
+  targetType   EscalationTargetType
+  targetRole   Role?
+  targetUserId String?              @db.Uuid
+  /// Minutes after ticket creation (unacknowledged) before this step fires.
+  afterMins    Int
+  channels     EscalationChannel[]
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  team       Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  targetUser User? @relation(fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([priority, isActive])
+}
+
+model Macro {
+  id          String        @id @default(uuid()) @db.Uuid
+  key         String        @unique
+  /// Null = available to every team.
+  teamId      String?       @db.Uuid
+  titleEn     String
+  titleAr     String        @default("")
+  bodyEn      String
+  bodyAr      String        @default("")
+  /// Optional status applied when the macro is sent.
+  setStatus   TicketStatus?
+  sortOrder   Int           @default(0)
+  isActive    Boolean       @default(true)
+  createdById String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  team      Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([teamId, isActive, sortOrder])
+}
+
+/// Editable subject/body text with {{variables}}; the HTML layout stays in code.
+model EmailTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  subjectEn   String
+  bodyEn      String
+  subjectAr   String   @default("")
+  bodyAr      String   @default("")
+  /// Variables available to this template (documentation for the admin editor).
+  variables   String[] @default([])
+  isActive    Boolean  @default(true)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model HelpArticle {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  titleEn     String
+  titleAr     String   @default("")
+  bodyEn      String
+  bodyAr      String   @default("")
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, isPublished, sortOrder])
+}
+
+/// Key/value settings edited in the admin panel (e.g. business.timezone, tickets.autoCloseDays).
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ───────────────────────────── Activity ─────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  ticketId  String?          @db.Uuid
+  title     String
+  body      String?
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model AdminAuditLog {
+  id        String      @id @default(uuid()) @db.Uuid
+  actorId   String?     @db.Uuid
+  action    AuditAction
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  createdAt DateTime    @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}

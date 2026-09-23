@@ -1,0 +1,41 @@
+{
+  "appName": "Loons Help Desk",
+  "appDescription": "Support portal and agent console for Loons Group clients.",
+  "support": "Support",
+  "switchLanguage": "Switch language",
+  "languageLabel": "العربية",
+  "signOut": "Sign out",
+  "brand": "Loons Help Desk",
+  "skipToContent": "Skip to content",
+  "loading": "Loading…",
+  "close": "Close",
+  "comingSoon": "Soon",
+  "newTicket": "New ticket",
+  "newTicketSoon": "Creating tickets arrives in the next release.",
+  "accountMenu": "Account menu",
+  "status": {
+    "NEW": "New",
+    "OPEN": "Open",
+    "PENDING": "Pending",
+    "SOLVED": "Solved",
+    "CLOSED": "Closed"
+  },
+  "priority": {
+    "P1": "P1 Critical",
+    "P2": "P2 High",
+    "P3": "P3 Medium",
+    "P4": "P4 Low"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The page you’re looking for doesn’t exist or has moved.",
+    "home": "Go to home"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "description": "An unexpected error occurred. Try again, or come back in a moment.",
+    "retry": "Try again",
+    "home": "Go to home",
+    "reference": "Reference: {digest}"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // @loons/emails ships React Email templates as .tsx source; tsx and tsc compile them
+    // with this project's options.
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

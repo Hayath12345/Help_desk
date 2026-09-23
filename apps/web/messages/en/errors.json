@@ -1,0 +1,21 @@
+{
+  "BAD_REQUEST": "We couldn't process that request. Check the details and try again.",
+  "VALIDATION_FAILED": "Some fields need attention.",
+  "UNAUTHENTICATED": "Your session has ended. Sign in again.",
+  "FORBIDDEN": "You don't have access to this. Contact your administrator if you think this is a mistake.",
+  "NOT_FOUND": "We couldn't find what you were looking for.",
+  "CONFLICT": "Someone else changed this in the meantime. Refresh and try again.",
+  "RATE_LIMITED": "Too many attempts. Wait a few minutes and try again.",
+  "INTERNAL": "Something went wrong on our side. Try again in a moment.",
+  "SERVICE_UNAVAILABLE": "This is temporarily unavailable. Try again in a few minutes.",
+  "INVALID_CREDENTIALS": "Incorrect email or password.",
+  "ACCOUNT_DISABLED": "This account has been disabled. Contact your Loons account manager.",
+  "EMAIL_TAKEN": "An account with this email already exists.",
+  "STAFF_MUST_USE_SSO": "Loons staff sign in with Microsoft from the Support login page.",
+  "STAFF_DOMAIN_REQUIRED": "Support login requires a @loonsgroup.com staff email.",
+  "CLIENT_PORTAL_ONLY": "Client accounts sign in from the client portal.",
+  "EMAIL_NOT_VERIFIED": "Verify your Google email address, then try again.",
+  "RESET_TOKEN_INVALID": "This reset link is invalid or has expired. Request a new one.",
+  "SIGNIN_FAILED": "We couldn't sign you in. Try again.",
+  "CONFIGURATION": "Sign-in is temporarily unavailable. Try again later."
+}

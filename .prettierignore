@@ -1,0 +1,4 @@
+design/
+pnpm-lock.yaml
+**/generated/**
+**/migrations/**

@@ -1,0 +1,31 @@
+{
+  "nav": {
+    "label": "Client portal",
+    "tickets": "My tickets",
+    "help": "Help center"
+  },
+  "tickets": {
+    "title": "My tickets",
+    "greeting": "Hi {name} — track and reply to your support requests.",
+    "tabsLabel": "Filter tickets",
+    "tabs": {
+      "all": "All",
+      "active": "Active",
+      "solved": "Solved"
+    },
+    "emptyTitle": "No tickets here",
+    "emptyDescription": "Need help with something? We usually reply within an hour.",
+    "loading": "Loading your tickets…"
+  },
+  "help": {
+    "title": "Help center",
+    "searchLabel": "Search help articles",
+    "searchPlaceholder": "Search articles…",
+    "articlesLabel": "Help articles",
+    "noMatch": "No articles match “{query}”.",
+    "emptyTitle": "No articles yet",
+    "emptyDescription": "We’re preparing answers to common questions. In the meantime, open a ticket and our team will help you directly.",
+    "stillNeedTitle": "Still need help?",
+    "stillNeedDescription": "Open a ticket and our team will pick it up."
+  }
+}

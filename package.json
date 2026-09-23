@@ -1,0 +1,30 @@
+{
+  "name": "loons-helpdesk",
+  "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "turbo run dev dev:worker",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "pnpm --filter @loons/web test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @loons/db db:generate",
+    "db:migrate": "pnpm --filter @loons/db db:migrate",
+    "db:deploy": "pnpm --filter @loons/db db:deploy",
+    "db:seed": "pnpm --filter @loons/db db:seed",
+    "db:reset": "pnpm --filter @loons/db db:reset",
+    "db:studio": "pnpm --filter @loons/db db:studio"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "prettier": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
+  }
+}

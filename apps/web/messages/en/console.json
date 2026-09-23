@@ -1,0 +1,97 @@
+{
+  "nav": {
+    "label": "Console",
+    "inbox": "Inbox",
+    "queue": "Team queue",
+    "customers": "Customers",
+    "reports": "Reports",
+    "admin": "Admin",
+    "menu": "Open navigation"
+  },
+  "search": {
+    "label": "Search tickets",
+    "placeholder": "Search tickets…",
+    "clear": "Clear search"
+  },
+  "presence": {
+    "online": "Online",
+    "away": "Away",
+    "nowOnline": "You’re online",
+    "nowAway": "Status set to Away"
+  },
+  "inbox": {
+    "title": "Inbox",
+    "views": "Views",
+    "teams": "Teams",
+    "view": {
+      "mine": "My queue",
+      "unassigned": "Unassigned",
+      "risk": "SLA at risk",
+      "urgent": "P1 critical",
+      "open": "All open",
+      "solved": "Solved"
+    },
+    "chooseView": "Choose a view",
+    "sort": {
+      "label": "Change sort order",
+      "sla": "Sorted by SLA",
+      "recent": "Sorted by recent"
+    },
+    "listLabel": "Tickets in this view",
+    "loadingTickets": "Loading tickets…",
+    "loadingTeams": "Loading teams…",
+    "nothingHere": "Nothing here",
+    "noMatchView": "No tickets match this view.",
+    "selectTicket": "Select a ticket to view the conversation."
+  },
+  "queue": {
+    "title": "Team queue",
+    "allTeams": "All teams",
+    "unassigned": "unassigned",
+    "agentsLabel": "Agent workload",
+    "tabsLabel": "Queue filters",
+    "tabs": {
+      "open": "All open",
+      "unassigned": "Unassigned",
+      "breaching": "Breaching soon",
+      "solved": "Solved"
+    },
+    "filters": {
+      "priority": "Priority: any",
+      "category": "Category: any",
+      "assignee": "Assignee: anyone"
+    },
+    "columns": {
+      "priority": "Priority",
+      "ticket": "Ticket",
+      "requester": "Requester",
+      "firstReplySla": "First reply SLA",
+      "assignee": "Assignee",
+      "status": "Status"
+    },
+    "loading": "Loading the team queue…"
+  },
+  "customers": {
+    "title": "Customers",
+    "columns": {
+      "requester": "Requester",
+      "client": "Client",
+      "contract": "Contract",
+      "open": "Open",
+      "total": "Total"
+    },
+    "loading": "Loading customers…"
+  },
+  "reports": {
+    "title": "Reports",
+    "tiles": {
+      "open": "Open tickets",
+      "p1Open": "P1 open",
+      "breached": "SLA breached",
+      "unassigned": "Unassigned",
+      "solved": "Solved"
+    },
+    "byCategory": "Open tickets by category",
+    "loading": "Loading reports…"
+  }
+}

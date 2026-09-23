@@ -1,0 +1,12 @@
+{
+  "email": "Enter a valid email address.",
+  "required": "This field is required.",
+  "passwordMin": "Use at least {min} characters.",
+  "passwordMax": "Use at most {max} characters.",
+  "passwordComplexity": "Include at least one letter and one number.",
+  "passwordMismatch": "Passwords don't match.",
+  "nameMin": "Enter your name.",
+  "companyRequired": "Enter your organisation.",
+  "tooLong": "This is too long.",
+  "invalid": "Check this value."
+}

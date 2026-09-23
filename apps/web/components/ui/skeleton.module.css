@@ -1,0 +1,37 @@
+/* Subtle shimmer for skeleton loaders (spec §1: skeletons instead of spinners).
+   A lighter band sweeps across the track colour in the reading direction.
+   Kept in the `components` layer so Tailwind utilities passed via className still win. */
+@layer components {
+  .shimmer {
+    background-color: var(--color-track);
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklab, var(--color-surface) 55%, transparent) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  :global([dir='rtl']) .shimmer {
+    animation-direction: reverse;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer {
+      animation: none;
+      background-image: none;
+    }
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}

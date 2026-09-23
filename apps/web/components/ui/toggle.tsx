@@ -1,0 +1,46 @@
+"use client"
+
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { cn } from "cn"
+import { Toggle as TogglePrimitive } from "radix-ui"
+
+const toggleVariants = cva(
+  "group/toggle inline-flex cursor-pointer items-center justify-center gap-1 rounded-md text-sm font-medium whitespace-nowrap text-ink-secondary transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-danger-strong aria-pressed:bg-surface-sunken aria-pressed:text-ink data-[state=on]:bg-surface-sunken data-[state=on]:text-ink [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-transparent",
+        outline: "border border-line-input bg-surface hover:bg-surface-sunken",
+      },
+      size: {
+        default:
+          "h-9 min-w-9 px-3 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+        sm: "h-8 min-w-8 px-2.5 text-[13px] has-data-[icon=inline-end]:pe-1.5 has-data-[icon=inline-start]:ps-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-10 min-w-10 px-3.5 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Toggle({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: React.ComponentProps<typeof TogglePrimitive.Root> &
+  VariantProps<typeof toggleVariants>) {
+  return (
+    <TogglePrimitive.Root
+      data-slot="toggle"
+      className={cn(toggleVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Toggle, toggleVariants }

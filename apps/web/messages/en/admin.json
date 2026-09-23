@@ -1,0 +1,57 @@
+{
+  "title": "Admin",
+  "subtitle": "Configure how Loons Help Desk routes, prioritises and answers tickets.",
+  "teamLeadSubtitle": "Manage your team’s members and macros.",
+  "navLabel": "Admin sections",
+  "sectionsKicker": "Settings",
+  "overview": "Overview",
+  "backToConsole": "Back to console",
+  "placeholderTitle": "Coming soon",
+  "placeholder": "Configuration for this section arrives in Phase 4.",
+  "sections": {
+    "categories": {
+      "title": "Categories & sub-types",
+      "description": "Ticket categories, sub-types, default priorities and routing."
+    },
+    "custom-fields": {
+      "title": "Custom fields",
+      "description": "Extra fields collected on the New ticket form."
+    },
+    "teams": {
+      "title": "Teams & members",
+      "description": "Teams, members, email lists and Microsoft Teams webhooks."
+    },
+    "sla": {
+      "title": "SLA policies",
+      "description": "First-reply and resolution targets for each priority."
+    },
+    "business-hours": {
+      "title": "Business hours & holidays",
+      "description": "Working week, opening hours and public holidays."
+    },
+    "escalation": {
+      "title": "Escalation rules",
+      "description": "P1 escalation chain, on-call contacts, delays and channels."
+    },
+    "clients": {
+      "title": "Clients & sites",
+      "description": "Client organisations, contracts, AMC expiry and sites."
+    },
+    "macros": {
+      "title": "Macros",
+      "description": "Canned replies agents can insert into conversations."
+    },
+    "email-templates": {
+      "title": "Email templates",
+      "description": "Subject and body text of notification emails."
+    },
+    "help-center": {
+      "title": "Help center",
+      "description": "FAQ articles shown to clients in English and Arabic."
+    },
+    "audit-log": {
+      "title": "Audit log",
+      "description": "Read-only history of every configuration change."
+    }
+  }
+}
