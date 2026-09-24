@@ -15,13 +15,20 @@ type SubmitButtonProps = Omit<React.ComponentProps<typeof Button>, 'variant' | '
   icon?: React.ReactNode;
 };
 
-/** Submit button that disables itself and shows a spinner while its form is submitting. */
+/**
+ * Submit button that shows a spinner while its form is submitting.
+ *
+ * While pending it is `aria-disabled` + `aria-busy`, not `disabled`: disabling the focused button
+ * would drop keyboard focus to <body> (UI-RR-1). A second submit is blocked in the click handler
+ * instead — the click is what submits the form, whether from a pointer, Enter/Space on the button
+ * or Enter in a field (implicit submission clicks the default button).
+ */
 export function SubmitButton({
   pending: pendingProp = false,
   appearance = 'primary',
   icon,
   className,
-  disabled,
+  onClick,
   children,
   ...props
 }: SubmitButtonProps) {
@@ -33,10 +40,22 @@ export function SubmitButton({
     <Button
       type="submit"
       variant={appearance === 'primary' ? 'default' : 'outline'}
-      disabled={disabled || pending}
-      aria-busy={pending || undefined}
-      className={cn(appearance === 'primary' ? primaryButtonClass : outlineButtonClass, className)}
       {...props}
+      aria-disabled={pending || props['aria-disabled'] || undefined}
+      aria-busy={pending || undefined}
+      onClick={(event) => {
+        if (pending) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.(event);
+      }}
+      className={cn(
+        appearance === 'primary' ? primaryButtonClass : outlineButtonClass,
+        // Pending, not unavailable: a progress cursor instead of the kit's not-allowed one.
+        pending && 'aria-disabled:cursor-progress',
+        className,
+      )}
     >
       {pending ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : icon}
       <span>{children}</span>
