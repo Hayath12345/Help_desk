@@ -9,10 +9,12 @@ export function AuthCardHeader({
   title,
   subtitle,
   titleId,
+  subtitleId,
 }: {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   titleId?: string;
+  subtitleId?: string;
 }) {
   return (
     <header className="flex flex-col gap-1">
@@ -20,7 +22,11 @@ export function AuthCardHeader({
       <h1 id={titleId} className="text-[22px] font-semibold text-ink">
         {title}
       </h1>
-      {subtitle ? <p className="leading-normal text-ink-muted">{subtitle}</p> : null}
+      {subtitle ? (
+        <p id={subtitleId} className="leading-normal text-ink-muted">
+          {subtitle}
+        </p>
+      ) : null}
     </header>
   );
 }

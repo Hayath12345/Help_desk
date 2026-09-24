@@ -54,6 +54,8 @@ export function SubmitButton({
         appearance === 'primary' ? primaryButtonClass : outlineButtonClass,
         // Pending, not unavailable: a progress cursor instead of the kit's not-allowed one.
         pending && 'aria-disabled:cursor-progress',
+        // …and no hover change (the kit's pointer-events-none only applies to `disabled`).
+        pending && (appearance === 'primary' ? 'hover:bg-brand' : 'hover:bg-surface'),
         className,
       )}
     >

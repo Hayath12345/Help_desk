@@ -19,6 +19,7 @@ import { primaryButtonClass } from './styles';
 import { SubmitButton } from './submit-button';
 
 const TITLE_ID = 'confirm-email-title';
+const INVALID_BODY_ID = 'confirm-email-invalid-body';
 
 /** A link that looks like the primary button. */
 const primaryLinkClass = cn(
@@ -59,8 +60,19 @@ export function InvalidEmailLinkCard({
 
   return (
     <AuthCard aria-labelledby={TITLE_ID}>
-      <AuthCardHeader titleId={TITLE_ID} title={t('invalidTitle')} subtitle={t('invalidBody')} />
-      <Link ref={linkRef} href={requestNewHref} className={primaryLinkClass}>
+      <AuthCardHeader
+        titleId={TITLE_ID}
+        title={t('invalidTitle')}
+        subtitleId={INVALID_BODY_ID}
+        subtitle={t('invalidBody')}
+      />
+      {/* Described by the title and body, so moving focus here also announces why. */}
+      <Link
+        ref={linkRef}
+        href={requestNewHref}
+        aria-describedby={`${TITLE_ID} ${INVALID_BODY_ID}`}
+        className={primaryLinkClass}
+      >
         {t('requestNew')}
       </Link>
       {signedIn ? null : (
