@@ -13,6 +13,11 @@ Phase 1 (Foundation) is built, reviewed by four independent reviewers, verified 
 
 A final security and UI re-review then found **5 more issues (below, section "Open items")**. Those, plus some clean-up, are what's left before the Phase 1 report.
 
+> **Update (2026-09-24): open items 1–7 are done** (commits `bcc7b81`..`HEAD` on `phase-1-foundation`), followed by a
+> second security + UX review whose findings are fixed too. Final run: typecheck, lint and `format:check` clean;
+> tests shared 31, db 70, emails 29, api 184, web 285; `pnpm build` passes; Playwright 22/22 (with the new
+> E2E-account teardown). Phase 1 is waiting for the owner's approval; the Phase 2 carry-overs below still apply.
+
 ### Decisions the owner already approved (don't re-ask)
 
 - Staff sign in with Microsoft Entra ID only. There's a single "Sign in with Microsoft" button in the design's card layout, and the issuer must be tenant-specific. A **development-only** password form appears when `AUTH_DEV_STAFF_LOGIN=true` and `NODE_ENV` is not production. Entra and Google credentials don't exist yet.
