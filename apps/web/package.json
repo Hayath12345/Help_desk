@@ -8,7 +8,7 @@
     "build": "dotenv -e ../../.env -- next build",
     "start": "next start --port 3000",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "dotenv -e ../../.env -- next typegen && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "dotenv -e ../../.env -- playwright test"
   },
