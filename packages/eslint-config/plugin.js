@@ -78,7 +78,11 @@ const noPhysicalDirectionClasses = {
         if (reported.has(node)) continue;
         reported.add(node);
         if (PHYSICAL_CLASS.test(value)) {
-          context.report({ node, messageId: 'physical', data: { value: value.trim().slice(0, 60) } });
+          context.report({
+            node,
+            messageId: 'physical',
+            data: { value: value.trim().slice(0, 60) },
+          });
         }
       }
     };

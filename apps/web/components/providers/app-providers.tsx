@@ -8,13 +8,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { transitions } from '@/lib/motion';
 
-export function AppProviders({
-  dir,
-  children,
-}: {
-  dir: 'ltr' | 'rtl';
-  children: React.ReactNode;
-}) {
+export function AppProviders({ dir, children }: { dir: 'ltr' | 'rtl'; children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({

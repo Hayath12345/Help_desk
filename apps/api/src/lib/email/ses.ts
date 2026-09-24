@@ -13,7 +13,10 @@ export function createSesEmailProvider(config: Pick<AppConfig, 'email'>): EmailP
   return {
     name: 'ses',
     async send(message) {
-      const headers = Object.entries(message.headers ?? {}).map(([Name, Value]) => ({ Name, Value }));
+      const headers = Object.entries(message.headers ?? {}).map(([Name, Value]) => ({
+        Name,
+        Value,
+      }));
       const result = await client.send(
         new SendEmailCommand({
           FromEmailAddress: from,

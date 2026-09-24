@@ -153,10 +153,7 @@ export function canAccessAdminSection(actor: Actor, section: AdminSection): bool
 // ───────────── Realtime rooms ─────────────
 
 export type RoomName =
-  | `ticket:${string}`
-  | `ticket:${string}:staff`
-  | `team:${string}`
-  | `user:${string}`;
+  `ticket:${string}` | `ticket:${string}:staff` | `team:${string}` | `user:${string}`;
 
 export const rooms = {
   ticket: (ticketId: string) => `ticket:${ticketId}` as const,

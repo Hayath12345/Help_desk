@@ -63,7 +63,9 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...dev, AUTH_DEV_STAFF_LOGIN: 'true' }).devStaffLogin).toBe(true);
     expect(loadConfig({ ...dev, AUTH_DEV_STAFF_LOGIN: 'false' }).devStaffLogin).toBe(false);
     expect(loadConfig({ ...dev }).devStaffLogin).toBe(false);
-    expect(loadConfig({ ...base, AUTH_DEV_STAFF_LOGIN: 'true', NODE_ENV: 'production' }).devStaffLogin).toBe(false);
+    expect(
+      loadConfig({ ...base, AUTH_DEV_STAFF_LOGIN: 'true', NODE_ENV: 'production' }).devStaffLogin,
+    ).toBe(false);
   });
 
   it('AUTH_DEV_STAFF_LOGIN is read like the web app reads it (same parser)', () => {
@@ -77,10 +79,12 @@ describe('loadConfig', () => {
 
   it('STAFF_EMAIL_DOMAIN: blank means the default (like the web app and the seed)', () => {
     expect(loadConfig({ ...base, STAFF_EMAIL_DOMAIN: '' }).staffEmailDomain).toBe('loonsgroup.com');
-    expect(loadConfig({ ...base, STAFF_EMAIL_DOMAIN: '   ' }).staffEmailDomain).toBe('loonsgroup.com');
-    expect(loadConfig({ ...base, STAFF_EMAIL_DOMAIN: ' Staff.Example.COM ' }).staffEmailDomain).toBe(
-      'staff.example.com',
+    expect(loadConfig({ ...base, STAFF_EMAIL_DOMAIN: '   ' }).staffEmailDomain).toBe(
+      'loonsgroup.com',
     );
+    expect(
+      loadConfig({ ...base, STAFF_EMAIL_DOMAIN: ' Staff.Example.COM ' }).staffEmailDomain,
+    ).toBe('staff.example.com');
     expect(problemsOf({ ...base, STAFF_EMAIL_DOMAIN: 'not a domain' })).toEqual([
       'STAFF_EMAIL_DOMAIN must be a domain like example.com',
     ]);
@@ -106,24 +110,36 @@ describe('loadConfig', () => {
     it('a positive integer is a hop count (1 = one load balancer), not "trust everything"', () => {
       expect(loadConfig({ ...base, TRUST_PROXY: '1' }).trustProxy).toBe(1);
       expect(loadConfig({ ...base, TRUST_PROXY: ' 2 ' }).trustProxy).toBe(2);
-      expect(problemsOf({ ...base, TRUST_PROXY: '11' })).toEqual(['TRUST_PROXY hop count must be between 1 and 10']);
+      expect(problemsOf({ ...base, TRUST_PROXY: '11' })).toEqual([
+        'TRUST_PROXY hop count must be between 1 and 10',
+      ]);
     });
 
     it('true is refused: it would let clients choose their own IP', () => {
       for (const value of ['true', 'TRUE', 'yes']) {
         const problems = problemsOf({ ...base, TRUST_PROXY: value });
         expect(problems).toHaveLength(1);
-        expect(problems[0]).toMatch(/^TRUST_PROXY must not be true: that trusts any X-Forwarded-For/);
+        expect(problems[0]).toMatch(
+          /^TRUST_PROXY must not be true: that trusts any X-Forwarded-For/,
+        );
       }
     });
 
     it('accepts IP / CIDR lists and rejects impossible ones as a ConfigError', () => {
-      expect(loadConfig({ ...base, TRUST_PROXY: '10.0.0.0/8, 127.0.0.1' }).trustProxy).toEqual(['10.0.0.0/8', '127.0.0.1']);
-      expect(loadConfig({ ...base, TRUST_PROXY: 'fd00::/8,loopback' }).trustProxy).toEqual(['fd00::/8', 'loopback']);
+      expect(loadConfig({ ...base, TRUST_PROXY: '10.0.0.0/8, 127.0.0.1' }).trustProxy).toEqual([
+        '10.0.0.0/8',
+        '127.0.0.1',
+      ]);
+      expect(loadConfig({ ...base, TRUST_PROXY: 'fd00::/8,loopback' }).trustProxy).toEqual([
+        'fd00::/8',
+        'loopback',
+      ]);
       expect(problemsOf({ ...base, TRUST_PROXY: '10.0.0.0/99' })).toEqual([
         'TRUST_PROXY entry 1 is not a valid IP address or CIDR range (use false, a hop count or a list of IPs / CIDRs)',
       ]);
-      expect(problemsOf({ ...base, TRUST_PROXY: '127.0.0.1, 10.0.0.0/33' })[0]).toMatch(/^TRUST_PROXY entry 2 /);
+      expect(problemsOf({ ...base, TRUST_PROXY: '127.0.0.1, 10.0.0.0/33' })[0]).toMatch(
+        /^TRUST_PROXY entry 2 /,
+      );
       expect(problemsOf({ ...base, TRUST_PROXY: '::1/200' })).toHaveLength(1);
       expect(problemsOf({ ...base, TRUST_PROXY: 'proxy.internal' })).toHaveLength(1);
     });
@@ -154,22 +170,30 @@ describe('loadConfig', () => {
   it('refuses placeholder secrets in every environment except test, and identical secrets anywhere', () => {
     const placeholder = 'replace-me-with-32+-random-bytes';
     for (const NODE_ENV of [undefined, 'development', 'production']) {
-      expect(problemsOf({ ...base, NODE_ENV, API_JWT_SECRET: placeholder }), String(NODE_ENV)).toEqual([
-        'API_JWT_SECRET still has the placeholder value',
-      ]);
-      expect(problemsOf({ ...base, NODE_ENV, INTERNAL_API_KEY: `${placeholder}-x` }), String(NODE_ENV)).toEqual([
-        'INTERNAL_API_KEY still has the placeholder value',
-      ]);
+      expect(
+        problemsOf({ ...base, NODE_ENV, API_JWT_SECRET: placeholder }),
+        String(NODE_ENV),
+      ).toEqual(['API_JWT_SECRET still has the placeholder value']);
+      expect(
+        problemsOf({ ...base, NODE_ENV, INTERNAL_API_KEY: `${placeholder}-x` }),
+        String(NODE_ENV),
+      ).toEqual(['INTERNAL_API_KEY still has the placeholder value']);
     }
-    expect(loadConfig({ ...base, NODE_ENV: 'test', API_JWT_SECRET: placeholder }).jwt.secret).toBe(placeholder);
+    expect(loadConfig({ ...base, NODE_ENV: 'test', API_JWT_SECRET: placeholder }).jwt.secret).toBe(
+      placeholder,
+    );
     expect(problemsOf({ ...base, INTERNAL_API_KEY: base.API_JWT_SECRET })).toEqual([
       'API_JWT_SECRET and INTERNAL_API_KEY must be different secrets',
     ]);
   });
 
   it('requires provider regions for AWS transports and paired S3 keys', () => {
-    expect(problemsOf({ ...base, EMAIL_PROVIDER: 'ses' })).toEqual(['SES_REGION is required when EMAIL_PROVIDER=ses']);
-    expect(problemsOf({ ...base, SMS_PROVIDER: 'sns' })).toEqual(['SNS_REGION is required when SMS_PROVIDER=sns']);
+    expect(problemsOf({ ...base, EMAIL_PROVIDER: 'ses' })).toEqual([
+      'SES_REGION is required when EMAIL_PROVIDER=ses',
+    ]);
+    expect(problemsOf({ ...base, SMS_PROVIDER: 'sns' })).toEqual([
+      'SNS_REGION is required when SMS_PROVIDER=sns',
+    ]);
     expect(problemsOf({ ...base, S3_ACCESS_KEY_ID: 'only-one' })).toHaveLength(1);
   });
 });

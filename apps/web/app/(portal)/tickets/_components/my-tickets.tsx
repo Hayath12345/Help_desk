@@ -38,10 +38,9 @@ export function MyTickets({ firstName, initialTab, tickets, isLoading = false }:
 
   const counts = useMemo(
     () =>
-      Object.fromEntries(TICKET_TABS.map((key) => [key, tickets.filter((tk) => matchesTab(tk, key)).length])) as Record<
-        TicketTab,
-        number
-      >,
+      Object.fromEntries(
+        TICKET_TABS.map((key) => [key, tickets.filter((tk) => matchesTab(tk, key)).length]),
+      ) as Record<TicketTab, number>,
     [tickets],
   );
   const visible = useMemo(() => tickets.filter((tk) => matchesTab(tk, tab)), [tickets, tab]);

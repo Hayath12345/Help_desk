@@ -1,6 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashToken } from '../src/lib/tokens.ts';
-import { TEST_PASSWORD, createTestContext, mintToken, rand, testDomain, testEmail, type TestContext } from './helpers.ts';
+import {
+  TEST_PASSWORD,
+  createTestContext,
+  mintToken,
+  rand,
+  testDomain,
+  testEmail,
+  type TestContext,
+} from './helpers.ts';
 
 describe('POST /internal/auth/oauth', () => {
   let ctx: TestContext;
@@ -12,11 +20,30 @@ describe('POST /internal/auth/oauth', () => {
   });
 
   const resolve = (payload: Record<string, unknown>) =>
-    ctx.app.inject({ method: 'POST', url: '/internal/auth/oauth', headers: ctx.internalHeaders(), payload });
+    ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/oauth',
+      headers: ctx.internalHeaders(),
+      payload,
+    });
   const google = (email: string, extra: Record<string, unknown> = {}) =>
-    resolve({ provider: 'GOOGLE', providerAccountId: `g-${rand()}`, email, emailVerified: true, name: 'Google User', ...extra });
+    resolve({
+      provider: 'GOOGLE',
+      providerAccountId: `g-${rand()}`,
+      email,
+      emailVerified: true,
+      name: 'Google User',
+      ...extra,
+    });
   const entra = (email: string, extra: Record<string, unknown> = {}) =>
-    resolve({ provider: 'MICROSOFT_ENTRA_ID', providerAccountId: `e-${rand()}`, email, emailVerified: true, name: 'Staff', ...extra });
+    resolve({
+      provider: 'MICROSOFT_ENTRA_ID',
+      providerAccountId: `e-${rand()}`,
+      email,
+      emailVerified: true,
+      name: 'Staff',
+      ...extra,
+    });
   const passwordLogin = (email: string) =>
     ctx.app.inject({
       method: 'POST',
@@ -28,7 +55,9 @@ describe('POST /internal/auth/oauth', () => {
     ctx.app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${token}` } });
   /** The "Google sign-in was added" email queued for the user's (only) Google link, if any. */
   async function googleLinkedEmail(userId: string) {
-    const account = await ctx.prisma.authAccount.findFirst({ where: { userId, provider: 'GOOGLE' } });
+    const account = await ctx.prisma.authAccount.findFirst({
+      where: { userId, provider: 'GOOGLE' },
+    });
     if (!account) return undefined;
     return ctx.queues.email.getJob(`google-linked-${account.id}`);
   }
@@ -41,7 +70,13 @@ describe('POST /internal/auth/oauth', () => {
     const res = await google(email, { providerAccountId, locale: 'ar' });
     expect(res.statusCode).toBe(200);
     const user = res.json().user;
-    expect(user).toMatchObject({ email, role: 'CLIENT', status: 'ACTIVE', orgId: org.id, locale: 'ar' });
+    expect(user).toMatchObject({
+      email,
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      orgId: org.id,
+      locale: 'ar',
+    });
 
     const account = await ctx.prisma.authAccount.findUniqueOrThrow({
       where: { provider_providerAccountId: { provider: 'GOOGLE', providerAccountId } },
@@ -72,7 +107,9 @@ describe('POST /internal/auth/oauth', () => {
     const res = await google(user.email.toUpperCase(), { providerAccountId });
     expect(res.statusCode).toBe(200);
     expect(res.json().user).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 1 });
-    expect(await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })).toBe(1);
+    expect(
+      await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } }),
+    ).toBe(1);
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(row.passwordHash).toBeNull();
     expect(row.sessionVersion).toBe(1);
@@ -105,10 +142,15 @@ describe('POST /internal/auth/oauth', () => {
     });
     expect(reg.statusCode).toBe(201);
     const registrant = reg.json().user;
-    const registrantToken = await mintToken(ctx.config, { sub: registrant.id, sv: registrant.sessionVersion });
+    const registrantToken = await mintToken(ctx.config, {
+      sub: registrant.id,
+      sv: registrant.sessionVersion,
+    });
 
     // …and the address gets confirmed with the emailed link (in the registrant's session).
-    const link = await ctx.prisma.emailVerificationToken.findFirstOrThrow({ where: { userId: registrant.id } });
+    const link = await ctx.prisma.emailVerificationToken.findFirstOrThrow({
+      where: { userId: registrant.id },
+    });
     const job = await ctx.queues.email.getJob(`email-verification-${link.id}`);
     const token = decodeURIComponent(/confirm\?token=([A-Za-z0-9_-]+)/.exec(job!.data.text)![1]!);
     expect(link.tokenHash).toBe(hashToken(token));
@@ -126,16 +168,24 @@ describe('POST /internal/auth/oauth', () => {
     const res = await google(email);
     expect(res.statusCode).toBe(200);
     const owner = res.json().user;
-    expect(owner).toMatchObject({ id: registrant.id, emailVerified: true, sessionVersion: registrant.sessionVersion + 1 });
+    expect(owner).toMatchObject({
+      id: registrant.id,
+      emailVerified: true,
+      sessionVersion: registrant.sessionVersion + 1,
+    });
 
     // The registrant's password and existing tokens stop working at once…
     const login = await passwordLogin(email);
     expect(login.statusCode).toBe(401);
     expect(login.json().error.code).toBe('INVALID_CREDENTIALS');
     expect((await getMe(registrantToken)).statusCode).toBe(401);
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: registrant.id } })).passwordHash).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: registrant.id } })).passwordHash,
+    ).toBeNull();
     // …the owner's new session works, and the owner is told what happened.
-    const ownerMe = await getMe(await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }));
+    const ownerMe = await getMe(
+      await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }),
+    );
     expect(ownerMe.statusCode).toBe(200);
     expect((await googleLinkedEmail(registrant.id))?.data.to).toBe(email);
   });
@@ -151,13 +201,22 @@ describe('POST /internal/auth/oauth', () => {
   it('a second Google identity on an account that already has Google is not a first link', async () => {
     const { user } = await ctx.fixtures.client();
     await ctx.prisma.authAccount.create({
-      data: { userId: user.id, provider: 'GOOGLE', providerAccountId: `g-${rand()}`, email: user.email },
+      data: {
+        userId: user.id,
+        provider: 'GOOGLE',
+        providerAccountId: `g-${rand()}`,
+        email: user.email,
+      },
     });
     const res = await google(user.email);
     expect(res.statusCode).toBe(200);
     expect(res.json().user.sessionVersion).toBe(0);
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash).not.toBeNull();
-    expect(await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })).toBe(2);
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash,
+    ).not.toBeNull();
+    expect(
+      await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } }),
+    ).toBe(2);
   });
 
   it('a queueing failure does not fail the Google sign-in (the revocation stands)', async () => {
@@ -173,7 +232,9 @@ describe('POST /internal/auth/oauth', () => {
     } finally {
       ctx.queues.enqueueEmail = original;
     }
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash,
+    ).toBeNull();
   });
 
   it('Google on an address nobody verified: the pre-registered password and sessions are revoked (SEC-2)', async () => {
@@ -189,19 +250,28 @@ describe('POST /internal/auth/oauth', () => {
     });
     expect(reg.statusCode).toBe(201);
     const squatter = reg.json().user;
-    const squatterToken = await mintToken(ctx.config, { sub: squatter.id, sv: squatter.sessionVersion });
+    const squatterToken = await mintToken(ctx.config, {
+      sub: squatter.id,
+      sv: squatter.sessionVersion,
+    });
     expect((await getMe(squatterToken)).statusCode).toBe(200); // warms the principal cache
 
     // The owner of the mailbox later signs in with Google.
     const res = await google(email);
     expect(res.statusCode).toBe(200);
     const owner = res.json().user;
-    expect(owner).toMatchObject({ id: squatter.id, emailVerified: true, sessionVersion: squatter.sessionVersion + 1 });
+    expect(owner).toMatchObject({
+      id: squatter.id,
+      emailVerified: true,
+      sessionVersion: squatter.sessionVersion + 1,
+    });
 
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: squatter.id } });
     expect(row.passwordHash).toBeNull();
     expect(row.emailVerifiedAt).not.toBeNull();
-    expect(await ctx.prisma.emailVerificationToken.count({ where: { userId: squatter.id } })).toBe(0);
+    expect(await ctx.prisma.emailVerificationToken.count({ where: { userId: squatter.id } })).toBe(
+      0,
+    );
 
     // The squatter's password and existing sessions / API tokens stop working at once…
     const login = await passwordLogin(email);
@@ -209,7 +279,9 @@ describe('POST /internal/auth/oauth', () => {
     expect(login.json().error.code).toBe('INVALID_CREDENTIALS');
     expect((await getMe(squatterToken)).statusCode).toBe(401);
     // …while the owner's new session (issued with the returned version) works.
-    const ownerMe = await getMe(await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }));
+    const ownerMe = await getMe(
+      await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }),
+    );
     expect(ownerMe.statusCode).toBe(200);
     expect(ownerMe.json().user.emailVerified).toBe(true);
 
@@ -252,7 +324,11 @@ describe('POST /internal/auth/oauth', () => {
   });
 
   it('Entra: existing active staff → 200 and the account is linked', async () => {
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, role: 'TEAM_LEAD', password: null });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      role: 'TEAM_LEAD',
+      password: null,
+    });
     const providerAccountId = `e-${rand()}`;
     const res = await entra(staff.email, { providerAccountId });
     expect(res.statusCode).toBe(200);
@@ -264,7 +340,10 @@ describe('POST /internal/auth/oauth', () => {
   });
 
   it('Entra: a successful staff sign-in marks the address verified (and revokes nothing)', async () => {
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, emailVerified: false });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      emailVerified: false,
+    });
     const res = await entra(staff.email);
     expect(res.statusCode).toBe(200);
     expect(res.json().user).toMatchObject({ id: staff.id, emailVerified: true, sessionVersion: 0 });
@@ -274,7 +353,10 @@ describe('POST /internal/auth/oauth', () => {
   });
 
   it('Entra: disabled staff → 403 ACCOUNT_DISABLED', async () => {
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, status: 'DISABLED' });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      status: 'DISABLED',
+    });
     const res = await entra(staff.email);
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('ACCOUNT_DISABLED');

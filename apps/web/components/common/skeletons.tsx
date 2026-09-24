@@ -52,7 +52,10 @@ export function SkeletonRows({
       {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
-          className={cn('flex items-center gap-3 border-b border-divider px-5 py-4 last:border-b-0', rowClassName)}
+          className={cn(
+            'flex items-center gap-3 border-b border-divider px-5 py-4 last:border-b-0',
+            rowClassName,
+          )}
         >
           <SkeletonText className={cn('h-3.5', lineWidth(i))} />
         </div>
@@ -65,7 +68,13 @@ export function SkeletonRows({
  * Console inbox row (design 747–761): priority dot, requester · company, SLA timer;
  * subject; ticket id, status pill, assignee avatar.
  */
-export function TicketListRowSkeleton({ index = 0, className }: { index?: number; className?: string }) {
+export function TicketListRowSkeleton({
+  index = 0,
+  className,
+}: {
+  index?: number;
+  className?: string;
+}) {
   return (
     <div
       className={cn(
@@ -91,9 +100,20 @@ export function TicketListRowSkeleton({ index = 0, className }: { index?: number
 }
 
 /** Client portal "My tickets" row (design 588–596): subject + id/category/preview, status, updated. */
-export function PortalTicketRowSkeleton({ index = 0, className }: { index?: number; className?: string }) {
+export function PortalTicketRowSkeleton({
+  index = 0,
+  className,
+}: {
+  index?: number;
+  className?: string;
+}) {
   return (
-    <div className={cn('flex items-center gap-4 border-b border-divider px-5 py-4 last:border-b-0', className)}>
+    <div
+      className={cn(
+        'flex items-center gap-4 border-b border-divider px-5 py-4 last:border-b-0',
+        className,
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <SkeletonText className={cn('h-4', lineWidth(index))} />
         <div className="flex items-center gap-2">

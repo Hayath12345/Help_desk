@@ -9,7 +9,9 @@ describe('redactPii', () => {
   });
 
   it('leaves ordinary text alone', () => {
-    expect(redactPii('Connection timeout after 10000 ms (LG-4817)')).toBe('Connection timeout after 10000 ms (LG-4817)');
+    expect(redactPii('Connection timeout after 10000 ms (LG-4817)')).toBe(
+      'Connection timeout after 10000 ms (LG-4817)',
+    );
   });
 });
 

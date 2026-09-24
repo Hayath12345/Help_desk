@@ -5,7 +5,14 @@ import { initialsOf, requireUser } from '@/lib/session';
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser(['CLIENT']);
   return (
-    <PortalShell user={{ name: user.name, email: user.email, initials: initialsOf(user.name), role: user.role }}>
+    <PortalShell
+      user={{
+        name: user.name,
+        email: user.email,
+        initials: initialsOf(user.name),
+        role: user.role,
+      }}
+    >
       {children}
     </PortalShell>
   );

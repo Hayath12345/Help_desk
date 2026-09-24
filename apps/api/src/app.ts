@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import Fastify, { LogController, type FastifyRequest } from 'fastify';
-import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
+import {
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod';
 import type { Redis } from 'ioredis';
 import { getDummyPasswordHash, type PrismaClient } from '@loons/db';
 import { fastifyTrustProxy, type AppConfig } from './config.ts';
@@ -37,7 +41,8 @@ class ApiLogController extends LogController {
     super({
       requestIdLogLabel: 'requestId',
       // Probes would drown the logs.
-      disableRequestLogging: (req: FastifyRequest) => req.url === '/health' || req.url === '/health/live',
+      disableRequestLogging: (req: FastifyRequest) =>
+        req.url === '/health' || req.url === '/health/live',
     });
   }
 }
@@ -74,7 +79,12 @@ export async function buildApp(deps: AppDeps) {
   const background = new BackgroundTasks(app.log);
   const principals =
     deps.principals ??
-    createPrincipalStore({ prisma: deps.prisma, redis: deps.redis, prefix: config.redisPrefix, logger: app.log });
+    createPrincipalStore({
+      prisma: deps.prisma,
+      redis: deps.redis,
+      prefix: config.redisPrefix,
+      logger: app.log,
+    });
 
   app.decorate('config', config);
   app.decorate('prisma', deps.prisma);
@@ -104,7 +114,9 @@ export async function buildApp(deps: AppDeps) {
     reply.header('x-request-id', req.id);
   });
 
-  await registerSecurity(app, { rateLimitNamespace: deps.rateLimitNamespace ?? `${config.redisPrefix}rl:` });
+  await registerSecurity(app, {
+    rateLimitNamespace: deps.rateLimitNamespace ?? `${config.redisPrefix}rl:`,
+  });
   registerErrorHandling(app);
   await registerDocs(app);
 

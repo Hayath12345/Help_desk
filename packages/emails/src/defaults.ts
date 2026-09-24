@@ -6,7 +6,11 @@ import type { Locale } from '@loons/shared';
 // CTA labels are part of the layout and stay in code. Variable names match the seeded rows
 // (packages/db/prisma/seed-data/email-templates.ts).
 
-export const EMAIL_TEMPLATE_KEYS = ['PASSWORD_RESET', 'EMAIL_VERIFICATION', 'GOOGLE_LINKED'] as const;
+export const EMAIL_TEMPLATE_KEYS = [
+  'PASSWORD_RESET',
+  'EMAIL_VERIFICATION',
+  'GOOGLE_LINKED',
+] as const;
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 
 export interface EmailTemplateText {
@@ -93,7 +97,10 @@ export interface LocalizedTemplateText {
 }
 
 /** Picks the subject/body for `locale`, falling back to English when the Arabic text is empty. */
-export function pickTemplateText(template: EmailTemplateText, locale: Locale): LocalizedTemplateText {
+export function pickTemplateText(
+  template: EmailTemplateText,
+  locale: Locale,
+): LocalizedTemplateText {
   if (locale === 'ar' && template.subjectAr.trim() !== '' && template.bodyAr.trim() !== '') {
     return { locale: 'ar', subject: template.subjectAr, body: template.bodyAr };
   }

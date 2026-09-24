@@ -16,7 +16,10 @@ export interface AuthenticatedToken {
  * `sv` differs from the user's current sessionVersion) → 401 UNAUTHENTICATED; disabled user →
  * 401 ACCOUNT_DISABLED.
  */
-export async function authenticateToken(app: FastifyInstance, token: string | null): Promise<AuthenticatedToken> {
+export async function authenticateToken(
+  app: FastifyInstance,
+  token: string | null,
+): Promise<AuthenticatedToken> {
   if (!token) throw errors.unauthenticated('Missing bearer token');
   let claims: Awaited<ReturnType<FastifyInstance['tokens']['verify']>>;
   try {
@@ -58,8 +61,14 @@ export interface RequireAuthOptions {
 
 /** preHandler for Bearer-authenticated routes; sets `request.actor`. */
 export function requireAuth(options: RequireAuthOptions = {}) {
-  return async function requireAuthHandler(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
-    const { principal } = await authenticateToken(req.server, bearerToken(req.headers.authorization));
+  return async function requireAuthHandler(
+    req: FastifyRequest,
+    _reply: FastifyReply,
+  ): Promise<void> {
+    const { principal } = await authenticateToken(
+      req.server,
+      bearerToken(req.headers.authorization),
+    );
     const actor = toActor(principal);
     const restriction = options.allowRestricted ? null : accessRestriction(actor);
     if (restriction) throw restriction;

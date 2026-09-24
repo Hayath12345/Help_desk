@@ -15,7 +15,11 @@ describe('/me', () => {
   });
 
   const getMe = (token?: string) =>
-    ctx.app.inject({ method: 'GET', url: '/me', headers: token ? { authorization: `Bearer ${token}` } : {} });
+    ctx.app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
 
   it('valid token → user, organisation and teams', async () => {
     const { user, org } = await ctx.fixtures.client();
@@ -40,7 +44,10 @@ describe('/me', () => {
   });
 
   it('staff member → teams with membership role', async () => {
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, role: 'TEAM_LEAD' });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      role: 'TEAM_LEAD',
+    });
     const team = await ctx.fixtures.team();
     await ctx.fixtures.member(team.id, staff.id, 'LEAD');
     const res = await getMe(await mintToken(ctx.config, { sub: staff.id, role: 'TEAM_LEAD' }));
@@ -58,7 +65,11 @@ describe('/me', () => {
   });
 
   it('malformed Authorization header → 401', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/me', headers: { authorization: 'Basic abc' } });
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: { authorization: 'Basic abc' },
+    });
     expect(res.statusCode).toBe(401);
   });
 
@@ -74,31 +85,45 @@ describe('/me', () => {
 
   it('token signed with another secret → 401', async () => {
     const { user } = await ctx.fixtures.client();
-    const res = await getMe(await mintToken(ctx.config, { sub: user.id }, { secret: 'x'.repeat(48) }));
+    const res = await getMe(
+      await mintToken(ctx.config, { sub: user.id }, { secret: 'x'.repeat(48) }),
+    );
     expect(res.statusCode).toBe(401);
   });
 
   it('expired token → 401', async () => {
     const { user } = await ctx.fixtures.client();
-    const res = await getMe(await mintToken(ctx.config, { sub: user.id }, { issuedAt: -1000, expiresIn: 900 }));
+    const res = await getMe(
+      await mintToken(ctx.config, { sub: user.id }, { issuedAt: -1000, expiresIn: 900 }),
+    );
     expect(res.statusCode).toBe(401);
   });
 
   it('token older than the TTL (even with a far exp) → 401', async () => {
     const { user } = await ctx.fixtures.client();
-    const res = await getMe(await mintToken(ctx.config, { sub: user.id }, { issuedAt: -7200, expiresIn: 86_400 }));
+    const res = await getMe(
+      await mintToken(ctx.config, { sub: user.id }, { issuedAt: -7200, expiresIn: 86_400 }),
+    );
     expect(res.statusCode).toBe(401);
   });
 
   it('wrong audience or issuer → 401', async () => {
     const { user } = await ctx.fixtures.client();
-    expect((await getMe(await mintToken(ctx.config, { sub: user.id }, { audience: 'someone-else' }))).statusCode).toBe(401);
-    expect((await getMe(await mintToken(ctx.config, { sub: user.id }, { issuer: 'someone-else' }))).statusCode).toBe(401);
+    expect(
+      (await getMe(await mintToken(ctx.config, { sub: user.id }, { audience: 'someone-else' })))
+        .statusCode,
+    ).toBe(401);
+    expect(
+      (await getMe(await mintToken(ctx.config, { sub: user.id }, { issuer: 'someone-else' })))
+        .statusCode,
+    ).toBe(401);
   });
 
   it('other algorithm (HS512) → 401', async () => {
     const { user } = await ctx.fixtures.client();
-    expect((await getMe(await mintToken(ctx.config, { sub: user.id }, { alg: 'HS512' }))).statusCode).toBe(401);
+    expect(
+      (await getMe(await mintToken(ctx.config, { sub: user.id }, { alg: 'HS512' }))).statusCode,
+    ).toBe(401);
   });
 
   it('unknown user → 401', async () => {
@@ -159,7 +184,9 @@ describe('/me', () => {
       expect((await getMe(oldToken)).statusCode).toBe(200); // warms the principal cache
 
       await expect(ctx.app.services.sessions.revokeUserSessions(user.id)).resolves.toBe(1);
-      expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion).toBe(1);
+      expect(
+        (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion,
+      ).toBe(1);
       expect(await ctx.redis.get(principalKey(user.id))).toBeNull();
 
       const stale = await getMe(oldToken);
@@ -170,7 +197,9 @@ describe('/me', () => {
       expect(fresh.json().user.sessionVersion).toBe(1);
 
       await expect(ctx.app.services.sessions.revokeUserSessions(user.id)).resolves.toBe(2);
-      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(401);
+      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(
+        401,
+      );
     });
 
     it('revokeUserSessions for an unknown user → NOT_FOUND', async () => {
@@ -186,10 +215,14 @@ describe('/me', () => {
       await ctx.prisma.user.update({ where: { id: user.id }, data: { sessionVersion: 1 } });
       expect(JSON.parse((await ctx.redis.get(principalKey(user.id)))!).sessionVersion).toBe(0);
 
-      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(200);
+      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(
+        200,
+      );
       // The newer token forced a database read, which refreshed the cache.
       expect(JSON.parse((await ctx.redis.get(principalKey(user.id)))!).sessionVersion).toBe(1);
-      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 0 }))).statusCode).toBe(401);
+      expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 0 }))).statusCode).toBe(
+        401,
+      );
     });
 
     it('a load that read the database before an invalidation does not re-cache the old principal', async () => {

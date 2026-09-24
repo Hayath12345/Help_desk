@@ -2,7 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiErrorSchema } from '@loons/shared';
 import { HOUR, MINUTE } from '../src/lib/rate-limit.ts';
 import { GLOBAL_AUTH_LIMITS } from '../src/routes/internal/auth.ts';
-import { TEST_PASSWORD, createTestContext, mintToken, randomIp, testEmail, type TestContext } from './helpers.ts';
+import {
+  TEST_PASSWORD,
+  createTestContext,
+  mintToken,
+  randomIp,
+  testEmail,
+  type TestContext,
+} from './helpers.ts';
 
 describe('rate limits', () => {
   let ctx: TestContext;
@@ -52,7 +59,8 @@ describe('rate limits', () => {
     const email = testEmail();
     const statuses: number[] = [];
     // Addresses no other test here uses (their per-IP limits must not interfere).
-    for (let i = 0; i < 31; i++) statuses.push((await login(email, `100.64.0.${i + 1}`)).statusCode);
+    for (let i = 0; i < 31; i++)
+      statuses.push((await login(email, `100.64.0.${i + 1}`)).statusCode);
     expect(statuses.slice(0, 30).every((s) => s === 401)).toBe(true);
     expect(statuses[30]).toBe(429);
     // Other accounts are unaffected.
@@ -109,7 +117,12 @@ describe('rate limits', () => {
   it('global limit: the web server’s Bearer calls count per end user (x-client-ip + internal key)', async () => {
     const webServer = '192.0.2.200';
     const remaining = async (headers: Record<string, string>) => {
-      const res = await ctx.app.inject({ method: 'GET', url: '/me', remoteAddress: webServer, headers });
+      const res = await ctx.app.inject({
+        method: 'GET',
+        url: '/me',
+        remoteAddress: webServer,
+        headers,
+      });
       return Number(res.headers['x-ratelimit-remaining']);
     };
     const key = { 'x-internal-api-key': ctx.config.internalApiKey };
@@ -118,7 +131,9 @@ describe('rate limits', () => {
     expect(await remaining({ ...key, 'x-client-ip': '192.0.2.12' })).toBe(299);
     // Without the key (browsers) or with a wrong one, x-client-ip is ignored: the connection counts.
     expect(await remaining({ 'x-client-ip': '192.0.2.13' })).toBe(299);
-    expect(await remaining({ 'x-internal-api-key': 'wrong', 'x-client-ip': '192.0.2.14' })).toBe(298);
+    expect(await remaining({ 'x-internal-api-key': 'wrong', 'x-client-ip': '192.0.2.14' })).toBe(
+      298,
+    );
     // The key without a usable x-client-ip also falls back to the connection address.
     expect(await remaining(key)).toBe(297);
     expect(await remaining({ ...key, 'x-client-ip': 'not-an-ip' })).toBe(296);
@@ -218,7 +233,9 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
     // 60 wrong passwords over many emails: a shared login:ip bucket (50) would have tripped.
     const statuses: number[] = [];
     for (let i = 0; i < 60; i++) {
-      statuses.push((await post('/login', { email: testEmail(), password: 'Wrong-password-1' })).statusCode);
+      statuses.push(
+        (await post('/login', { email: testEmail(), password: 'Wrong-password-1' })).statusCode,
+      );
     }
     expect(new Set(statuses)).toEqual(new Set([401]));
     expect(await limitKeys('login:ip')).toEqual([]);
@@ -226,7 +243,8 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
     // One email: login:ip-email (10) is skipped too, but login:email (30 per hour) holds.
     const email = testEmail();
     const same: number[] = [];
-    for (let i = 0; i < 31; i++) same.push((await post('/login', { email, password: 'Wrong-password-1' })).statusCode);
+    for (let i = 0; i < 31; i++)
+      same.push((await post('/login', { email, password: 'Wrong-password-1' })).statusCode);
     expect(same.slice(0, 30).every((s) => s === 401)).toBe(true);
     expect(same[30]).toBe(429);
   });
@@ -234,7 +252,8 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
   it('forgot password: the per-email limit still holds', async () => {
     const email = testEmail();
     const statuses: number[] = [];
-    for (let i = 0; i < 6; i++) statuses.push((await post('/password/forgot', { email })).statusCode);
+    for (let i = 0; i < 6; i++)
+      statuses.push((await post('/password/forgot', { email })).statusCode);
     await ctx.app.background.drain();
     expect(statuses).toEqual([202, 202, 202, 202, 202, 429]);
     expect((await post('/password/forgot', { email: testEmail() })).statusCode).toBe(202);
@@ -245,12 +264,21 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
     const registered: number[] = [];
     for (let i = 0; i < 6; i++) {
       const email = ctx.fixtures.trackEmail(testEmail());
-      registered.push((await post('/register', { name: 'No Ip', email, password: TEST_PASSWORD })).statusCode);
+      registered.push(
+        (await post('/register', { name: 'No Ip', email, password: TEST_PASSWORD })).statusCode,
+      );
     }
     expect(registered).toEqual([201, 201, 201, 201, 201, 201]); // register:ip is 5 per hour
     const verified: number[] = [];
     for (let i = 0; i < 11; i++) {
-      verified.push((await post('/email/verify', { token: `guess-${i}`.padEnd(43, 'g'), userId: crypto.randomUUID() })).statusCode);
+      verified.push(
+        (
+          await post('/email/verify', {
+            token: `guess-${i}`.padEnd(43, 'g'),
+            userId: crypto.randomUUID(),
+          })
+        ).statusCode,
+      );
     }
     expect(new Set(verified)).toEqual(new Set([400])); // verify:ip is 10 per 15 min
     expect((await post('/email/link', { token: 'peek'.padEnd(43, 'p') })).statusCode).toBe(400);

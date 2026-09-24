@@ -19,7 +19,9 @@ describe('email verification', () => {
     ctx = await createTestContext({
       beforeReady: (app) => {
         // Stands in for every data route of later phases (tickets…): plain requireAuth().
-        app.get('/__test/protected', { preHandler: requireAuth() }, async (req) => ({ id: req.actor?.id }));
+        app.get('/__test/protected', { preHandler: requireAuth() }, async (req) => ({
+          id: req.actor?.id,
+        }));
       },
     });
   });
@@ -28,18 +30,36 @@ describe('email verification', () => {
   });
 
   const post = (url: string, payload: Record<string, unknown>, clientIp?: string) =>
-    ctx.app.inject({ method: 'POST', url: `/internal/auth${url}`, headers: ctx.internalHeaders(clientIp), payload });
+    ctx.app.inject({
+      method: 'POST',
+      url: `/internal/auth${url}`,
+      headers: ctx.internalHeaders(clientIp),
+      payload,
+    });
   const register = (email: string, extra: Record<string, unknown> = {}) =>
-    post('/register', { name: 'Nadia Test', company: 'Acme', email, password: TEST_PASSWORD, ...extra });
+    post('/register', {
+      name: 'Nadia Test',
+      company: 'Acme',
+      email,
+      password: TEST_PASSWORD,
+      ...extra,
+    });
   /** Confirms `token` from the signed-in session of `userId` (the web server sends the session user). */
-  const verify = (token: string, userId: string, clientIp?: string) => post('/email/verify', { token, userId }, clientIp);
-  const describeLink = (token: string, clientIp?: string) => post('/email/link', { token }, clientIp);
+  const verify = (token: string, userId: string, clientIp?: string) =>
+    post('/email/verify', { token, userId }, clientIp);
+  const describeLink = (token: string, clientIp?: string) =>
+    post('/email/link', { token }, clientIp);
   const resend = async (payload: Record<string, unknown>, clientIp?: string) => {
     const res = await post('/email/resend', payload, clientIp);
     await ctx.app.background.drain(); // the email is prepared after the 202
     return res;
   };
-  const bearer = async (method: 'GET' | 'PATCH', url: string, userId: string, payload?: Record<string, unknown>) =>
+  const bearer = async (
+    method: 'GET' | 'PATCH',
+    url: string,
+    userId: string,
+    payload?: Record<string, unknown>,
+  ) =>
     ctx.app.inject({
       method,
       url,
@@ -48,7 +68,10 @@ describe('email verification', () => {
     });
 
   const tokensOf = (userId: string) =>
-    ctx.prisma.emailVerificationToken.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } });
+    ctx.prisma.emailVerificationToken.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
   async function latestLink(userId: string) {
     const unused = (await tokensOf(userId)).filter((t) => t.usedAt === null);
     expect(unused).toHaveLength(1);
@@ -76,7 +99,9 @@ describe('email verification', () => {
   it('sign-up on an organisation domain → unverified member, and a 24 h verification link is emailed', async () => {
     const { user, org, email } = await registeredClient();
     expect(user).toMatchObject({ email, status: 'ACTIVE', orgId: org.id, emailVerified: false });
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt,
+    ).toBeNull();
 
     const { record, job, token } = await latestLink(user.id);
     expect(record.tokenHash).toBe(hashToken(token)); // only the hash is stored
@@ -141,7 +166,10 @@ describe('email verification', () => {
   });
 
   it('unverified comes before pending approval; verified pending users keep the pending answer', async () => {
-    const unverifiedPending = await ctx.fixtures.user({ status: 'PENDING_APPROVAL', emailVerified: false });
+    const unverifiedPending = await ctx.fixtures.user({
+      status: 'PENDING_APPROVAL',
+      emailVerified: false,
+    });
     const res = await bearer('GET', '/__test/protected', unverifiedPending.id);
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('EMAIL_NOT_VERIFIED');
@@ -152,7 +180,10 @@ describe('email verification', () => {
     expect(pendingRes.json().error.code).toBe('FORBIDDEN');
 
     // Staff are gated by SSO, not by email verification.
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, emailVerified: false });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      emailVerified: false,
+    });
     expect((await bearer('GET', '/__test/protected', staff.id)).statusCode).toBe(200);
   });
 
@@ -164,12 +195,19 @@ describe('email verification', () => {
 
     const res = await verify(token, user.id);
     expect(res.statusCode).toBe(200);
-    expect(authUserSchema.parse(res.json().user)).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 0 });
+    expect(authUserSchema.parse(res.json().user)).toMatchObject({
+      id: user.id,
+      emailVerified: true,
+      sessionVersion: 0,
+    });
 
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(row.emailVerifiedAt).not.toBeNull();
     expect(row.sessionVersion).toBe(0); // verifying doesn't sign anyone out
-    expect((await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } })).usedAt).not.toBeNull();
+    expect(
+      (await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } }))
+        .usedAt,
+    ).not.toBeNull();
 
     const allowed = await bearer('GET', '/__test/protected', user.id);
     expect(allowed.statusCode).toBe(200);
@@ -187,7 +225,11 @@ describe('email verification', () => {
     const { token } = await latestLink(user.id);
     const other = 'other-link-'.padEnd(43, 'y');
     await ctx.prisma.emailVerificationToken.create({
-      data: { userId: user.id, tokenHash: hashToken(other), expiresAt: new Date(Date.now() + 3_600_000) },
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(other),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
     });
     expect((await verify(token, user.id)).statusCode).toBe(200);
     expect(await tokensOf(user.id)).toHaveLength(1); // only the used one is kept
@@ -198,12 +240,18 @@ describe('email verification', () => {
     const user = await ctx.fixtures.user({ emailVerified: false });
     const expired = 'expired-link-'.padEnd(43, 'x');
     await ctx.prisma.emailVerificationToken.create({
-      data: { userId: user.id, tokenHash: hashToken(expired), expiresAt: new Date(Date.now() - 1000) },
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(expired),
+        expiresAt: new Date(Date.now() - 1000),
+      },
     });
     const expiredRes = await verify(expired, user.id);
     expect(expiredRes.statusCode).toBe(400);
     expect(expiredRes.json().error.code).toBe('VERIFY_TOKEN_INVALID');
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt,
+    ).toBeNull();
 
     const unknown = await verify('u'.repeat(43), user.id);
     expect(unknown.statusCode).toBe(400);
@@ -212,9 +260,15 @@ describe('email verification', () => {
     const disabled = await ctx.fixtures.user({ status: 'DISABLED', emailVerified: false });
     const disabledToken = 'disabled-link-'.padEnd(43, 'z');
     await ctx.prisma.emailVerificationToken.create({
-      data: { userId: disabled.id, tokenHash: hashToken(disabledToken), expiresAt: new Date(Date.now() + 3_600_000) },
+      data: {
+        userId: disabled.id,
+        tokenHash: hashToken(disabledToken),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
     });
-    expect((await verify(disabledToken, disabled.id)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    expect((await verify(disabledToken, disabled.id)).json().error.code).toBe(
+      'VERIFY_TOKEN_INVALID',
+    );
     for (const dead of [expired, 'u'.repeat(43), disabledToken]) {
       expect((await describeLink(dead)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
     }
@@ -225,7 +279,11 @@ describe('email verification', () => {
     // The signed-in user is required.
     const valid = 'no-session-link-'.padEnd(43, 'n');
     await ctx.prisma.emailVerificationToken.create({
-      data: { userId: user.id, tokenHash: hashToken(valid), expiresAt: new Date(Date.now() + 3_600_000) },
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(valid),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
     });
     const noUser = await post('/email/verify', { token: valid });
     expect(noUser.statusCode).toBe(400);
@@ -241,8 +299,13 @@ describe('email verification', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ userId: user.id, email });
     }
-    expect((await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } })).usedAt).toBeNull();
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
+    expect(
+      (await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } }))
+        .usedAt,
+    ).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt,
+    ).toBeNull();
   });
 
   it('a link only confirms inside its own account’s session: signed out / another user → 403, link kept (RR-SEC-1)', async () => {
@@ -256,9 +319,16 @@ describe('email verification', () => {
       expect(res.json().error.code).toBe('VERIFY_WRONG_ACCOUNT');
     }
     // Nothing changed: the address is unverified and the link still works for its owner.
-    expect((await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } })).usedAt).toBeNull();
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: other.id } })).sessionVersion).toBe(0);
+    expect(
+      (await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } }))
+        .usedAt,
+    ).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt,
+    ).toBeNull();
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: other.id } })).sessionVersion,
+    ).toBe(0);
     expect((await verify(token, user.id)).statusCode).toBe(200);
   });
 
@@ -280,7 +350,10 @@ describe('email verification', () => {
   it('resend sends nothing for verified, staff, disabled or unknown users (still 202)', async () => {
     const before = await ctx.queues.email.getJobCounts();
     const verified = await ctx.fixtures.user();
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, emailVerified: false });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      emailVerified: false,
+    });
     const disabled = await ctx.fixtures.user({ status: 'DISABLED', emailVerified: false });
     for (const userId of [verified.id, staff.id, disabled.id, crypto.randomUUID()]) {
       expect((await resend({ userId })).statusCode).toBe(202);
@@ -293,7 +366,8 @@ describe('email verification', () => {
   it('resend: 3 per user per 15 min, whatever the client IP', async () => {
     const user = await ctx.fixtures.user({ emailVerified: false });
     const statuses: number[] = [];
-    for (let i = 0; i < 4; i++) statuses.push((await resend({ userId: user.id }, `100.64.2.${i + 1}`)).statusCode);
+    for (let i = 0; i < 4; i++)
+      statuses.push((await resend({ userId: user.id }, `100.64.2.${i + 1}`)).statusCode);
     expect(statuses).toEqual([202, 202, 202, 429]);
   });
 
@@ -301,7 +375,8 @@ describe('email verification', () => {
     const ip = '100.64.3.1';
     const statuses: number[] = [];
     const userId = crypto.randomUUID();
-    for (let i = 0; i < 11; i++) statuses.push((await verify(`guess-${i}`.padEnd(43, 'g'), userId, ip)).statusCode);
+    for (let i = 0; i < 11; i++)
+      statuses.push((await verify(`guess-${i}`.padEnd(43, 'g'), userId, ip)).statusCode);
     expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
     expect(statuses[10]).toBe(429);
     expect((await verify('another'.padEnd(43, 'g'), userId, '100.64.3.2')).statusCode).toBe(400);
@@ -310,7 +385,8 @@ describe('email verification', () => {
   it('link lookup: 30 per client IP per 15 min', async () => {
     const ip = '100.64.4.1';
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await describeLink(`peek-${i}`.padEnd(43, 'p'), ip)).statusCode);
+    for (let i = 0; i < 31; i++)
+      statuses.push((await describeLink(`peek-${i}`.padEnd(43, 'p'), ip)).statusCode);
     expect(statuses.slice(0, 30).every((s) => s === 400)).toBe(true);
     expect(statuses[30]).toBe(429);
     expect((await describeLink('another'.padEnd(43, 'p'), '100.64.4.2')).statusCode).toBe(400);

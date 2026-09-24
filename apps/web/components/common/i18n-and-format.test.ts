@@ -26,7 +26,9 @@ function leafKeys(tree: Tree, prefix = ''): string[] {
 }
 
 function leafValues(tree: Tree): string[] {
-  return Object.values(tree).flatMap((value) => (typeof value === 'string' ? [value] : leafValues(value)));
+  return Object.values(tree).flatMap((value) =>
+    typeof value === 'string' ? [value] : leafValues(value),
+  );
 }
 
 const namespaces = {
@@ -99,7 +101,9 @@ describe('lib/format', () => {
     expect(formatRelativeTime(now - 20_000, 'en', now)).toBe('now');
     expect(formatRelativeTime(now - 5 * 60_000, 'en', now)).toBe('5m ago');
     expect(formatRelativeTime(now - 3 * 3_600_000, 'en', now)).toBe('3h ago');
-    expect(formatRelativeTime(new Date(now - 2 * 86_400_000).toISOString(), 'en', now)).toBe('2d ago');
+    expect(formatRelativeTime(new Date(now - 2 * 86_400_000).toISOString(), 'en', now)).toBe(
+      '2d ago',
+    );
     expect(formatRelativeTime(now - 5 * 60_000, 'ar', now)).toContain('5');
   });
 

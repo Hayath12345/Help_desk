@@ -28,4 +28,6 @@ const plexArabic = IBM_Plex_Sans_Arabic({
   display: 'swap',
 });
 
-export const fontVariables = [geistSans.variable, geistMono.variable, plexArabic.variable].join(' ');
+export const fontVariables = [geistSans.variable, geistMono.variable, plexArabic.variable].join(
+  ' ',
+);

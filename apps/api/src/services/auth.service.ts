@@ -81,10 +81,16 @@ export function createAuthService(deps: {
     return toAuthUser(user);
   }
 
-  async function findOAuthUser(input: OAuthResolveInput, email: string): Promise<AuthUserRow | null> {
+  async function findOAuthUser(
+    input: OAuthResolveInput,
+    email: string,
+  ): Promise<AuthUserRow | null> {
     const linked = await prisma.authAccount.findUnique({
       where: {
-        provider_providerAccountId: { provider: input.provider, providerAccountId: input.providerAccountId },
+        provider_providerAccountId: {
+          provider: input.provider,
+          providerAccountId: input.providerAccountId,
+        },
       },
       select: { user: { select: authUserSelect } },
     });
@@ -106,7 +112,13 @@ export function createAuthService(deps: {
         ctaUrl: signInUrl,
       });
       const jobId = await queues.enqueueEmail(
-        { to: user.email, subject: message.subject, html: message.html, text: message.text, tag: 'google-linked' },
+        {
+          to: user.email,
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+          tag: 'google-linked',
+        },
         // One email per linked identity, however often this is retried.
         { jobId: `google-linked-${accountId}` },
       );
@@ -125,7 +137,11 @@ export function createAuthService(deps: {
    * socket is revoked, in the same transaction as the link, and the owner is emailed. An address
    * nobody verified yet is claimed the same way (and marked verified).
    */
-  async function linkAndTouch(user: AuthUserRow, input: OAuthResolveInput, email: string): Promise<AuthUserRow> {
+  async function linkAndTouch(
+    user: AuthUserRow,
+    input: OAuthResolveInput,
+    email: string,
+  ): Promise<AuthUserRow> {
     const now = new Date();
     let passwordRemoved = false;
     let becameVerified = false;
@@ -133,7 +149,10 @@ export function createAuthService(deps: {
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.authAccount.findUnique({
         where: {
-          provider_providerAccountId: { provider: input.provider, providerAccountId: input.providerAccountId },
+          provider_providerAccountId: {
+            provider: input.provider,
+            providerAccountId: input.providerAccountId,
+          },
         },
         select: { userId: true },
       });
@@ -142,7 +161,12 @@ export function createAuthService(deps: {
           input.provider === 'GOOGLE' &&
           (await tx.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })) === 0;
         const created = await tx.authAccount.create({
-          data: { userId: user.id, provider: input.provider, providerAccountId: input.providerAccountId, email },
+          data: {
+            userId: user.id,
+            provider: input.provider,
+            providerAccountId: input.providerAccountId,
+            email,
+          },
           select: { id: true },
         });
         if (firstGoogle) firstGoogleLinkId = created.id;
@@ -177,7 +201,11 @@ export function createAuthService(deps: {
         });
         becameVerified = verified.count === 1;
       }
-      return tx.user.update({ where: { id: user.id }, data: { lastLoginAt: now }, select: authUserSelect });
+      return tx.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: now },
+        select: authUserSelect,
+      });
     });
     if (passwordRemoved) {
       await sessions.sessionsRevoked(user.id);

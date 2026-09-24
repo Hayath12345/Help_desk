@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pickTemplateText, DEFAULT_EMAIL_TEMPLATES } from '@loons/emails';
 import { hashToken } from '../src/lib/tokens.ts';
-import { TEST_PASSWORD, createTestContext, mintToken, testEmail, type TestContext } from './helpers.ts';
+import {
+  TEST_PASSWORD,
+  createTestContext,
+  mintToken,
+  testEmail,
+  type TestContext,
+} from './helpers.ts';
 
 const NEW_PASSWORD = 'Brand-new-pass-77';
 
@@ -43,7 +49,8 @@ describe('password reset', () => {
   async function expectedLocale(userLocale: 'en' | 'ar') {
     const row = await ctx.prisma.emailTemplate.findUnique({ where: { key: 'PASSWORD_RESET' } });
     const usable = row && row.isActive && row.subjectEn.trim() && row.bodyEn.trim();
-    return pickTemplateText(usable ? row : DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET, userLocale).locale;
+    return pickTemplateText(usable ? row : DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET, userLocale)
+      .locale;
   }
 
   it('forgot → 202, hashed token stored, email job queued; reset → 204 and the new password works', async () => {
@@ -88,7 +95,9 @@ describe('password reset', () => {
     const revoked = await getMe(oldApiToken);
     expect(revoked.statusCode).toBe(401);
     expect(revoked.json().error.code).toBe('UNAUTHENTICATED');
-    expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(200);
+    expect((await getMe(await mintToken(ctx.config, { sub: user.id, sv: 1 }))).statusCode).toBe(
+      200,
+    );
 
     const login = await ctx.app.inject({
       method: 'POST',
@@ -111,7 +120,9 @@ describe('password reset', () => {
     expect(again.statusCode).toBe(400);
     expect(again.json().error.code).toBe('RESET_TOKEN_INVALID');
     // A rejected reset revokes nothing.
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion).toBe(1);
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion,
+    ).toBe(1);
   });
 
   it('Arabic-speaking users get the email in their language (when Arabic text exists)', async () => {
@@ -120,19 +131,27 @@ describe('password reset', () => {
     const [record] = await tokensOf(user.id);
     const job = await ctx.queues.email.getJob(`password-reset-${record!.id}`);
     const locale = await expectedLocale('ar');
-    expect(job!.data.html).toMatch(new RegExp(`<html[^>]*dir="${locale === 'ar' ? 'rtl' : 'ltr'}"`));
+    expect(job!.data.html).toMatch(
+      new RegExp(`<html[^>]*dir="${locale === 'ar' ? 'rtl' : 'ltr'}"`),
+    );
   });
 
   it('expired token → 400 RESET_TOKEN_INVALID', async () => {
     const { user } = await ctx.fixtures.client();
     const token = 'expired-token-'.padEnd(43, 'x');
     await ctx.prisma.passwordResetToken.create({
-      data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() - 1000) },
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() - 1000),
+      },
     });
     const res = await reset(token);
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('RESET_TOKEN_INVALID');
-    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion).toBe(0);
+    expect(
+      (await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).sessionVersion,
+    ).toBe(0);
   });
 
   it('unknown token → 400 RESET_TOKEN_INVALID', async () => {

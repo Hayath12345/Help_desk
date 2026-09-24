@@ -15,7 +15,12 @@ export interface ValidationIssue {
   code: string;
 }
 
-function body(code: ErrorCode, message: string, requestId: string, details?: unknown): ErrorResponse {
+function body(
+  code: ErrorCode,
+  message: string,
+  requestId: string,
+  details?: unknown,
+): ErrorResponse {
   return { error: { code, message, ...(details !== undefined ? { details } : {}) }, requestId };
 }
 
@@ -45,28 +50,37 @@ export function registerErrorHandling(app: FastifyInstance): void {
         message: v.message ?? 'Invalid value',
         code: v.keyword,
       }));
-      return reply.code(400).send(body('VALIDATION_FAILED', 'Request validation failed', req.id, issues));
+      return reply
+        .code(400)
+        .send(body('VALIDATION_FAILED', 'Request validation failed', req.id, issues));
     }
 
     if (err instanceof ResponseSerializationError) {
       req.log.error({ err, issues: err.cause.issues }, 'response did not match its schema');
-      return reply.code(500).send(body('INTERNAL', 'Something went wrong. Please try again.', req.id));
+      return reply
+        .code(500)
+        .send(body('INTERNAL', 'Something went wrong. Please try again.', req.id));
     }
 
     const fastifyErr = err as FastifyError;
     const status =
-      typeof fastifyErr.statusCode === 'number' && fastifyErr.statusCode >= 400 && fastifyErr.statusCode < 600
+      typeof fastifyErr.statusCode === 'number' &&
+      fastifyErr.statusCode >= 400 &&
+      fastifyErr.statusCode < 600
         ? fastifyErr.statusCode
         : 500;
 
     if (status >= 500) {
       req.log.error({ err }, 'unhandled error');
-      return reply.code(status === 503 ? 503 : 500).send(body('INTERNAL', 'Something went wrong. Please try again.', req.id));
+      return reply
+        .code(status === 503 ? 503 : 500)
+        .send(body('INTERNAL', 'Something went wrong. Please try again.', req.id));
     }
 
     // 4xx raised by Fastify or a plugin (malformed JSON, body too large, unsupported media
     // type, non-zod validation…). Their messages describe the request, not server internals.
-    const code: ErrorCode = fastifyErr.code === 'FST_ERR_VALIDATION' ? 'VALIDATION_FAILED' : codeForStatus(status);
+    const code: ErrorCode =
+      fastifyErr.code === 'FST_ERR_VALIDATION' ? 'VALIDATION_FAILED' : codeForStatus(status);
     req.log.info({ code: fastifyErr.code, status }, 'request rejected');
     return reply.code(status).send(body(code, fastifyErr.message || 'Bad request', req.id));
   });

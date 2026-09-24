@@ -32,8 +32,18 @@ export interface SocketData {
 /** setTimeout's upper bound (~24.8 days); token lifetimes are far shorter. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
-export type AppSocketServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
-export type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+export type AppSocketServer = Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
+export type AppSocket = Socket<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
 
 export interface Realtime {
   io: AppSocketServer;

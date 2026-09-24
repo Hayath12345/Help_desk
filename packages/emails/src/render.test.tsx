@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { palette } from '@loons/ui';
-import { DEFAULT_EMAIL_TEMPLATES, EMAIL_TEMPLATE_KEYS, defaultCtaLabel, pickTemplateText } from './defaults.ts';
+import {
+  DEFAULT_EMAIL_TEMPLATES,
+  EMAIL_TEMPLATE_KEYS,
+  defaultCtaLabel,
+  pickTemplateText,
+} from './defaults.ts';
 import { LINK_VARIABLES, renderTemplateEmail } from './render.tsx';
 
 const reset = DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET;
@@ -28,7 +33,9 @@ describe('renderTemplateEmail', () => {
     // Brand colours come from @loons/ui tokens.
     expect(out.html.toLowerCase()).toContain(palette.primary.toLowerCase());
     expect(out.text).toContain('Hi Ada,');
-    expect(out.text).toContain('Reset password: https://help.example.com/reset-password?token=abc123');
+    expect(out.text).toContain(
+      'Reset password: https://help.example.com/reset-password?token=abc123',
+    );
     expect(out.text).not.toContain('<');
   });
 
@@ -52,7 +59,10 @@ describe('renderTemplateEmail', () => {
   });
 
   it('falls back to English when the Arabic text is empty', () => {
-    const picked = pickTemplateText({ subjectEn: 'S', bodyEn: 'B', subjectAr: '  ', bodyAr: 'ب' }, 'ar');
+    const picked = pickTemplateText(
+      { subjectEn: 'S', bodyEn: 'B', subjectAr: '  ', bodyAr: 'ب' },
+      'ar',
+    );
     expect(picked).toEqual({ locale: 'en', subject: 'S', body: 'B' });
   });
 

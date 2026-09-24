@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TEST_PASSWORD, createTestContext, rand, testDomain, testEmail, type TestContext } from './helpers.ts';
+import {
+  TEST_PASSWORD,
+  createTestContext,
+  rand,
+  testDomain,
+  testEmail,
+  type TestContext,
+} from './helpers.ts';
 
 describe('POST /internal/auth/register', () => {
   let ctx: TestContext;
@@ -11,13 +18,24 @@ describe('POST /internal/auth/register', () => {
   });
 
   const register = (payload: Record<string, unknown>) =>
-    ctx.app.inject({ method: 'POST', url: '/internal/auth/register', headers: ctx.internalHeaders(), payload });
+    ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/register',
+      headers: ctx.internalHeaders(),
+      payload,
+    });
 
   it('email domain matching an organisation → ACTIVE member of that organisation, email not yet verified', async () => {
     const domain = testDomain();
     const org = await ctx.fixtures.org({ domains: [domain] });
     const email = ctx.fixtures.trackEmail(testEmail(domain));
-    const res = await register({ name: 'Nadia Test', company: 'Ignored', email: email.toUpperCase(), password: TEST_PASSWORD, locale: 'ar' });
+    const res = await register({
+      name: 'Nadia Test',
+      company: 'Ignored',
+      email: email.toUpperCase(),
+      password: TEST_PASSWORD,
+      locale: 'ar',
+    });
     expect(res.statusCode).toBe(201);
     expect(res.json().user).toMatchObject({
       email,
@@ -41,7 +59,12 @@ describe('POST /internal/auth/register', () => {
     const company = `Acme ${rand()}`;
     const res = await register({ name: 'Omar Test', company, email, password: TEST_PASSWORD });
     expect(res.statusCode).toBe(201);
-    expect(res.json().user).toMatchObject({ email, status: 'PENDING_APPROVAL', orgId: null, locale: 'en' });
+    expect(res.json().user).toMatchObject({
+      email,
+      status: 'PENDING_APPROVAL',
+      orgId: null,
+      locale: 'en',
+    });
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { email } });
     expect(row.signupCompany).toBe(company);
   });

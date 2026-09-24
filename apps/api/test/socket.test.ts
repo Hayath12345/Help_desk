@@ -47,9 +47,19 @@ describe('Socket.IO handshake', () => {
   });
 
   it('rejects a bad token', async () => {
-    expect(await outcome(open({ token: 'not.a.jwt' }))).toEqual({ ok: false, message: 'UNAUTHENTICATED' });
-    const forged = await mintToken(ctx.config, { sub: crypto.randomUUID() }, { secret: 'y'.repeat(40) });
-    expect(await outcome(open({ token: forged }))).toEqual({ ok: false, message: 'UNAUTHENTICATED' });
+    expect(await outcome(open({ token: 'not.a.jwt' }))).toEqual({
+      ok: false,
+      message: 'UNAUTHENTICATED',
+    });
+    const forged = await mintToken(
+      ctx.config,
+      { sub: crypto.randomUUID() },
+      { secret: 'y'.repeat(40) },
+    );
+    expect(await outcome(open({ token: forged }))).toEqual({
+      ok: false,
+      message: 'UNAUTHENTICATED',
+    });
   });
 
   it('rejects a disabled user', async () => {
@@ -67,9 +77,15 @@ describe('Socket.IO handshake', () => {
     first.disconnect();
 
     await ctx.app.services.sessions.revokeUserSessions(user.id);
-    expect(await outcome(open({ token: oldToken }, { origin }))).toEqual({ ok: false, message: 'UNAUTHENTICATED' });
+    expect(await outcome(open({ token: oldToken }, { origin }))).toEqual({
+      ok: false,
+      message: 'UNAUTHENTICATED',
+    });
     const noSv = await mintToken(ctx.config, { sub: user.id, sv: null });
-    expect(await outcome(open({ token: noSv }, { origin }))).toEqual({ ok: false, message: 'UNAUTHENTICATED' });
+    expect(await outcome(open({ token: noSv }, { origin }))).toEqual({
+      ok: false,
+      message: 'UNAUTHENTICATED',
+    });
 
     const newToken = await mintToken(ctx.config, { sub: user.id, sv: 1 });
     expect(await outcome(open({ token: newToken }, { origin }))).toEqual({ ok: true });
@@ -97,12 +113,17 @@ describe('Socket.IO handshake', () => {
   it('accepts a valid token, joins user:{id} and receives emits for that user', async () => {
     const { user } = await ctx.fixtures.client();
     const token = await mintToken(ctx.config, { sub: user.id });
-    const socket = open({ token }, { origin: ctx.config.corsOrigins[0] ?? 'http://localhost:3000' });
+    const socket = open(
+      { token },
+      { origin: ctx.config.corsOrigins[0] ?? 'http://localhost:3000' },
+    );
     expect(await outcome(socket)).toEqual({ ok: true });
 
     // Joined asynchronously right after the handshake.
     await expect
-      .poll(async () => (await ctx.app.realtime.io.in(rooms.user(user.id)).fetchSockets()).length, { timeout: 3000 })
+      .poll(async () => (await ctx.app.realtime.io.in(rooms.user(user.id)).fetchSockets()).length, {
+        timeout: 3000,
+      })
       .toBe(1);
 
     const received = new Promise<unknown>((resolve) => socket.once('test:ping', resolve));
@@ -120,7 +141,10 @@ describe('Socket.IO handshake', () => {
       const socket = open({ token }, { origin: origin() });
       expect(await outcome(socket)).toEqual({ ok: true });
       await expect
-        .poll(async () => (await ctx.app.realtime.io.in(rooms.user(user.id)).fetchSockets()).length, { timeout: 3000 })
+        .poll(
+          async () => (await ctx.app.realtime.io.in(rooms.user(user.id)).fetchSockets()).length,
+          { timeout: 3000 },
+        )
         .toBe(1);
       const received: unknown[] = [];
       socket.on('test:event', (payload: unknown) => received.push(payload));
@@ -142,7 +166,11 @@ describe('Socket.IO handshake', () => {
       const { user, disconnected } = await connected();
       const token = 'socket-reset-'.padEnd(43, 's');
       await ctx.prisma.passwordResetToken.create({
-        data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 600_000) },
+        data: {
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + 600_000),
+        },
       });
       const res = await ctx.app.inject({
         method: 'POST',

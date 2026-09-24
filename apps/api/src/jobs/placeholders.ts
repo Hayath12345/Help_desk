@@ -8,7 +8,10 @@ import type { AppLogger } from '../lib/logger.ts';
  */
 export function createPlaceholderProcessor(logger: AppLogger) {
   return async function processPlaceholder(job: Job): Promise<{ skipped: true }> {
-    logger.debug({ queue: job.queueName, jobId: job.id, name: job.name }, 'job received (no processor yet)');
+    logger.debug(
+      { queue: job.queueName, jobId: job.id, name: job.name },
+      'job received (no processor yet)',
+    );
     return { skipped: true };
   };
 }

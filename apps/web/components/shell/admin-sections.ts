@@ -43,7 +43,8 @@ export function isAdminSection(value: string): value is AdminSection {
  */
 export function allowedAdminSections(role: Role): readonly AdminSection[] {
   if (role === 'SUPER_ADMIN') return ADMIN_SECTIONS;
-  if (role === 'TEAM_LEAD') return ADMIN_SECTIONS.filter((s) => TEAM_LEAD_ADMIN_SECTIONS.includes(s));
+  if (role === 'TEAM_LEAD')
+    return ADMIN_SECTIONS.filter((s) => TEAM_LEAD_ADMIN_SECTIONS.includes(s));
   return [];
 }
 

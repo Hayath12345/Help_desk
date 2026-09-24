@@ -47,7 +47,15 @@ describe('sanitizeFileName', () => {
 
 describe('MIME allow-list', () => {
   it('accepts images, video, PDF, text/log and zip', () => {
-    for (const mime of ['image/png', 'image/jpeg', 'video/mp4', 'application/pdf', 'text/plain', 'text/x-log', 'application/zip']) {
+    for (const mime of [
+      'image/png',
+      'image/jpeg',
+      'video/mp4',
+      'application/pdf',
+      'text/plain',
+      'text/x-log',
+      'application/zip',
+    ]) {
       expect(isAllowedMimeType(mime)).toBe(true);
     }
   });
@@ -89,11 +97,17 @@ describe('storage presigning (no network)', () => {
   const storage = createStorage(s3);
 
   it('builds keys as <scope>/<uuid>/<sanitized name>', () => {
-    expect(buildObjectKey('tickets/abc', '../x y.PDF')).toMatch(/^tickets\/abc\/[0-9a-f-]{36}\/x y\.pdf$/);
+    expect(buildObjectKey('tickets/abc', '../x y.PDF')).toMatch(
+      /^tickets\/abc\/[0-9a-f-]{36}\/x y\.pdf$/,
+    );
   });
 
   it('creates a POST policy with a size range and exact content type', async () => {
-    const post = await storage.createUploadPost({ key: 'tickets/t1/u1/a.png', contentType: 'image/png', maxBytes: 1024 });
+    const post = await storage.createUploadPost({
+      key: 'tickets/t1/u1/a.png',
+      contentType: 'image/png',
+      maxBytes: 1024,
+    });
     expect(post.url).toBe('http://localhost:9000/test-bucket');
     expect(post.fields['Content-Type']).toBe('image/png');
     expect(post.fields.key).toBe('tickets/t1/u1/a.png');
@@ -111,21 +125,31 @@ describe('storage presigning (no network)', () => {
       storage.createUploadPost({ key: 'k', contentType: 'text/html', maxBytes: 10 }),
     ).rejects.toBeInstanceOf(StorageValidationError);
     await expect(
-      storage.createUploadPost({ key: 'k', contentType: 'image/png', maxBytes: s3.uploadMaxBytes + 1 }),
+      storage.createUploadPost({
+        key: 'k',
+        contentType: 'image/png',
+        maxBytes: s3.uploadMaxBytes + 1,
+      }),
     ).rejects.toBeInstanceOf(StorageValidationError);
   });
 
   it('signs short-lived download URLs with an attachment disposition', async () => {
-    const url = new URL(await storage.getDownloadUrl('tickets/t1/u1/a.pdf', { fileName: 'تقرير.pdf', expiresIn: 60 }));
+    const url = new URL(
+      await storage.getDownloadUrl('tickets/t1/u1/a.pdf', { fileName: 'تقرير.pdf', expiresIn: 60 }),
+    );
     expect(url.origin + url.pathname).toBe('http://localhost:9000/test-bucket/tickets/t1/u1/a.pdf');
     expect(url.searchParams.get('X-Amz-Expires')).toBe('60');
     expect(url.searchParams.get('X-Amz-Signature')).toBeTruthy();
-    expect(url.searchParams.get('response-content-disposition')).toContain("attachment; filename*=UTF-8''");
+    expect(url.searchParams.get('response-content-disposition')).toContain(
+      "attachment; filename*=UTF-8''",
+    );
     expect(url.searchParams.has('x-amz-checksum-mode')).toBe(false);
   });
 
   it('the default scan hook reports NOT_SCANNED', async () => {
-    expect(await noopScanHook.scan({ bucket: 'b', key: 'k', contentType: 'image/png', sizeBytes: 1 })).toEqual({
+    expect(
+      await noopScanHook.scan({ bucket: 'b', key: 'k', contentType: 'image/png', sizeBytes: 1 }),
+    ).toEqual({
       verdict: 'NOT_SCANNED',
     });
   });

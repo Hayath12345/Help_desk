@@ -75,10 +75,16 @@ export function limitGuard(
         result = await withTimeout(check(req), LIMIT_CHECK_TIMEOUT_MS, 'rate limit check');
       } catch (err) {
         if (failOpen) {
-          req.log.warn({ err, limit: rule.name }, 'rate limit store unavailable; request allowed (fail open)');
+          req.log.warn(
+            { err, limit: rule.name },
+            'rate limit store unavailable; request allowed (fail open)',
+          );
           continue;
         }
-        req.log.warn({ err, limit: rule.name }, 'rate limit store unavailable; request rejected (fail closed)');
+        req.log.warn(
+          { err, limit: rule.name },
+          'rate limit store unavailable; request rejected (fail closed)',
+        );
         reply.header('retry-after', STORE_DOWN_RETRY_AFTER_SECONDS);
         throw errors.serviceUnavailable(STORE_DOWN_RETRY_AFTER_SECONDS);
       }

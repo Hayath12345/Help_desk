@@ -20,7 +20,9 @@ function requiredString(minLength = 1) {
   return z
     .string({ error: 'is required' })
     .trim()
-    .min(minLength, { error: minLength > 1 ? `must be at least ${minLength} characters` : 'is required' });
+    .min(minLength, {
+      error: minLength > 1 ? `must be at least ${minLength} characters` : 'is required',
+    });
 }
 
 /**
@@ -113,7 +115,10 @@ const trustProxySchema = z
     if (/^\d+$/.test(v)) {
       const hops = Number(v);
       if (hops > MAX_TRUSTED_PROXY_HOPS) {
-        ctx.addIssue({ code: 'custom', message: `hop count must be between 1 and ${MAX_TRUSTED_PROXY_HOPS}` });
+        ctx.addIssue({
+          code: 'custom',
+          message: `hop count must be between 1 and ${MAX_TRUSTED_PROXY_HOPS}`,
+        });
         return z.NEVER;
       }
       return hops;
@@ -251,7 +256,13 @@ export interface AppConfig {
   email: {
     provider: 'smtp' | 'ses';
     from: string;
-    smtp: { host: string; port: number; secure: boolean; user: string | undefined; password: string | undefined };
+    smtp: {
+      host: string;
+      port: number;
+      secure: boolean;
+      user: string | undefined;
+      password: string | undefined;
+    };
     sesRegion: string | undefined;
   };
   sms: { provider: 'console' | 'sns'; snsRegion: string | undefined; senderId: string | undefined };
@@ -276,7 +287,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProduction = env.NODE_ENV === 'production';
 
   const cors = parseOrigins(env.CORS_ORIGINS);
-  if (cors.invalid) problems.push('CORS_ORIGINS must be a comma-separated list of http(s) origins (no "*")');
+  if (cors.invalid)
+    problems.push('CORS_ORIGINS must be a comma-separated list of http(s) origins (no "*")');
 
   // The placeholder values in .env.example are public: refused everywhere except the test suite.
   if (env.NODE_ENV !== 'test') {
@@ -288,7 +300,9 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     problems.push('API_JWT_SECRET and INTERNAL_API_KEY must be different secrets');
   }
   if (Boolean(env.S3_ACCESS_KEY_ID) !== Boolean(env.S3_SECRET_ACCESS_KEY)) {
-    problems.push('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set together (or both left empty)');
+    problems.push(
+      'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be set together (or both left empty)',
+    );
   }
   if (env.S3_ENDPOINT) {
     try {
@@ -297,8 +311,10 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       problems.push('S3_ENDPOINT must be a URL');
     }
   }
-  if (env.EMAIL_PROVIDER === 'ses' && !env.SES_REGION) problems.push('SES_REGION is required when EMAIL_PROVIDER=ses');
-  if (env.SMS_PROVIDER === 'sns' && !env.SNS_REGION) problems.push('SNS_REGION is required when SMS_PROVIDER=sns');
+  if (env.EMAIL_PROVIDER === 'ses' && !env.SES_REGION)
+    problems.push('SES_REGION is required when EMAIL_PROVIDER=ses');
+  if (env.SMS_PROVIDER === 'sns' && !env.SNS_REGION)
+    problems.push('SNS_REGION is required when SMS_PROVIDER=sns');
   if (problems.length > 0) throw new ConfigError(problems);
 
   return {

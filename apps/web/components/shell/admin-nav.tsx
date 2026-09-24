@@ -32,7 +32,10 @@ function NavItem({
           : 'text-ink-secondary hover:bg-surface hover:text-ink',
       )}
     >
-      <Icon aria-hidden="true" className={cn('size-4 shrink-0', active ? 'text-brand' : 'text-ink-muted')} />
+      <Icon
+        aria-hidden="true"
+        className={cn('size-4 shrink-0', active ? 'text-brand' : 'text-ink-muted')}
+      />
       {children}
     </Link>
   );

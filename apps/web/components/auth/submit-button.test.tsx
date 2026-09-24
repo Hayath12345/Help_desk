@@ -102,7 +102,9 @@ describe('InvalidEmailLinkCard focus', () => {
     const link = screen.getByRole('link', { name: 'Request a new link' });
     expect(document.activeElement).toBe(link);
     expect(link.getAttribute('href')).toBe('/verify-email');
-    expect(screen.getByRole('heading', { name: 'This link is invalid or has expired' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { name: 'This link is invalid or has expired' }),
+    ).toBeTruthy();
   });
 
   it('leaves focus alone when rendered as the page itself', () => {

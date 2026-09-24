@@ -5,7 +5,14 @@ import { initialsOf, requireUser } from '@/lib/session';
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser(['AGENT', 'TEAM_LEAD', 'SUPER_ADMIN']);
   return (
-    <ConsoleShell user={{ name: user.name, email: user.email, initials: initialsOf(user.name), role: user.role }}>
+    <ConsoleShell
+      user={{
+        name: user.name,
+        email: user.email,
+        initials: initialsOf(user.name),
+        role: user.role,
+      }}
+    >
       {children}
     </ConsoleShell>
   );

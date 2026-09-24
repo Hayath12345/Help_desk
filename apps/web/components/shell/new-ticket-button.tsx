@@ -18,7 +18,11 @@ export interface NewTicketButtonProps {
  * explains that instead of doing nothing. Every entry point uses this component, so Phase 2
  * only swaps the click handler here.
  */
-export function NewTicketButton({ className, size = 'default', compact = false }: NewTicketButtonProps) {
+export function NewTicketButton({
+  className,
+  size = 'default',
+  compact = false,
+}: NewTicketButtonProps) {
   const t = useTranslations('common');
   const label = t('newTicket');
 

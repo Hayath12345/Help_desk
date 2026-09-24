@@ -17,7 +17,11 @@ describe('health', () => {
   it('GET /health reports ok when Postgres and Redis are reachable', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'ok', checks: { db: 'ok', redis: 'ok' }, version: expect.any(String) });
+    expect(res.json()).toEqual({
+      status: 'ok',
+      checks: { db: 'ok', redis: 'ok' },
+      version: expect.any(String),
+    });
   });
 
   it('GET /health/live answers without dependency checks', async () => {
@@ -27,7 +31,11 @@ describe('health', () => {
   });
 
   it('echoes a safe incoming x-request-id and replaces an unsafe one', async () => {
-    const good = await ctx.app.inject({ method: 'GET', url: '/health/live', headers: { 'x-request-id': 'req-12345678' } });
+    const good = await ctx.app.inject({
+      method: 'GET',
+      url: '/health/live',
+      headers: { 'x-request-id': 'req-12345678' },
+    });
     expect(good.headers['x-request-id']).toBe('req-12345678');
 
     const bad = await ctx.app.inject({
@@ -49,7 +57,11 @@ describe('health', () => {
     const ok = await ctx.app.inject({
       method: 'OPTIONS',
       url: '/me',
-      headers: { origin, 'access-control-request-method': 'PATCH', 'access-control-request-headers': 'authorization,content-type' },
+      headers: {
+        origin,
+        'access-control-request-method': 'PATCH',
+        'access-control-request-headers': 'authorization,content-type',
+      },
     });
     expect(ok.statusCode).toBe(204);
     expect(ok.headers['access-control-allow-origin']).toBe(origin);
@@ -70,7 +82,12 @@ describe('health', () => {
     expect(doc.openapi).toBe('3.1.0');
     expect(Object.keys(doc.components.securitySchemes)).toEqual(['bearerAuth', 'internalApiKey']);
     expect(Object.keys(doc.paths)).toEqual(
-      expect.arrayContaining(['/health', '/me', '/internal/auth/login', '/internal/auth/password/reset']),
+      expect.arrayContaining([
+        '/health',
+        '/me',
+        '/internal/auth/login',
+        '/internal/auth/password/reset',
+      ]),
     );
   });
 });
@@ -87,8 +104,10 @@ describe('health with Redis down (stub)', () => {
       del: down,
       defineCommand: () => undefined,
       // @fastify/rate-limit store command (callback style) — fails; skipOnError lets requests through.
-      rateLimit: (...args: unknown[]) => (args.at(-1) as (err: Error) => void)(new Error('ECONNREFUSED')),
-      rateLimitRead: (...args: unknown[]) => (args.at(-1) as (err: Error) => void)(new Error('ECONNREFUSED')),
+      rateLimit: (...args: unknown[]) =>
+        (args.at(-1) as (err: Error) => void)(new Error('ECONNREFUSED')),
+      rateLimitRead: (...args: unknown[]) =>
+        (args.at(-1) as (err: Error) => void)(new Error('ECONNREFUSED')),
     } as unknown as Redis;
     const queuesStub = { close: async () => undefined } as unknown as AppQueues;
 

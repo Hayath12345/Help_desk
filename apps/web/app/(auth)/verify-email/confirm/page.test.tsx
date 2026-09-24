@@ -125,7 +125,9 @@ describe('ConfirmEmailPage', () => {
   it('signed out: "Sign in to confirm this address" with the address, a sign-in that comes back, and reset', async () => {
     const html = await renderPage();
     expect(html).toContain('Sign in to confirm this address');
-    expect(html).toContain(`<strong dir="ltr" class="font-medium text-ink">${OWNER_EMAIL}</strong>`);
+    expect(html).toContain(
+      `<strong dir="ltr" class="font-medium text-ink">${OWNER_EMAIL}</strong>`,
+    );
     expect(hrefs(html).map(decode)).toEqual([
       `/login?callbackUrl=${encodeURIComponent(LINK)}`,
       '/forgot-password',
@@ -136,12 +138,20 @@ describe('ConfirmEmailPage', () => {
   });
 
   it('another account signed in: says who is signed in and offers "Sign out and continue"', async () => {
-    currentUser.mockResolvedValue(user({ id: '11111111-1111-4111-8111-111111111111', email: 'other@qnb.com', emailVerified: true }));
+    currentUser.mockResolvedValue(
+      user({
+        id: '11111111-1111-4111-8111-111111111111',
+        email: 'other@qnb.com',
+        emailVerified: true,
+      }),
+    );
     const html = await renderPage();
     expect(html).toContain('Sign in to confirm this address');
     expect(html).toContain(`>${OWNER_EMAIL}</strong>`);
     expect(html).toContain('>other@qnb.com</strong>');
-    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>.*Sign out and continue<\/span><\/button>/);
+    expect(html).toMatch(
+      /<button[^>]*type="submit"[^>]*>.*Sign out and continue<\/span><\/button>/,
+    );
     expect(html).toContain(`name="token" value="${TOKEN}"`);
     expect(hrefs(html)).toEqual([]);
     expect(html).not.toContain('>Confirm<');
@@ -181,6 +191,8 @@ describe('ConfirmEmailPage', () => {
     const html = await renderPage();
     expect(html).toContain(arAuth.confirmEmail.signInTitle);
     expect(html).toContain(arAuth.confirmEmail.signIn);
-    expect(html).toContain(`<strong dir="ltr" class="font-medium text-ink">${OWNER_EMAIL}</strong>`);
+    expect(html).toContain(
+      `<strong dir="ltr" class="font-medium text-ink">${OWNER_EMAIL}</strong>`,
+    );
   });
 });

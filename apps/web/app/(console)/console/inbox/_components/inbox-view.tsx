@@ -11,7 +11,13 @@ import {
   TicketListRowSkeleton,
   shortWidth,
 } from '@/components/common/skeletons';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fadeVariants } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -58,7 +64,9 @@ export function InboxView() {
                 onClick={() => setView(key)}
                 className={cn(
                   'flex cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-[9px] text-start text-[15px] whitespace-nowrap transition-[background-color,color,box-shadow] duration-150 ease-out',
-                  active ? 'bg-surface text-ink shadow-segment' : 'text-ink-secondary hover:bg-surface hover:text-ink',
+                  active
+                    ? 'bg-surface text-ink shadow-segment'
+                    : 'text-ink-secondary hover:bg-surface hover:text-ink',
                 )}
               >
                 <span className="truncate">{t(`view.${key}`)}</span>
@@ -123,7 +131,12 @@ export function InboxView() {
         </div>
 
         <LoadingRegion label={t('loadingTickets')} className="min-h-0 flex-1 overflow-auto">
-          <motion.div key={`${view}:${sort}`} variants={fadeVariants} initial="hidden" animate="visible">
+          <motion.div
+            key={`${view}:${sort}`}
+            variants={fadeVariants}
+            initial="hidden"
+            animate="visible"
+          >
             {Array.from({ length: SKELETON_ROWS }, (_, i) => (
               <TicketListRowSkeleton key={i} index={i} />
             ))}

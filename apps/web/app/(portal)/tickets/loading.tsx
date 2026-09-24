@@ -1,5 +1,9 @@
 import { getTranslations } from 'next-intl/server';
-import { LoadingRegion, PortalTicketRowSkeleton, SkeletonText } from '@/components/common/skeletons';
+import {
+  LoadingRegion,
+  PortalTicketRowSkeleton,
+  SkeletonText,
+} from '@/components/common/skeletons';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /** Shown while "My tickets" renders: same header/tabs/card geometry as the real page. */

@@ -22,7 +22,10 @@ export interface MeService {
   updateLocale(userId: string, locale: Locale): Promise<void>;
 }
 
-export function createMeService(deps: { prisma: PrismaClient; principals: PrincipalStore }): MeService {
+export function createMeService(deps: {
+  prisma: PrismaClient;
+  principals: PrincipalStore;
+}): MeService {
   const { prisma, principals } = deps;
 
   return {
@@ -41,15 +44,29 @@ export function createMeService(deps: { prisma: PrismaClient; principals: Princi
           emailVerifiedAt: true,
           org: { select: { id: true, name: true } },
           teamMemberships: {
-            select: { role: true, team: { select: { id: true, key: true, nameEn: true, nameAr: true, sortOrder: true } } },
+            select: {
+              role: true,
+              team: {
+                select: { id: true, key: true, nameEn: true, nameAr: true, sortOrder: true },
+              },
+            },
           },
         },
       });
       if (!user) throw errors.unauthenticated('Unknown user');
       const teams = user.teamMemberships
         .slice()
-        .sort((a, b) => a.team.sortOrder - b.team.sortOrder || a.team.nameEn.localeCompare(b.team.nameEn))
-        .map((m) => ({ id: m.team.id, key: m.team.key, nameEn: m.team.nameEn, nameAr: m.team.nameAr, role: m.role }));
+        .sort(
+          (a, b) =>
+            a.team.sortOrder - b.team.sortOrder || a.team.nameEn.localeCompare(b.team.nameEn),
+        )
+        .map((m) => ({
+          id: m.team.id,
+          key: m.team.key,
+          nameEn: m.team.nameEn,
+          nameAr: m.team.nameAr,
+          role: m.role,
+        }));
       const emailVerified = user.emailVerifiedAt !== null;
       // A client who hasn't proved they own the address sees nothing of the organisation it matched.
       const showOrg = user.org && (user.role !== 'CLIENT' || emailVerified);

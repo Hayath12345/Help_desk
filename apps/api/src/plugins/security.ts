@@ -11,7 +11,10 @@ export const GLOBAL_RATE_LIMIT = { max: 300, windowMs: 60_000 } as const;
  * Helmet headers, strict CORS and the global Redis-backed rate limit (300/min per IP; the web
  * server's calls on a user's behalf count against that user's IP, see `globalRateLimitKey`).
  */
-export async function registerSecurity(app: FastifyInstance, options: { rateLimitNamespace: string }): Promise<void> {
+export async function registerSecurity(
+  app: FastifyInstance,
+  options: { rateLimitNamespace: string },
+): Promise<void> {
   const { config } = app;
 
   await app.register(helmet, {
@@ -39,7 +42,8 @@ export async function registerSecurity(app: FastifyInstance, options: { rateLimi
     keyGenerator: (req) => globalRateLimitKey(req, config.internalApiKey),
     // Redis outage: keep serving (fail open) rather than rejecting every request.
     skipOnError: true,
-    errorResponseBuilder: (_req, context) => errors.rateLimited(Math.max(1, Math.ceil(context.ttl / 1000))),
+    errorResponseBuilder: (_req, context) =>
+      errors.rateLimited(Math.max(1, Math.ceil(context.ttl / 1000))),
     onExceeded: (req) => {
       req.log.warn({ limit: 'global' }, 'rate limit exceeded');
     },

@@ -50,7 +50,10 @@ export default async function ConfirmEmailPage({ searchParams }: { searchParams:
   }
   if (link.status === 'error') {
     return (
-      <ConfirmEmailUnavailableCard error={link.error} retryHref={emailConfirmPath(token) as Route} />
+      <ConfirmEmailUnavailableCard
+        error={link.error}
+        retryHref={emailConfirmPath(token) as Route}
+      />
     );
   }
   if (user?.id === link.owner.userId) {

@@ -55,7 +55,10 @@ export interface AppQueues {
   close(): Promise<void>;
 }
 
-export function createQueues(options: { connection: ConnectionOptions; prefix?: string }): AppQueues {
+export function createQueues(options: {
+  connection: ConnectionOptions;
+  prefix?: string;
+}): AppQueues {
   const prefix = options.prefix ?? DEFAULT_QUEUE_PREFIX;
   const common = { connection: options.connection, prefix, defaultJobOptions: DEFAULT_JOB_OPTIONS };
   const email = new Queue<EmailJobData, EmailJobResult>(QUEUE_NAMES.email, common);

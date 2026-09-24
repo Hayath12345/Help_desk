@@ -1,10 +1,4 @@
-import {
-  ADMIN_SECTIONS,
-  ROLES,
-  canAccessAdminSection,
-  type Actor,
-  type Role,
-} from '@loons/shared';
+import { ADMIN_SECTIONS, ROLES, canAccessAdminSection, type Actor, type Role } from '@loons/shared';
 import { describe, expect, it } from 'vitest';
 import {
   ADMIN_SECTION_ICONS,

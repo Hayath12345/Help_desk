@@ -8,7 +8,13 @@ import { render } from '@react-email/render';
 import type { Locale } from '@loons/shared';
 import { interpolate, parseTemplate, variableText, type TemplateVariables } from './interpolate.ts';
 import { EmailLayout, textStyle } from './layout.tsx';
-import { directionFor, emailColors, emailRadii, layoutStrings, type TextDirection } from './theme.ts';
+import {
+  directionFor,
+  emailColors,
+  emailRadii,
+  layoutStrings,
+  type TextDirection,
+} from './theme.ts';
 
 export interface EmailCta {
   /** Button label; may contain `{{variables}}`. */
@@ -145,7 +151,11 @@ function linkify(line: string, keyPrefix: string): ReactNode[] {
       <Link
         key={`${keyPrefix}-${i++}`}
         href={href}
-        style={{ color: emailColors.primaryInk, textDecoration: 'underline', wordBreak: 'break-all' }}
+        style={{
+          color: emailColors.primaryInk,
+          textDecoration: 'underline',
+          wordBreak: 'break-all',
+        }}
       >
         {match[0]}
       </Link>,
@@ -230,11 +240,21 @@ function TemplateEmail({
           </Section>
           {cta.showLinkFallback ? (
             <>
-              <Text style={textStyle(dir, { fontSize: '13px', color: emailColors.inkMuted, margin: '0 0 4px' })}>
+              <Text
+                style={textStyle(dir, {
+                  fontSize: '13px',
+                  color: emailColors.inkMuted,
+                  margin: '0 0 4px',
+                })}
+              >
                 {strings.linkFallback}
               </Text>
               <Text style={textStyle(dir, { fontSize: '13px', margin: 0 })}>
-                <Link href={cta.url} dir="ltr" style={{ color: emailColors.primaryInk, wordBreak: 'break-all' }}>
+                <Link
+                  href={cta.url}
+                  dir="ltr"
+                  style={{ color: emailColors.primaryInk, wordBreak: 'break-all' }}
+                >
                   {cta.url}
                 </Link>
               </Text>
@@ -247,7 +267,10 @@ function TemplateEmail({
 }
 
 function oneLine(value: string): string {
-  return value.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return value
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 /**
@@ -268,7 +291,8 @@ export async function renderTemplateEmail(input: RenderTemplateEmailInput): Prom
     const url = safeHttpUrl(interpolate(input.cta.url, vars));
     const label = oneLine(interpolate(input.cta.label, vars));
     if (url && label) {
-      const shown = bodyText.includes(url) || bodyText.includes(interpolate(input.cta.url, vars).trim());
+      const shown =
+        bodyText.includes(url) || bodyText.includes(interpolate(input.cta.url, vars).trim());
       cta = { url, label, showLinkFallback: !shown };
     }
   }

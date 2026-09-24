@@ -1,6 +1,11 @@
 import { hashPassword, type PrismaClient } from '@loons/db';
 import type { EmailTemplateKey, RenderedEmail } from '@loons/emails';
-import { normalizeEmail, type ForgotPasswordInput, type Locale, type ResetPasswordInput } from '@loons/shared';
+import {
+  normalizeEmail,
+  type ForgotPasswordInput,
+  type Locale,
+  type ResetPasswordInput,
+} from '@loons/shared';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import type { AppConfig } from '../config.ts';
 import { errors } from '../lib/errors.ts';
@@ -24,7 +29,11 @@ export interface PasswordResetService {
    */
   resetPassword(input: ResetPasswordInput): Promise<void>;
   /** Renders the reset email from the EmailTemplate row (or the built-in default). */
-  renderResetEmail(args: { name: string; locale: Locale; resetUrl: string }): Promise<RenderedEmail>;
+  renderResetEmail(args: {
+    name: string;
+    locale: Locale;
+    resetUrl: string;
+  }): Promise<RenderedEmail>;
 }
 
 export function createPasswordResetService(deps: {
@@ -36,7 +45,15 @@ export function createPasswordResetService(deps: {
 }): PasswordResetService {
   const { prisma, queues, sessions, config, logger } = deps;
 
-  async function renderResetEmail({ name, locale, resetUrl }: { name: string; locale: Locale; resetUrl: string }) {
+  async function renderResetEmail({
+    name,
+    locale,
+    resetUrl,
+  }: {
+    name: string;
+    locale: Locale;
+    resetUrl: string;
+  }) {
     return renderStoredTemplate(prisma, PASSWORD_RESET_TEMPLATE_KEY, {
       locale,
       // Same names as the seeded PASSWORD_RESET row's `variables`.
@@ -70,7 +87,13 @@ export function createPasswordResetService(deps: {
     const resetUrl = `${config.appUrl}/reset-password?token=${encodeURIComponent(token)}`;
     const message = await renderResetEmail({ name: user.name, locale: user.locale, resetUrl });
     const jobId = await queues.enqueueEmail(
-      { to: email, subject: message.subject, html: message.html, text: message.text, tag: 'password-reset' },
+      {
+        to: email,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        tag: 'password-reset',
+      },
       {
         jobId: `password-reset-${record.id}`,
         // The payload carries a live reset link: don't keep it in Redis once sent.

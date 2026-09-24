@@ -14,7 +14,13 @@ export interface TopNavLinkProps {
 }
 
 /** Top-bar navigation pill: 7px 12px, 8px radius, medium weight; muted until active. */
-export function TopNavLink({ href, active, tone = 'portal', children, className }: TopNavLinkProps) {
+export function TopNavLink({
+  href,
+  active,
+  tone = 'portal',
+  children,
+  className,
+}: TopNavLinkProps) {
   return (
     <Link
       href={href}

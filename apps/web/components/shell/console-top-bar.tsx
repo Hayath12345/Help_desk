@@ -51,14 +51,21 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
   const t = useTranslations('console.nav');
   const pathname = usePathname();
   const canAdmin = user.role === 'SUPER_ADMIN' || user.role === 'TEAM_LEAD';
-  const items: readonly { key: NavKey; href: Route }[] = canAdmin ? [...CONSOLE_NAV, ADMIN_NAV] : CONSOLE_NAV;
+  const items: readonly { key: NavKey; href: Route }[] = canAdmin
+    ? [...CONSOLE_NAV, ADMIN_NAV]
+    : CONSOLE_NAV;
   const home: Route = area === 'admin' ? '/admin' : '/console/inbox';
 
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 sm:px-5 lg:gap-5">
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={t('menu')} className="-ms-1.5 text-ink-secondary lg:hidden">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t('menu')}
+            className="-ms-1.5 text-ink-secondary lg:hidden"
+          >
             <Menu aria-hidden="true" className="size-5" />
           </Button>
         </DropdownMenuTrigger>
@@ -80,13 +87,21 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Link href={home} className="flex shrink-0 items-center rounded-sm text-ink no-underline hover:text-ink">
+      <Link
+        href={home}
+        className="flex shrink-0 items-center rounded-sm text-ink no-underline hover:text-ink"
+      >
         <Logo compact />
       </Link>
 
       <nav aria-label={t('label')} className="flex gap-0.5 max-lg:hidden">
         {items.map((item) => (
-          <TopNavLink key={item.key} href={item.href} active={isActive(pathname, item.href)} tone="console">
+          <TopNavLink
+            key={item.key}
+            href={item.href}
+            active={isActive(pathname, item.href)}
+            tone="console"
+          >
             {t(item.key)}
           </TopNavLink>
         ))}

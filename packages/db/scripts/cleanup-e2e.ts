@@ -21,7 +21,9 @@ async function main(): Promise<void> {
       const removed = await tx.user.deleteMany({ where: { id: { in: ids } } });
       return { users: removed.count, tickets: tickets.count };
     });
-    process.stdout.write(`[cleanup-e2e] removed ${deleted.users} e2e user(s) and ${deleted.tickets} ticket(s)\n`);
+    process.stdout.write(
+      `[cleanup-e2e] removed ${deleted.users} e2e user(s) and ${deleted.tickets} ticket(s)\n`,
+    );
   } finally {
     await db.$disconnect();
   }

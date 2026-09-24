@@ -24,13 +24,18 @@ export function Logo({ className, suffix, size = 'md', compact = false }: LogoPr
     >
       <span
         aria-hidden="true"
-        className={cn('inline-block shrink-0 rounded-sm bg-ink', size === 'lg' ? 'size-6' : 'size-[22px]')}
+        className={cn(
+          'inline-block shrink-0 rounded-sm bg-ink',
+          size === 'lg' ? 'size-6' : 'size-[22px]',
+        )}
       />
       <span dir="ltr" className={cn(compact && 'max-sm:sr-only')}>
         {t('brand')}
       </span>
       {suffix ? (
-        <span className={cn('font-normal text-ink-subtle', compact && 'max-md:hidden')}>{suffix}</span>
+        <span className={cn('font-normal text-ink-subtle', compact && 'max-md:hidden')}>
+          {suffix}
+        </span>
       ) : null}
     </span>
   );

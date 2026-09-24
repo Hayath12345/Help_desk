@@ -76,7 +76,13 @@ export function InvalidEmailLinkCard({
  * The link's own account is signed in: "Confirm" (a POST on purpose: mail scanners pre-fetch links
  * with GET and must not use up the single-use token).
  */
-export function ConfirmEmailCard({ token, requestNewHref }: { token: string; requestNewHref: Route }) {
+export function ConfirmEmailCard({
+  token,
+  requestNewHref,
+}: {
+  token: string;
+  requestNewHref: Route;
+}) {
   const t = useTranslations('auth.confirmEmail');
   const tErrors = useTranslations('errors');
   const [state, formAction, isPending] = useActionState<AuthFormState, FormData>(

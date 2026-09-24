@@ -26,7 +26,12 @@ export interface PriorityDotProps {
 }
 
 /** Small coloured circle for P1–P4. Announced as "P1 Critical" etc. unless decorative. */
-export function PriorityDot({ priority, size = 'sm', decorative = false, className }: PriorityDotProps) {
+export function PriorityDot({
+  priority,
+  size = 'sm',
+  decorative = false,
+  className,
+}: PriorityDotProps) {
   const t = useTranslations('common.priority');
   return (
     <span

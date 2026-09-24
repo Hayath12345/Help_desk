@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { GetObjectCommand, HeadObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3Client,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3';
 import { createPresignedPost, type PresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { AppConfig } from '../config.ts';
@@ -55,8 +60,10 @@ export function sanitizeFileName(input: string, fallback = 'file'): string {
   // Keep only the last path segment (both separators).
   name = name.split(/[/\\]/).pop() ?? '';
   // Control characters, bidi overrides / isolates, zero-width chars, BOM.
-  // eslint-disable-next-line no-control-regex
-  name = name.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '');
+  const invisible =
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+  name = name.replace(invisible, '');
   // Characters that are invalid or dangerous in file names and headers.
   name = name.replace(/[<>:"|?*;`$%{}\\]/g, '_');
   name = name.replace(/\s+/g, ' ').trim();
@@ -199,7 +206,8 @@ export function createStorage(
         const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
         return { sizeBytes: head.ContentLength ?? 0, contentType: head.ContentType };
       } catch (err) {
-        const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata
+          ?.httpStatusCode;
         if (status === 404) return null;
         throw err;
       }

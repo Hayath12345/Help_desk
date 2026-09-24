@@ -3,7 +3,10 @@ import { e2eUserWhere, isE2eUserEmail } from './e2e-users.ts';
 
 describe('E2E user patterns (cleanup-e2e)', () => {
   it('matches only the addresses the Playwright suite generates', () => {
-    for (const email of ['e2e-1790000000000@hamad.qa', 'pending.1790000000000@unmatched-e2e.test']) {
+    for (const email of [
+      'e2e-1790000000000@hamad.qa',
+      'pending.1790000000000@unmatched-e2e.test',
+    ]) {
       expect(isE2eUserEmail(email), email).toBe(true);
     }
     for (const email of [
@@ -23,7 +26,12 @@ describe('E2E user patterns (cleanup-e2e)', () => {
       role: 'CLIENT',
       OR: [
         { AND: [{ email: { startsWith: 'e2e-' } }, { email: { endsWith: '@hamad.qa' } }] },
-        { AND: [{ email: { startsWith: 'pending.' } }, { email: { endsWith: '@unmatched-e2e.test' } }] },
+        {
+          AND: [
+            { email: { startsWith: 'pending.' } },
+            { email: { endsWith: '@unmatched-e2e.test' } },
+          ],
+        },
       ],
     });
   });

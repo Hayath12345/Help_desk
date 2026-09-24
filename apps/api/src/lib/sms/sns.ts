@@ -16,7 +16,11 @@ export function createSnsSmsProvider(config: Pick<AppConfig, 'sms'>): SmsProvide
     name: 'sns',
     async send(message) {
       const result = await client.send(
-        new PublishCommand({ PhoneNumber: message.to, Message: message.body, MessageAttributes: attributes }),
+        new PublishCommand({
+          PhoneNumber: message.to,
+          Message: message.body,
+          MessageAttributes: attributes,
+        }),
       );
       return { messageId: result.MessageId ?? '' };
     },

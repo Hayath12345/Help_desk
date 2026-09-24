@@ -8,5 +8,7 @@ export type { OutgoingSms, SmsProvider } from './provider.ts';
 
 /** SMS_PROVIDER=console (default, logs a redacted line) | sns (AWS). */
 export function createSmsProvider(config: Pick<AppConfig, 'sms'>, logger: Logger): SmsProvider {
-  return config.sms.provider === 'sns' ? createSnsSmsProvider(config) : createConsoleSmsProvider(logger);
+  return config.sms.provider === 'sns'
+    ? createSnsSmsProvider(config)
+    : createConsoleSmsProvider(logger);
 }

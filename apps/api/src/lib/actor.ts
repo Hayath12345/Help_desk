@@ -1,7 +1,14 @@
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import type { PrismaClient } from '@loons/db';
-import { LOCALES, ROLES, TEAM_MEMBER_ROLES, USER_STATUSES, type Actor, type AuthUser } from '@loons/shared';
+import {
+  LOCALES,
+  ROLES,
+  TEAM_MEMBER_ROLES,
+  USER_STATUSES,
+  type Actor,
+  type AuthUser,
+} from '@loons/shared';
 import type { AppLogger as Logger } from './logger.ts';
 
 // The authenticated principal, reloaded from the database for every request (token claims are

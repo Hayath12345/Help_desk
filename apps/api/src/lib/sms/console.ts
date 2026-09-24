@@ -10,7 +10,14 @@ export function createConsoleSmsProvider(logger: Logger): SmsProvider {
     async send(message) {
       const messageId = `console-${randomUUID()}`;
       logger.info(
-        { sms: { to: maskPhone(message.to), length: message.body.length, preview: redactPii(message.body).slice(0, 160) }, messageId },
+        {
+          sms: {
+            to: maskPhone(message.to),
+            length: message.body.length,
+            preview: redactPii(message.body).slice(0, 160),
+          },
+          messageId,
+        },
         'sms (console provider, not sent)',
       );
       return { messageId };

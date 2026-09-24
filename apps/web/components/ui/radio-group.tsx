@@ -1,8 +1,8 @@
-"use client"
+'use client';
 
-import * as React from "react"
-import { cn } from "cn"
-import { RadioGroup as RadioGroupPrimitive } from "radix-ui"
+import * as React from 'react';
+import { cn } from 'cn';
+import { RadioGroup as RadioGroupPrimitive } from 'radix-ui';
 
 function RadioGroup({
   className,
@@ -11,10 +11,10 @@ function RadioGroup({
   return (
     <RadioGroupPrimitive.Root
       data-slot="radio-group"
-      className={cn("grid w-full gap-2", className)}
+      className={cn('grid w-full gap-2', className)}
       {...props}
     />
-  )
+  );
 }
 
 function RadioGroupItem({
@@ -25,8 +25,8 @@ function RadioGroupItem({
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
       className={cn(
-        "group/radio-group-item peer relative flex aspect-square size-4 shrink-0 cursor-pointer rounded-full border border-line-input bg-surface transition-colors duration-150 outline-none group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-line-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand",
-        className
+        'group/radio-group-item peer relative flex aspect-square size-4 shrink-0 cursor-pointer rounded-full border border-line-input bg-surface transition-colors duration-150 outline-none group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-line-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand',
+        className,
       )}
       {...props}
     >
@@ -37,7 +37,7 @@ function RadioGroupItem({
         <span className="absolute top-1/2 start-1/2 size-2 -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 rounded-full bg-surface" />
       </RadioGroupPrimitive.Indicator>
     </RadioGroupPrimitive.Item>
-  )
+  );
 }
 
-export { RadioGroup, RadioGroupItem }
+export { RadioGroup, RadioGroupItem };

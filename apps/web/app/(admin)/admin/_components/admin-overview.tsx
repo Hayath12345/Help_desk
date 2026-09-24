@@ -37,7 +37,9 @@ export function AdminOverview({ role }: { role: Role }) {
                   />
                 </span>
                 <span className="flex flex-col gap-1">
-                  <span className="text-[15px] font-semibold">{t(`sections.${section}.title`)}</span>
+                  <span className="text-[15px] font-semibold">
+                    {t(`sections.${section}.title`)}
+                  </span>
                   <span className="text-[13px] leading-snug text-ink-muted">
                     {t(`sections.${section}.description`)}
                   </span>

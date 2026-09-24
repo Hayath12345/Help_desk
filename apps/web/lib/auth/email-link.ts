@@ -29,7 +29,9 @@ export async function lookupEmailLink(token: string): Promise<EmailLinkLookup> {
   } catch (error) {
     if (error instanceof ApiRequestError) {
       const code = verifyEmailErrorCode(error.code);
-      return code === 'VERIFY_TOKEN_INVALID' ? { status: 'invalid' } : { status: 'error', error: code };
+      return code === 'VERIFY_TOKEN_INVALID'
+        ? { status: 'invalid' }
+        : { status: 'error', error: code };
     }
     throw error;
   }

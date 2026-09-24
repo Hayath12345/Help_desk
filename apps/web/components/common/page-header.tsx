@@ -11,12 +11,20 @@ export interface PageHeaderProps {
 }
 
 /** 26px semibold page title with a muted subtitle (design: My tickets, Team queue, Reports…). */
-export function PageHeader({ title, description, actions, className, descriptionClassName }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  description,
+  actions,
+  className,
+  descriptionClassName,
+}: PageHeaderProps) {
   return (
     <div className={cn('flex flex-wrap items-end justify-between gap-4', className)}>
       <div className="flex min-w-0 flex-col gap-1">
         <h1 className="text-[26px] font-semibold text-ink">{title}</h1>
-        {description ? <div className={cn('text-ink-muted', descriptionClassName)}>{description}</div> : null}
+        {description ? (
+          <div className={cn('text-ink-muted', descriptionClassName)}>{description}</div>
+        ) : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

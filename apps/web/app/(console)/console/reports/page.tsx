@@ -24,7 +24,10 @@ export default async function ReportsPage() {
       <LoadingRegion label={t('loading')} className="flex flex-col gap-[22px]">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3.5">
           {REPORT_TILES.map((key) => (
-            <div key={key} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-[18px]">
+            <div
+              key={key}
+              className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-[18px]"
+            >
               <Kicker as="h2">{t(`tiles.${key}`)}</Kicker>
               <Skeleton className="h-[30px] w-12 rounded-sm" />
             </div>

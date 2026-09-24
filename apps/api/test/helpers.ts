@@ -47,7 +47,12 @@ export class Fixtures {
   async org(options: { domains?: string[]; isActive?: boolean } = {}) {
     const key = `test-${rand()}`;
     const org = await this.prisma.organization.create({
-      data: { key, name: `Test Org ${key}`, emailDomains: options.domains ?? [], isActive: options.isActive ?? true },
+      data: {
+        key,
+        name: `Test Org ${key}`,
+        emailDomains: options.domains ?? [],
+        isActive: options.isActive ?? true,
+      },
     });
     this.orgIds.add(org.id);
     return org;
@@ -55,7 +60,9 @@ export class Fixtures {
 
   async team() {
     const key = `test-${rand()}`;
-    const team = await this.prisma.team.create({ data: { key, nameEn: `Team ${key}`, nameAr: `فريق ${key}` } });
+    const team = await this.prisma.team.create({
+      data: { key, nameEn: `Team ${key}`, nameAr: `فريق ${key}` },
+    });
     this.teamIds.add(team.id);
     return team;
   }
@@ -114,10 +121,14 @@ export class Fixtures {
     const emails = [...this.emails];
     const ids = [...this.userIds];
     if (emails.length || ids.length) {
-      await this.prisma.user.deleteMany({ where: { OR: [{ id: { in: ids } }, { email: { in: emails } }] } });
+      await this.prisma.user.deleteMany({
+        where: { OR: [{ id: { in: ids } }, { email: { in: emails } }] },
+      });
     }
-    if (this.teamIds.size) await this.prisma.team.deleteMany({ where: { id: { in: [...this.teamIds] } } });
-    if (this.orgIds.size) await this.prisma.organization.deleteMany({ where: { id: { in: [...this.orgIds] } } });
+    if (this.teamIds.size)
+      await this.prisma.team.deleteMany({ where: { id: { in: [...this.teamIds] } } });
+    if (this.orgIds.size)
+      await this.prisma.organization.deleteMany({ where: { id: { in: [...this.orgIds] } } });
   }
 }
 
@@ -177,7 +188,9 @@ export async function createTestContext(
     async close() {
       await app.close();
       await fixtures.cleanup();
-      await Promise.allSettled([queues.email, queues.notifications, queues.sla].map((q) => q.obliterate({ force: true })));
+      await Promise.allSettled(
+        [queues.email, queues.notifications, queues.sla].map((q) => q.obliterate({ force: true })),
+      );
       await queues.close();
       await deleteKeys(redis, `${config.redisPrefix}*`);
       await closeRedis(redis);

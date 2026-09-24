@@ -14,12 +14,16 @@ describe('runtime (tsx) compatibility', () => {
     const script = [
       "const { renderTemplateEmail } = await import('@loons/emails');",
       "const out = await renderTemplateEmail({ locale: 'ar', subject: 'S {{n}}', body: 'B {{n}}', variables: { n: 'x' }, cta: { label: 'Go', url: 'https://example.com/a' } });",
-      "process.stdout.write(JSON.stringify({ subject: out.subject, rtl: out.html.includes('dir=\"rtl\"') }));",
+      'process.stdout.write(JSON.stringify({ subject: out.subject, rtl: out.html.includes(\'dir="rtl"\') }));',
     ].join('\n');
-    const { stdout } = await run(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
-      cwd: apiDir,
-      timeout: 60_000,
-    });
+    const { stdout } = await run(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script],
+      {
+        cwd: apiDir,
+        timeout: 60_000,
+      },
+    );
     expect(JSON.parse(stdout)).toEqual({ subject: 'S x', rtl: true });
   }, 90_000);
 });

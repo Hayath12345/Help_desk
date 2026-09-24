@@ -58,11 +58,17 @@ async function main(): Promise<void> {
   emailProvider
     .verify?.()
     .then(() => logger.info({ emailProvider: emailProvider.name }, 'email transport reachable'))
-    .catch((err: unknown) => logger.warn({ err }, 'email transport not reachable; email jobs will retry'));
+    .catch((err: unknown) =>
+      logger.warn({ err }, 'email transport not reachable; email jobs will retry'),
+    );
 
   await workers.ready();
   logger.info(
-    { queues: workers.workers.map((w) => w.name), emailProvider: emailProvider.name, env: config.env },
+    {
+      queues: workers.workers.map((w) => w.name),
+      emailProvider: emailProvider.name,
+      env: config.env,
+    },
     'worker ready',
   );
 }

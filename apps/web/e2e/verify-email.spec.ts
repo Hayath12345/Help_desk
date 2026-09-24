@@ -65,7 +65,9 @@ test.describe('email verification', () => {
         await elsewhere.getByLabel('Password', { exact: true }).fill(password);
         await elsewhere.getByRole('button', { name: 'Sign in', exact: true }).click();
       };
-      const signInCard = elsewhere.getByRole('heading', { name: 'Sign in to confirm this address' });
+      const signInCard = elsewhere.getByRole('heading', {
+        name: 'Sign in to confirm this address',
+      });
 
       await elsewhere.goto(link);
       await expect(signInCard).toBeVisible();

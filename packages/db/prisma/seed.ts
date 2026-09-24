@@ -691,7 +691,9 @@ async function main(): Promise<void> {
       log(`demo: ${formatCounts(demoBefore, demoAfter)}`);
       log(`next ticket number: ${formatTicketNumber(must(nextTicket, 'next ticket'))}`);
     } else {
-      log('demo: skipped (needs SEED_DEMO_DATA=true and NODE_ENV=development or test; `pnpm db:seed` sets development)');
+      log(
+        'demo: skipped (needs SEED_DEMO_DATA=true and NODE_ENV=development or test; `pnpm db:seed` sets development)',
+      );
     }
     log(`done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
   } finally {
@@ -708,7 +710,8 @@ function describeError(error: unknown): string {
   const rawCode = (error as { code?: unknown }).code;
   const code = typeof rawCode === 'string' ? `[${rawCode}] ` : '';
   const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase() ?? '';
-  if ((DEMO_NODE_ENVS as readonly string[]).includes(nodeEnv)) return `${code}${error.stack ?? error.message}`;
+  if ((DEMO_NODE_ENVS as readonly string[]).includes(nodeEnv))
+    return `${code}${error.stack ?? error.message}`;
   const lastLine = error.message
     .split('\n')
     .map((line) => line.trim())

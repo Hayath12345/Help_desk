@@ -51,7 +51,11 @@ export function HelpCenter({ articles }: HelpCenterProps) {
 
       <Card className="gap-0 py-0">
         {articles.length === 0 ? (
-          <EmptyState icon={<BookOpen />} title={t('emptyTitle')} description={t('emptyDescription')} />
+          <EmptyState
+            icon={<BookOpen />}
+            title={t('emptyTitle')}
+            description={t('emptyDescription')}
+          />
         ) : visible.length === 0 ? (
           <p className="p-5 text-ink-muted" role="status">
             {t('noMatch', { query: trimmed })}
@@ -63,7 +67,9 @@ export function HelpCenter({ articles }: HelpCenterProps) {
                 key={article.id}
                 article={article}
                 open={openId === article.id}
-                onToggle={() => setOpenId((current) => (current === article.id ? null : article.id))}
+                onToggle={() =>
+                  setOpenId((current) => (current === article.id ? null : article.id))
+                }
               />
             ))}
           </ul>

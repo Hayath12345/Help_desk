@@ -36,7 +36,11 @@ export function startWorkers(deps: WorkerDeps): Workers {
       processor: createEmailProcessor(deps.emailProvider, deps.logger) as Processor,
       concurrency: deps.concurrency?.email ?? 5,
     },
-    { name: QUEUE_NAMES.notifications, processor: placeholder, concurrency: deps.concurrency?.notifications ?? 5 },
+    {
+      name: QUEUE_NAMES.notifications,
+      processor: placeholder,
+      concurrency: deps.concurrency?.notifications ?? 5,
+    },
     { name: QUEUE_NAMES.sla, processor: placeholder, concurrency: deps.concurrency?.sla ?? 1 },
   ];
 
@@ -51,7 +55,12 @@ export function startWorkers(deps: WorkerDeps): Workers {
         void recordDeadLetter({ redis: deps.redis, prefix, logger: deps.logger }, job, err);
       } else {
         deps.logger.warn(
-          { queue: name, jobId: job.id, attemptsMade: job.attemptsMade, attempts: job.opts.attempts },
+          {
+            queue: name,
+            jobId: job.id,
+            attemptsMade: job.attemptsMade,
+            attempts: job.opts.attempts,
+          },
           'job failed; will retry',
         );
       }

@@ -39,7 +39,11 @@ export async function recordDeadLetter(
   deps.logger.error({ deadLetter: record }, 'job moved to dead letter');
   const key = `${deps.prefix}:${DEAD_LETTER_LIST}`;
   try {
-    await deps.redis.multi().lpush(key, JSON.stringify(record)).ltrim(key, 0, DEAD_LETTER_MAX - 1).exec();
+    await deps.redis
+      .multi()
+      .lpush(key, JSON.stringify(record))
+      .ltrim(key, 0, DEAD_LETTER_MAX - 1)
+      .exec();
   } catch (err) {
     deps.logger.error({ err }, 'could not store dead-letter record');
   }

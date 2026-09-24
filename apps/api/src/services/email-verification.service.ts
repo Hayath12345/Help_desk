@@ -1,12 +1,22 @@
 import type { PrismaClient } from '@loons/db';
 import type { EmailTemplateKey, RenderedEmail } from '@loons/emails';
-import { WEB_ROUTES, type AuthUser, type EmailLinkOwner, type Locale, type VerifyEmailInput } from '@loons/shared';
+import {
+  WEB_ROUTES,
+  type AuthUser,
+  type EmailLinkOwner,
+  type Locale,
+  type VerifyEmailInput,
+} from '@loons/shared';
 import type { AppConfig } from '../config.ts';
 import { authUserSelect, toAuthUser, type PrincipalStore } from '../lib/actor.ts';
 import { errors } from '../lib/errors.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import type { AppQueues } from '../lib/queues.ts';
-import { EMAIL_VERIFICATION_TOKEN_TTL_HOURS, generateOneTimeToken, hashToken } from '../lib/tokens.ts';
+import {
+  EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+  generateOneTimeToken,
+  hashToken,
+} from '../lib/tokens.ts';
 import { renderStoredTemplate } from './email-templates.ts';
 
 // Client self-signup must prove mailbox ownership before the account can see its organisation's
@@ -51,7 +61,11 @@ export interface EmailVerificationService {
    */
   verify(input: VerifyEmailInput): Promise<AuthUser>;
   /** Renders the email from the EmailTemplate row (or the built-in default). */
-  renderVerificationEmail(args: { name: string; locale: Locale; verifyUrl: string }): Promise<RenderedEmail>;
+  renderVerificationEmail(args: {
+    name: string;
+    locale: Locale;
+    verifyUrl: string;
+  }): Promise<RenderedEmail>;
 }
 
 export function createEmailVerificationService(deps: {
@@ -63,7 +77,15 @@ export function createEmailVerificationService(deps: {
 }): EmailVerificationService {
   const { prisma, queues, principals, config, logger } = deps;
 
-  async function renderVerificationEmail({ name, locale, verifyUrl }: { name: string; locale: Locale; verifyUrl: string }) {
+  async function renderVerificationEmail({
+    name,
+    locale,
+    verifyUrl,
+  }: {
+    name: string;
+    locale: Locale;
+    verifyUrl: string;
+  }) {
     return renderStoredTemplate(prisma, EMAIL_VERIFICATION_TEMPLATE_KEY, {
       locale,
       // Same names as the seeded EMAIL_VERIFICATION row's `variables`.
@@ -72,7 +94,10 @@ export function createEmailVerificationService(deps: {
     });
   }
 
-  async function sendVerification(user: VerificationRecipient, locale: Locale = user.locale): Promise<void> {
+  async function sendVerification(
+    user: VerificationRecipient,
+    locale: Locale = user.locale,
+  ): Promise<void> {
     const { token, tokenHash } = generateOneTimeToken();
     const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 3_600_000);
     const record = await prisma.$transaction(async (tx) => {
@@ -87,7 +112,13 @@ export function createEmailVerificationService(deps: {
     const verifyUrl = `${config.appUrl}${WEB_ROUTES.verifyEmailConfirm}?token=${encodeURIComponent(token)}`;
     const message = await renderVerificationEmail({ name: user.name, locale, verifyUrl });
     const jobId = await queues.enqueueEmail(
-      { to: user.email, subject: message.subject, html: message.html, text: message.text, tag: 'email-verification' },
+      {
+        to: user.email,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        tag: 'email-verification',
+      },
       {
         jobId: `email-verification-${record.id}`,
         // The payload carries a live verification link: don't keep it in Redis once sent.
@@ -98,13 +129,31 @@ export function createEmailVerificationService(deps: {
     logger.info({ userId: user.id, jobId }, 'email verification queued');
   }
 
-  async function requestResend(input: { userId: string; locale?: Locale | undefined }): Promise<void> {
+  async function requestResend(input: {
+    userId: string;
+    locale?: Locale | undefined;
+  }): Promise<void> {
     const user = await prisma.user.findUnique({
       where: { id: input.userId },
-      select: { id: true, email: true, name: true, role: true, status: true, locale: true, emailVerifiedAt: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        locale: true,
+        emailVerifiedAt: true,
+      },
     });
-    if (!user || user.role !== 'CLIENT' || user.status === 'DISABLED' || user.emailVerifiedAt !== null) {
-      logger.debug('verification email requested for an ineligible or unknown account; nothing sent');
+    if (
+      !user ||
+      user.role !== 'CLIENT' ||
+      user.status === 'DISABLED' ||
+      user.emailVerifiedAt !== null
+    ) {
+      logger.debug(
+        'verification email requested for an ineligible or unknown account; nothing sent',
+      );
       return;
     }
     await sendVerification(user, input.locale ?? user.locale);
@@ -122,7 +171,12 @@ export function createEmailVerificationService(deps: {
         user: { select: { email: true, status: true } },
       },
     });
-    if (!record || record.usedAt !== null || record.expiresAt <= now || record.user.status === 'DISABLED') {
+    if (
+      !record ||
+      record.usedAt !== null ||
+      record.expiresAt <= now ||
+      record.user.status === 'DISABLED'
+    ) {
       throw errors.verifyTokenInvalid();
     }
     return record;
@@ -146,8 +200,13 @@ export function createEmailVerificationService(deps: {
         data: { usedAt: now },
       });
       if (claimed.count !== 1) throw errors.verifyTokenInvalid();
-      await tx.user.updateMany({ where: { id: record.userId, emailVerifiedAt: null }, data: { emailVerifiedAt: now } });
-      await tx.emailVerificationToken.deleteMany({ where: { userId: record.userId, id: { not: record.id } } });
+      await tx.user.updateMany({
+        where: { id: record.userId, emailVerifiedAt: null },
+        data: { emailVerifiedAt: now },
+      });
+      await tx.emailVerificationToken.deleteMany({
+        where: { userId: record.userId, id: { not: record.id } },
+      });
       return tx.user.findUniqueOrThrow({ where: { id: record.userId }, select: authUserSelect });
     });
     // After the commit, so the next request sees the verified principal.

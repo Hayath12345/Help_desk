@@ -4,10 +4,17 @@ import type { AppConfig } from '../config.ts';
 import type { PrincipalStore } from '../lib/actor.ts';
 import type { AppQueues } from '../lib/queues.ts';
 import { createAuthService, type AuthService } from './auth.service.ts';
-import { createEmailVerificationService, type EmailVerificationService } from './email-verification.service.ts';
+import {
+  createEmailVerificationService,
+  type EmailVerificationService,
+} from './email-verification.service.ts';
 import { createMeService, type MeService } from './me.service.ts';
 import { createPasswordResetService, type PasswordResetService } from './password-reset.service.ts';
-import { createSessionsService, type SessionsService, type SocketDisconnector } from './sessions.service.ts';
+import {
+  createSessionsService,
+  type SessionsService,
+  type SocketDisconnector,
+} from './sessions.service.ts';
 
 export {
   REVOKE_SESSIONS_DATA,

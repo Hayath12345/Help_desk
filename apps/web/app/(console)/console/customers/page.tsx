@@ -11,8 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /** Design 979: requester · client · contract · open · total. */
-const CUSTOMER_COLUMNS =
-  'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_90px_90px]';
+const CUSTOMER_COLUMNS = 'grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_90px_90px]';
 
 function CustomerRowSkeleton({ index }: { index: number }) {
   return (
@@ -43,7 +42,10 @@ export default async function CustomersPage() {
         title={t('title')}
         description={<Skeleton className="mt-1 h-3.5 w-64 max-w-full rounded-sm" />}
       />
-      <LoadingRegion label={t('loading')} className="overflow-x-auto rounded-xl border border-line bg-surface">
+      <LoadingRegion
+        label={t('loading')}
+        className="overflow-x-auto rounded-xl border border-line bg-surface"
+      >
         <div className="min-w-[760px]">
           <GridTableHeader
             columns={CUSTOMER_COLUMNS}

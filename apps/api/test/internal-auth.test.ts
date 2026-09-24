@@ -12,7 +12,10 @@ describe('internal API key', () => {
   });
 
   it('401 UNAUTHENTICATED without the key', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: `/internal/auth/users/${randomUUID()}` });
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: `/internal/auth/users/${randomUUID()}`,
+    });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe('UNAUTHENTICATED');
   });
@@ -43,7 +46,11 @@ describe('internal API key', () => {
     const { user, org } = await ctx.fixtures.client({ status: 'DISABLED' });
     const team = await ctx.fixtures.team();
     await ctx.fixtures.member(team.id, user.id);
-    const res = await ctx.app.inject({ method: 'GET', url: `/internal/auth/users/${user.id}`, headers: ctx.internalHeaders() });
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: `/internal/auth/users/${user.id}`,
+      headers: ctx.internalHeaders(),
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json().user).toEqual({
       id: user.id,
@@ -60,7 +67,11 @@ describe('internal API key', () => {
   });
 
   it('rejects a malformed user id with 400', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/internal/auth/users/not-a-uuid', headers: ctx.internalHeaders() });
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/internal/auth/users/not-a-uuid',
+      headers: ctx.internalHeaders(),
+    });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_FAILED');
   });

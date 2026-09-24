@@ -16,7 +16,12 @@ describe('POST /internal/auth/login', () => {
   });
 
   const login = (c: TestContext, payload: Record<string, unknown>) =>
-    c.app.inject({ method: 'POST', url: '/internal/auth/login', headers: c.internalHeaders(), payload });
+    c.app.inject({
+      method: 'POST',
+      url: '/internal/auth/login',
+      headers: c.internalHeaders(),
+      payload,
+    });
 
   it('signs in an active client and records lastLoginAt', async () => {
     const { user, org } = await ctx.fixtures.client({ locale: 'ar' });
@@ -85,43 +90,75 @@ describe('POST /internal/auth/login', () => {
 
   it('staff email on the client sign-in page → 403 STAFF_MUST_USE_SSO', async () => {
     const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain });
-    const res = await login(ctx, { email: staff.email, password: TEST_PASSWORD, audience: 'client' });
+    const res = await login(ctx, {
+      email: staff.email,
+      password: TEST_PASSWORD,
+      audience: 'client',
+    });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('STAFF_MUST_USE_SSO');
   });
 
   it('staff role with a non-staff email on the client page → 403 STAFF_MUST_USE_SSO', async () => {
     const staff = await ctx.fixtures.user({ role: 'TEAM_LEAD' });
-    const res = await login(ctx, { email: staff.email, password: TEST_PASSWORD, audience: 'client' });
+    const res = await login(ctx, {
+      email: staff.email,
+      password: TEST_PASSWORD,
+      audience: 'client',
+    });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('STAFF_MUST_USE_SSO');
   });
 
   it('staff password sign-in works on the staff page when the dev flag is on', async () => {
-    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, role: 'SUPER_ADMIN' });
+    const staff = await ctx.fixtures.staff({
+      staffDomain: ctx.config.staffEmailDomain,
+      role: 'SUPER_ADMIN',
+    });
     const team = await ctx.fixtures.team();
     await ctx.fixtures.member(team.id, staff.id, 'LEAD');
-    const res = await login(ctx, { email: staff.email, password: TEST_PASSWORD, audience: 'staff' });
+    const res = await login(ctx, {
+      email: staff.email,
+      password: TEST_PASSWORD,
+      audience: 'staff',
+    });
     expect(res.statusCode).toBe(200);
-    expect(res.json().user).toMatchObject({ id: staff.id, role: 'SUPER_ADMIN', orgId: null, teamIds: [team.id] });
+    expect(res.json().user).toMatchObject({
+      id: staff.id,
+      role: 'SUPER_ADMIN',
+      orgId: null,
+      teamIds: [team.id],
+    });
   });
 
   it('dev flag off → staff password sign-in is refused with STAFF_MUST_USE_SSO', async () => {
     const staff = await noDevCtx.fixtures.staff({ staffDomain: noDevCtx.config.staffEmailDomain });
-    const res = await login(noDevCtx, { email: staff.email, password: TEST_PASSWORD, audience: 'staff' });
+    const res = await login(noDevCtx, {
+      email: staff.email,
+      password: TEST_PASSWORD,
+      audience: 'staff',
+    });
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('STAFF_MUST_USE_SSO');
 
     // Also for a staff role on a non-staff domain.
     const other = await noDevCtx.fixtures.user({ role: 'AGENT' });
-    const res2 = await login(noDevCtx, { email: other.email, password: TEST_PASSWORD, audience: 'staff' });
+    const res2 = await login(noDevCtx, {
+      email: other.email,
+      password: TEST_PASSWORD,
+      audience: 'staff',
+    });
     expect(res2.statusCode).toBe(403);
     expect(res2.json().error.code).toBe('STAFF_MUST_USE_SSO');
   });
 
   it('the dev flag is always off in production', async () => {
     const { loadConfig } = await import('../src/config.ts');
-    const prod = loadConfig({ ...process.env, NODE_ENV: 'production', AUTH_DEV_STAFF_LOGIN: 'true' });
+    const prod = loadConfig({
+      ...process.env,
+      NODE_ENV: 'production',
+      AUTH_DEV_STAFF_LOGIN: 'true',
+    });
     expect(prod.devStaffLogin).toBe(false);
   });
 });

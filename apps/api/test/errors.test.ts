@@ -18,7 +18,11 @@ describe('error responses', () => {
   });
 
   it('unknown route → 404 NOT_FOUND in the contract shape with the request id', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/does-not-exist', headers: { 'x-request-id': 'trace-abcdef12' } });
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: '/does-not-exist',
+      headers: { 'x-request-id': 'trace-abcdef12' },
+    });
     expect(res.statusCode).toBe(404);
     const body = apiErrorSchema.parse(res.json());
     expect(body.error.code).toBe('NOT_FOUND');
@@ -36,12 +40,24 @@ describe('error responses', () => {
     expect(res.statusCode).toBe(400);
     const body = apiErrorSchema.parse(res.json());
     expect(body.error.code).toBe('VALIDATION_FAILED');
-    const details = body.error.details as Array<{ path: string[]; message: string; location: string }>;
+    const details = body.error.details as Array<{
+      path: string[];
+      message: string;
+      location: string;
+    }>;
     expect(details).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ location: 'body', path: ['name'], message: 'validation.nameMin' }),
+        expect.objectContaining({
+          location: 'body',
+          path: ['name'],
+          message: 'validation.nameMin',
+        }),
         expect.objectContaining({ location: 'body', path: ['email'], message: 'validation.email' }),
-        expect.objectContaining({ location: 'body', path: ['password'], message: 'validation.passwordMin' }),
+        expect.objectContaining({
+          location: 'body',
+          path: ['password'],
+          message: 'validation.passwordMin',
+        }),
       ]),
     );
   });

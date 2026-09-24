@@ -116,11 +116,17 @@ export function EmailLayout({ locale, preview, children }: EmailLayoutProps) {
           <Section style={{ padding: '20px 4px 0' }}>
             <Hr style={{ borderColor: emailColors.border, margin: '0 0 16px' }} />
             <Text
-              style={textStyle(dir, { fontSize: '12px', color: emailColors.inkSubtle, margin: '0 0 4px' })}
+              style={textStyle(dir, {
+                fontSize: '12px',
+                color: emailColors.inkSubtle,
+                margin: '0 0 4px',
+              })}
             >
               {strings.automated}
             </Text>
-            <Text style={textStyle(dir, { fontSize: '12px', color: emailColors.inkSubtle, margin: 0 })}>
+            <Text
+              style={textStyle(dir, { fontSize: '12px', color: emailColors.inkSubtle, margin: 0 })}
+            >
               {strings.footer}
             </Text>
           </Section>

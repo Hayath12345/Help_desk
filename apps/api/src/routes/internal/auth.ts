@@ -53,14 +53,17 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     'onRequest',
     internalKeyGuard(app.config.internalApiKey, async (req) => {
       const result = await keyFailures(req);
-      if (!result.isAllowed && result.isExceeded) throw errors.rateLimited(Math.max(1, result.ttlInSeconds));
+      if (!result.isAllowed && result.isExceeded)
+        throw errors.rateLimited(Math.max(1, result.ttlInSeconds));
     }),
   );
   let warnedMissingClientIp = false;
   app.addHook('onRequest', async (req) => {
     if (!req.headers[CLIENT_IP_HEADER] && !warnedMissingClientIp) {
       warnedMissingClientIp = true;
-      req.log.warn('internal call without x-client-ip; per-IP rate limits are skipped (per-email, per-user and global limits still apply)');
+      req.log.warn(
+        'internal call without x-client-ip; per-IP rate limits are skipped (per-email, per-user and global limits still apply)',
+      );
     }
   });
 
@@ -108,7 +111,11 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     ],
     failClosed,
   );
-  const oauthLimit = limitGuard(app, [{ name: 'oauth:ip', max: 60, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const oauthLimit = limitGuard(
+    app,
+    [{ name: 'oauth:ip', max: 60, windowMs: 15 * MINUTE, key: ip }],
+    failClosed,
+  );
   const registerLimit = limitGuard(
     app,
     [{ name: 'register:ip', max: 5, windowMs: HOUR, key: ip }, globalRule('register')],
@@ -122,7 +129,11 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     ],
     failClosed,
   );
-  const resetLimit = limitGuard(app, [{ name: 'reset:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const resetLimit = limitGuard(
+    app,
+    [{ name: 'reset:ip', max: 10, windowMs: 15 * MINUTE, key: ip }],
+    failClosed,
+  );
   const linkLimit = limitGuard(
     app,
     [{ name: 'link:ip', max: 30, windowMs: 15 * MINUTE, key: ip }, globalRule('link')],
@@ -206,7 +217,8 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 201: userResponse, ...errorResponses(400, 401, 403, 409, 429, 503) },
       },
     },
-    async (req, reply) => reply.code(201).send({ user: await app.services.auth.register(req.body) }),
+    async (req, reply) =>
+      reply.code(201).send({ user: await app.services.auth.register(req.body) }),
   );
 
   app.post(
@@ -225,7 +237,9 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       const input = req.body;
       // Finished after the response so timing never reveals whether the account exists.
-      app.background.run('password-reset-request', () => app.services.passwordReset.requestReset(input));
+      app.background.run('password-reset-request', () =>
+        app.services.passwordReset.requestReset(input),
+      );
       return reply.code(202).send({ ok: true });
     },
   );
@@ -298,7 +312,9 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       const input = req.body;
       // Finished after the response, like the password reset request.
-      app.background.run('email-verification-resend', () => app.services.emailVerification.requestResend(input));
+      app.background.run('email-verification-resend', () =>
+        app.services.emailVerification.requestResend(input),
+      );
       return reply.code(202).send({ ok: true });
     },
   );

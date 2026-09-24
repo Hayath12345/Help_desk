@@ -59,7 +59,10 @@ export function usePrettyLogs(config: Pick<AppConfig, 'isProduction'>): boolean 
   return Boolean(process.stdout.isTTY) && !config.isProduction;
 }
 
-export function loggerOptions(config: Pick<AppConfig, 'logLevel' | 'isProduction' | 'env'>, name: string): LoggerOptions {
+export function loggerOptions(
+  config: Pick<AppConfig, 'logLevel' | 'isProduction' | 'env'>,
+  name: string,
+): LoggerOptions {
   const pretty = usePrettyLogs(config) && config.logLevel !== 'silent';
   return {
     name,
@@ -78,6 +81,9 @@ export function loggerOptions(config: Pick<AppConfig, 'logLevel' | 'isProduction
   };
 }
 
-export function createLogger(config: Pick<AppConfig, 'logLevel' | 'isProduction' | 'env'>, name: string): Logger {
+export function createLogger(
+  config: Pick<AppConfig, 'logLevel' | 'isProduction' | 'env'>,
+  name: string,
+): Logger {
   return pino(loggerOptions(config, name));
 }

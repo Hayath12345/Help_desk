@@ -64,7 +64,10 @@ export default async function TeamQueuePage() {
   const t = await getTranslations('console.queue');
 
   const table = (
-    <LoadingRegion label={t('loading')} className="overflow-x-auto rounded-xl border border-line bg-surface">
+    <LoadingRegion
+      label={t('loading')}
+      className="overflow-x-auto rounded-xl border border-line bg-surface"
+    >
       <div className="min-w-[980px]">
         <GridTableHeader
           columns={QUEUE_COLUMNS}

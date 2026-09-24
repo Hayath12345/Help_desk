@@ -7,5 +7,7 @@ export type { EmailProvider, OutgoingEmail } from './provider.ts';
 
 /** EMAIL_PROVIDER=smtp (default, Mailpit locally) | ses (AWS). */
 export function createEmailProvider(config: Pick<AppConfig, 'email'>): EmailProvider {
-  return config.email.provider === 'ses' ? createSesEmailProvider(config) : createSmtpEmailProvider(config);
+  return config.email.provider === 'ses'
+    ? createSesEmailProvider(config)
+    : createSmtpEmailProvider(config);
 }

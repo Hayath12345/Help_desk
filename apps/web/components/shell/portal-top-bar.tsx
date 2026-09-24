@@ -28,12 +28,23 @@ export function PortalTopBar({ user }: { user: ShellUser }) {
 
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-2 border-b border-line bg-surface px-4 sm:gap-6 sm:px-6">
-      <Link href="/tickets" className="flex shrink-0 items-center rounded-sm text-ink no-underline hover:text-ink">
+      <Link
+        href="/tickets"
+        className="flex shrink-0 items-center rounded-sm text-ink no-underline hover:text-ink"
+      >
         <Logo suffix={tc('support')} compact />
       </Link>
-      <nav aria-label={t('label')} className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto no-scrollbar sm:gap-1">
+      <nav
+        aria-label={t('label')}
+        className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto no-scrollbar sm:gap-1"
+      >
         {PORTAL_NAV.map((item) => (
-          <TopNavLink key={item.key} href={item.href} active={isActive(pathname, item.href)} className="max-sm:px-2">
+          <TopNavLink
+            key={item.key}
+            href={item.href}
+            active={isActive(pathname, item.href)}
+            className="max-sm:px-2"
+          >
             {t(item.key)}
           </TopNavLink>
         ))}

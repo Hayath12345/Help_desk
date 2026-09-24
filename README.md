@@ -15,17 +15,17 @@ The UI follows the approved design in [`design/Loons Help Desk_final.html`](desi
 
 ## Stack
 
-| Layer | Choice |
-|---|---|
-| Monorepo | pnpm 12 workspaces + Turborepo, TypeScript (strict) everywhere |
-| Web | Next.js 16 (App Router, Turbopack), Tailwind CSS 4, shadcn/ui (Radix), Motion, TanStack Query, React Hook Form + Zod, next-intl (EN/AR) |
-| API | Fastify 5 (REST) + Zod + OpenAPI (`/docs`), Socket.IO (Redis adapter) |
-| Jobs | BullMQ + Redis (separate worker process) |
-| Database | PostgreSQL 16 + Prisma 7 (migrations committed) |
-| Auth | Auth.js v5 in the web app — clients: email/password (argon2id) + Google; staff: Microsoft Entra ID. Short-lived JWTs for API + socket |
-| Files | S3-compatible storage (MinIO locally, S3 on AWS) via AWS SDK v3 |
-| Email / SMS | React Email templates → SMTP (Mailpit) locally / SES on AWS · SMS console logger locally / SNS on AWS |
-| Tests | Vitest (unit/integration), Playwright (E2E) |
+| Layer       | Choice                                                                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Monorepo    | pnpm 12 workspaces + Turborepo, TypeScript (strict) everywhere                                                                          |
+| Web         | Next.js 16 (App Router, Turbopack), Tailwind CSS 4, shadcn/ui (Radix), Motion, TanStack Query, React Hook Form + Zod, next-intl (EN/AR) |
+| API         | Fastify 5 (REST) + Zod + OpenAPI (`/docs`), Socket.IO (Redis adapter)                                                                   |
+| Jobs        | BullMQ + Redis (separate worker process)                                                                                                |
+| Database    | PostgreSQL 16 + Prisma 7 (migrations committed)                                                                                         |
+| Auth        | Auth.js v5 in the web app — clients: email/password (argon2id) + Google; staff: Microsoft Entra ID. Short-lived JWTs for API + socket   |
+| Files       | S3-compatible storage (MinIO locally, S3 on AWS) via AWS SDK v3                                                                         |
+| Email / SMS | React Email templates → SMTP (Mailpit) locally / SES on AWS · SMS console logger locally / SNS on AWS                                   |
+| Tests       | Vitest (unit/integration), Playwright (E2E)                                                                                             |
 
 ## Repository layout
 
@@ -56,6 +56,7 @@ loons-helpdesk/
 - **Docker Desktop** (with Docker Compose)
 
 > **Windows**
+>
 > - Clone to a **short path** (for example `C:\src\loons-helpdesk`). pnpm writes files with ~130-character names under
 >   `node_modules`, so a deep folder (OneDrive, long user paths) exceeds the 260-character limit and every `pnpm`
 >   script fails with `os error 3`. Alternatively enable long paths (`LongPathsEnabled=1`) and run
@@ -84,12 +85,12 @@ Everything else works as-is for local development.
 docker compose up -d
 ```
 
-| Service | URL |
-|---|---|
-| PostgreSQL | `localhost:5432` (loons / loons) |
-| Redis | `localhost:6379` |
-| MinIO (S3) | API `localhost:9000` · console http://localhost:9001 (loons / loons-local-secret) |
-| Mailpit (email inbox) | http://localhost:8025 |
+| Service               | URL                                                                               |
+| --------------------- | --------------------------------------------------------------------------------- |
+| PostgreSQL            | `localhost:5432` (loons / loons)                                                  |
+| Redis                 | `localhost:6379`                                                                  |
+| MinIO (S3)            | API `localhost:9000` · console http://localhost:9001 (loons / loons-local-secret) |
+| Mailpit (email inbox) | http://localhost:8025                                                             |
 
 ### 3. Install, migrate, seed
 
@@ -112,20 +113,20 @@ This starts the **web app** (http://localhost:3000), the **API** (http://localho
 
 All demo accounts use the password **`LoonsDemo2026`** (`SEED_DEMO_PASSWORD`).
 
-| Role | Email | Signs in at | Lands on |
-|---|---|---|---|
-| Client — Hamad Medical Corporation | `aisha.alkuwari@hamad.qa` | `/login` | `/tickets` |
-| Client — QNB | `khalid.mansouri@qnb.com` | `/login` | `/tickets` |
-| Client — Ooredoo | `f.alsulaiti@ooredoo.qa` | `/login` | `/tickets` |
-| Client — Ministry of Interior (Arabic UI) | `o.alnaimi@moi.gov.qa` | `/login` | `/tickets` |
-| Agent — SOC | `maya.ruiz@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Agent — NOC, DC Ops | `theo.kim@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Agent — ELV Field, BMS, AV | `priya.shah@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Agent — IT Service Desk, Software, Triage | `sam.okafor@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Agent — Account Management (account managers) | `rashid.hamdan@loonsgroup.com`, `lina.haddad@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Team Lead — SOC, NOC, DC Ops | `karim.nasser@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Team Lead — ELV Field, BMS, AV, IT Service Desk, Software, Account Management, Triage | `hana.yousef@loonsgroup.com` | `/staff/login` | `/console/inbox` |
-| Super Admin (operations manager) | `noor.alkaabi@loonsgroup.com` | `/staff/login` | `/admin` |
+| Role                                                                                  | Email                                                        | Signs in at    | Lands on         |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------- | ---------------- |
+| Client — Hamad Medical Corporation                                                    | `aisha.alkuwari@hamad.qa`                                    | `/login`       | `/tickets`       |
+| Client — QNB                                                                          | `khalid.mansouri@qnb.com`                                    | `/login`       | `/tickets`       |
+| Client — Ooredoo                                                                      | `f.alsulaiti@ooredoo.qa`                                     | `/login`       | `/tickets`       |
+| Client — Ministry of Interior (Arabic UI)                                             | `o.alnaimi@moi.gov.qa`                                       | `/login`       | `/tickets`       |
+| Agent — SOC                                                                           | `maya.ruiz@loonsgroup.com`                                   | `/staff/login` | `/console/inbox` |
+| Agent — NOC, DC Ops                                                                   | `theo.kim@loonsgroup.com`                                    | `/staff/login` | `/console/inbox` |
+| Agent — ELV Field, BMS, AV                                                            | `priya.shah@loonsgroup.com`                                  | `/staff/login` | `/console/inbox` |
+| Agent — IT Service Desk, Software, Triage                                             | `sam.okafor@loonsgroup.com`                                  | `/staff/login` | `/console/inbox` |
+| Agent — Account Management (account managers)                                         | `rashid.hamdan@loonsgroup.com`, `lina.haddad@loonsgroup.com` | `/staff/login` | `/console/inbox` |
+| Team Lead — SOC, NOC, DC Ops                                                          | `karim.nasser@loonsgroup.com`                                | `/staff/login` | `/console/inbox` |
+| Team Lead — ELV Field, BMS, AV, IT Service Desk, Software, Account Management, Triage | `hana.yousef@loonsgroup.com`                                 | `/staff/login` | `/console/inbox` |
+| Super Admin (operations manager)                                                      | `noor.alkaabi@loonsgroup.com`                                | `/staff/login` | `/admin`         |
 
 Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, the staff page shows a
 **development-only** password form (`AUTH_DEV_STAFF_LOGIN=true`; always disabled when `NODE_ENV=production`).
@@ -134,19 +135,19 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 
 ## Scripts
 
-| Command | What it does |
-|---|---|
-| `pnpm dev` | web + API + worker in watch mode |
-| `pnpm build` | production build of every package |
-| `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint across the repo |
-| `pnpm format` / `pnpm format:check` | Prettier (write / verify) across the repo |
-| `pnpm test` | unit + integration tests (needs `docker compose up`) |
-| `pnpm test:e2e` | Playwright E2E (see [End-to-end tests](#end-to-end-tests)) |
-| `pnpm db:migrate` | create/apply migrations in development |
-| `pnpm db:deploy` | apply committed migrations (CI / production) |
-| `pnpm db:seed` | seed configuration + demo data (idempotent) |
-| `pnpm db:reset` | drop the database, re-apply migrations and re-seed |
-| `pnpm db:studio` | Prisma Studio |
+| Command                                  | What it does                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `pnpm dev`                               | web + API + worker in watch mode                                               |
+| `pnpm build`                             | production build of every package                                              |
+| `pnpm typecheck` / `pnpm lint`           | TypeScript and ESLint across the repo                                          |
+| `pnpm format` / `pnpm format:check`      | Prettier (write / verify) across the repo                                      |
+| `pnpm test`                              | unit + integration tests (needs `docker compose up`)                           |
+| `pnpm test:e2e`                          | Playwright E2E (see [End-to-end tests](#end-to-end-tests))                     |
+| `pnpm db:migrate`                        | create/apply migrations in development                                         |
+| `pnpm db:deploy`                         | apply committed migrations (CI / production)                                   |
+| `pnpm db:seed`                           | seed configuration + demo data (idempotent)                                    |
+| `pnpm db:reset`                          | drop the database, re-apply migrations and re-seed                             |
+| `pnpm db:studio`                         | Prisma Studio                                                                  |
 | `pnpm --filter @loons/db db:cleanup-e2e` | delete the accounts E2E runs create (runs automatically after `pnpm test:e2e`) |
 
 ### End-to-end tests
@@ -166,20 +167,20 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - **Clients** sign in with email + password (argon2id) or Google. Self-sign-up is matched to an organisation by
   email domain (`Organization.emailDomains`), but the account sees **nothing until the email address is verified**
   through the emailed link (24 h, single use) — otherwise anyone could type an address on a client's domain and read
-  that organisation's tickets. An unmatched domain creates a *pending approval* account that also sees nothing until
+  that organisation's tickets. An unmatched domain creates a _pending approval_ account that also sees nothing until
   an admin links it to an organisation.
 - The confirmation link only confirms the address **inside that account's own signed-in session**, and only after a
   click on **Confirm** (a POST, so mail scanners that pre-fetch links can't verify an address). Opened signed out or
-  as another account, it shows *Sign in to confirm this address* instead; a mailbox owner who doesn't know the
-  password uses *Forgot password*, which replaces it and signs out every other session.
+  as another account, it shows _Sign in to confirm this address_ instead; a mailbox owner who doesn't know the
+  password uses _Forgot password_, which replaces it and signs out every other session.
 - The first time **Google** is linked to an account that has a password, the password is removed, every existing
-  session, API token and socket is revoked, and the owner is emailed (*Google sign-in was added to your account*):
+  session, API token and socket is revoked, and the owner is emailed (_Google sign-in was added to your account_):
   whoever chose that password may not own the mailbox.
 - **Staff** (`@loonsgroup.com`, `STAFF_EMAIL_DOMAIN`) sign in with Microsoft Entra ID (tenant-specific issuer only);
   the staff account must exist in the database.
 - The web app (Auth.js) keeps an encrypted session cookie and mints a **15-minute HS256 access token** for API and
   Socket.IO calls. The API re-loads the user from the database (cached ≤ 30 s), so role changes and disabled accounts
-  take effect quickly. Every user has a *session version*: a password reset bumps it, which immediately invalidates
+  take effect quickly. Every user has a _session version_: a password reset bumps it, which immediately invalidates
   all API tokens and open sockets and ends the web session at its next refresh (≤ 5 min). A socket also closes when
   the access token it connected with expires (clients fetch a new token and reconnect).
   Authorisation is enforced by the API — the UI only hides controls.
@@ -222,18 +223,19 @@ Enforce MFA with Entra Conditional Access.
 - **`Too many attempts`** (often during repeated `pnpm test:e2e` runs) — locally every request comes from the same
   address, so the per-IP auth limits fill up quickly. The current limits:
 
-  | Action | Limits |
-  |---|---|
-  | Sign-in | 10 per 15 min per IP + email · 50 per 15 min per IP · 30 per hour per email (successful sign-ins count too) |
-  | Forgot password | 5 per 15 min per IP + email · 5 per hour per email |
-  | Sign-up | 5 per hour per IP · 100 per hour overall |
-  | Resend verification email | 3 per 15 min per user · 10 per 15 min per IP · 100 per 15 min overall |
-  | Open / confirm a verification link | 30 / 10 per 15 min per IP · 600 / 300 per 15 min overall |
-  | Reset password (with a link) | 10 per 15 min per IP |
+  | Action                             | Limits                                                                                                      |
+  | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+  | Sign-in                            | 10 per 15 min per IP + email · 50 per 15 min per IP · 30 per hour per email (successful sign-ins count too) |
+  | Forgot password                    | 5 per 15 min per IP + email · 5 per hour per email                                                          |
+  | Sign-up                            | 5 per hour per IP · 100 per hour overall                                                                    |
+  | Resend verification email          | 3 per 15 min per user · 10 per 15 min per IP · 100 per 15 min overall                                       |
+  | Open / confirm a verification link | 30 / 10 per 15 min per IP · 600 / 300 per 15 min overall                                                    |
+  | Reset password (with a link)       | 10 per 15 min per IP                                                                                        |
 
   Per-IP limits only apply when the web app knows the client IP (`TRUSTED_PROXY_HOPS` ≥ 1); with `0` (development
   only) they are skipped and the per-email, per-user and overall limits remain. Wait for the window to pass or clear
   the counters: `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
+
 - **`os error 3` from every pnpm script on Windows** — the repository path is too long; see the Windows note under Prerequisites.
 
 ---

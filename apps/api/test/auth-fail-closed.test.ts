@@ -7,7 +7,11 @@ import { apiErrorSchema } from '@loons/shared';
 import { buildApp, type App } from '../src/app.ts';
 import type { AppConfig } from '../src/config.ts';
 import type { AppQueues } from '../src/lib/queues.ts';
-import { LIMIT_CHECK_TIMEOUT_MS, STORE_DOWN_RETRY_AFTER_SECONDS, limitGuard } from '../src/lib/rate-limit.ts';
+import {
+  LIMIT_CHECK_TIMEOUT_MS,
+  STORE_DOWN_RETRY_AFTER_SECONDS,
+  limitGuard,
+} from '../src/lib/rate-limit.ts';
 import { registerErrorHandling } from '../src/plugins/error-handler.ts';
 import { Fixtures, TEST_PASSWORD, mintToken, randomIp, testConfig, testEmail } from './helpers.ts';
 
@@ -59,8 +63,11 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
     await prisma.$disconnect();
   });
 
-  const post = (url: string, payload: Record<string, unknown>, headers: Record<string, string> = internal()) =>
-    app.inject({ method: 'POST', url: `/internal/auth${url}`, headers, payload });
+  const post = (
+    url: string,
+    payload: Record<string, unknown>,
+    headers: Record<string, string> = internal(),
+  ) => app.inject({ method: 'POST', url: `/internal/auth${url}`, headers, payload });
   function internal(): Record<string, string> {
     return { 'x-internal-api-key': config.internalApiKey, 'x-client-ip': randomIp() };
   }
@@ -87,29 +94,53 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
       }),
     );
     expectServiceUnavailable(
-      await post('/register', { name: 'Test User', company: 'Acme', email, password: 'Valid-pass-123', locale: 'en' }),
+      await post('/register', {
+        name: 'Test User',
+        company: 'Acme',
+        email,
+        password: 'Valid-pass-123',
+        locale: 'en',
+      }),
     );
     expectServiceUnavailable(await post('/password/forgot', { email, locale: 'en' }));
-    expectServiceUnavailable(await post('/password/reset', { token: 'x'.repeat(43), password: 'Valid-pass-123' }));
+    expectServiceUnavailable(
+      await post('/password/reset', { token: 'x'.repeat(43), password: 'Valid-pass-123' }),
+    );
     expectServiceUnavailable(await post('/email/link', { token: 'x'.repeat(43) }));
-    expectServiceUnavailable(await post('/email/verify', { token: 'x'.repeat(43), userId: crypto.randomUUID() }));
-    expectServiceUnavailable(await post('/email/resend', { userId: crypto.randomUUID(), locale: 'en' }));
+    expectServiceUnavailable(
+      await post('/email/verify', { token: 'x'.repeat(43), userId: crypto.randomUUID() }),
+    );
+    expectServiceUnavailable(
+      await post('/email/resend', { userId: crypto.randomUUID(), locale: 'en' }),
+    );
   });
 
   it('the route handlers never run (no sign-in recorded, no account created)', async () => {
     const { user } = await fixtures.client();
     expectServiceUnavailable(await post('/login', { email: user.email, password: TEST_PASSWORD }));
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).lastLoginAt).toBeNull();
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).lastLoginAt,
+    ).toBeNull();
 
     const email = fixtures.trackEmail(testEmail());
     expectServiceUnavailable(
-      await post('/register', { name: 'New User', company: 'Acme', email, password: 'Valid-pass-123', locale: 'en' }),
+      await post('/register', {
+        name: 'New User',
+        company: 'Acme',
+        email,
+        password: 'Valid-pass-123',
+        locale: 'en',
+      }),
     );
     expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
   });
 
   it('the internal key is still checked first (401 without it)', async () => {
-    const res = await post('/login', { email: testEmail(), password: 'x' }, { 'x-client-ip': randomIp() });
+    const res = await post(
+      '/login',
+      { email: testEmail(), password: 'x' },
+      { 'x-client-ip': randomIp() },
+    );
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe('UNAUTHENTICATED');
   });
@@ -124,7 +155,11 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
     expect(me.statusCode).toBe(200); // principal read from the database (cache down)
     expect((await app.inject({ method: 'GET', url: '/me' })).statusCode).toBe(401);
 
-    const lookup = await app.inject({ method: 'GET', url: `/internal/auth/users/${user.id}`, headers: internal() });
+    const lookup = await app.inject({
+      method: 'GET',
+      url: `/internal/auth/users/${user.id}`,
+      headers: internal(),
+    });
     expect(lookup.statusCode).toBe(200);
     expect(lookup.json().user).toMatchObject({ id: user.id, sessionVersion: 0 });
   });
@@ -134,7 +169,12 @@ describe('auth rate limits fail closed when Redis hangs', () => {
   it('a limiter check that never answers → 503 after the timeout', async () => {
     const config = testConfig({ socketRedisAdapter: false });
     const prisma = createPrismaClient({ url: config.databaseUrl, poolSize: 1 });
-    const app = await buildApp({ config, prisma, redis: unreachableRedis({ hang: true }), queues: queuesStub });
+    const app = await buildApp({
+      config,
+      prisma,
+      redis: unreachableRedis({ hang: true }),
+      queues: queuesStub,
+    });
     try {
       const started = Date.now();
       const res = await app.inject({
@@ -161,7 +201,11 @@ describe('limitGuard store-error policy', () => {
     registerErrorHandling(app);
     const rule = { name: 'unit', max: 1, windowMs: 60_000, key: () => 'k' };
     app.get('/closed', { preHandler: limitGuard(app, [rule]) }, async () => ({ ok: true }));
-    app.get('/open', { preHandler: limitGuard(app, [rule], { onStoreError: 'allow' }) }, async () => ({ ok: true }));
+    app.get(
+      '/open',
+      { preHandler: limitGuard(app, [rule], { onStoreError: 'allow' }) },
+      async () => ({ ok: true }),
+    );
     try {
       const closed = await app.inject({ method: 'GET', url: '/closed' });
       expect(closed.statusCode).toBe(503);

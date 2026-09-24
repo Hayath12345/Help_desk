@@ -86,6 +86,7 @@ A final security and UI re-review then found **5 more issues (below, section "Op
 ### 1. RR-SEC-1 (medium): pre-hijacking still possible via the confirm link
 
 **Attack:**
+
 1. The attacker registers `victim@<client-domain>` with the attacker's password.
 2. The victim receives a genuine verification email and clicks Confirm on the public `/verify-email/confirm` page, signed out. The account becomes verified.
 3. The victim later uses "Continue with Google". `linkAndTouch` in `apps/api/src/services/auth.service.ts` only clears the password and revokes sessions when `emailVerifiedAt IS NULL`, so here it just links.
@@ -93,6 +94,7 @@ A final security and UI re-review then found **5 more issues (below, section "Op
 The attacker keeps password access and valid tokens to the victim's account and org.
 
 **Fix (do both):**
+
 - (a) Accept a confirm link only inside the registrant's own signed-in session. When nobody or a different user is signed in, show "Sign in to confirm this address" (with the address shown) instead of verifying. A mailbox owner who doesn't know the password then goes through forgot-password, which already replaces the password and bumps `sessionVersion`.
 - (b) When Google is **first** linked to an account that has a password, always clear `passwordHash`, apply `REVOKE_SESSIONS_DATA` + `sessions.sessionsRevoked(userId)`, and queue an "A Google sign-in was added to your account" email (new template key, EN + AR, seeded + built-in default).
 

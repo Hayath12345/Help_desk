@@ -9,7 +9,9 @@ import type { AppLogger as Logger } from '../lib/logger.ts';
  * reset, disabling the account, a role change…) and call `sessions.sessionsRevoked(userId)` once
  * that transaction has committed.
  */
-export const REVOKE_SESSIONS_DATA = { sessionVersion: { increment: 1 } } as const satisfies Prisma.UserUpdateInput;
+export const REVOKE_SESSIONS_DATA = {
+  sessionVersion: { increment: 1 },
+} as const satisfies Prisma.UserUpdateInput;
 
 /** The realtime side of a revocation (implemented by the Socket.IO server). */
 export interface SocketDisconnector {
@@ -46,7 +48,10 @@ export function createSessionsService(deps: {
       sockets.disconnectUser(userId);
     } catch (err) {
       // The revocation itself has committed; a socket that stays open is closed at token expiry.
-      logger.warn({ err, userId }, 'could not disconnect the user’s sockets after revoking their sessions');
+      logger.warn(
+        { err, userId },
+        'could not disconnect the user’s sockets after revoking their sessions',
+      );
     }
   }
 

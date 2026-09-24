@@ -18,20 +18,20 @@ Work in phases. **At the end of each phase, stop, summarise what was built, list
 
 ## 2. Stack (do not substitute without asking)
 
-| Layer | Choice |
-|---|---|
-| Monorepo | pnpm workspaces + Turborepo, TypeScript strict everywhere |
-| Frontend | Next.js (App Router), Tailwind CSS, shadcn/ui (Radix), Motion, TanStack Query, React Hook Form + Zod, next-intl (EN/AR) |
-| API | Node + Fastify (REST), Zod validation, OpenAPI docs via fastify-swagger |
-| Realtime | Socket.IO (server in `apps/api`, client in `apps/web`); Redis adapter wired but switchable |
-| Database | PostgreSQL + Prisma (migrations committed) |
-| Jobs / queues | BullMQ + Redis (notifications, SLA checks, escalation) |
-| Auth | Auth.js for clients (email/password with argon2 + Google); staff via Microsoft Entra ID (OIDC). JWT for API + socket auth. MFA-ready for staff |
-| Files | S3-compatible storage via AWS SDK v3 (MinIO locally, S3 in prod), pre-signed uploads |
-| Email | React Email templates; SMTP transport locally (Mailpit), AWS SES in prod — behind one `EmailProvider` interface |
-| SMS | `SmsProvider` interface: console logger locally, AWS SNS in prod |
-| Teams alerts | Incoming webhook URL per team (stored in admin settings) |
-| Testing | Vitest (unit), Playwright (critical E2E flows) |
+| Layer         | Choice                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Monorepo      | pnpm workspaces + Turborepo, TypeScript strict everywhere                                                                                      |
+| Frontend      | Next.js (App Router), Tailwind CSS, shadcn/ui (Radix), Motion, TanStack Query, React Hook Form + Zod, next-intl (EN/AR)                        |
+| API           | Node + Fastify (REST), Zod validation, OpenAPI docs via fastify-swagger                                                                        |
+| Realtime      | Socket.IO (server in `apps/api`, client in `apps/web`); Redis adapter wired but switchable                                                     |
+| Database      | PostgreSQL + Prisma (migrations committed)                                                                                                     |
+| Jobs / queues | BullMQ + Redis (notifications, SLA checks, escalation)                                                                                         |
+| Auth          | Auth.js for clients (email/password with argon2 + Google); staff via Microsoft Entra ID (OIDC). JWT for API + socket auth. MFA-ready for staff |
+| Files         | S3-compatible storage via AWS SDK v3 (MinIO locally, S3 in prod), pre-signed uploads                                                           |
+| Email         | React Email templates; SMTP transport locally (Mailpit), AWS SES in prod — behind one `EmailProvider` interface                                |
+| SMS           | `SmsProvider` interface: console logger locally, AWS SNS in prod                                                                               |
+| Teams alerts  | Incoming webhook URL per team (stored in admin settings)                                                                                       |
+| Testing       | Vitest (unit), Playwright (critical E2E flows)                                                                                                 |
 
 ## 3. Repository structure
 
@@ -107,6 +107,7 @@ Rules: never hard-delete config records (archive with `isActive=false`); tickets
 Same design language as the agent console: left section nav, tables with drag-to-reorder, edit in a side sheet, live preview of the New Ticket form when editing categories/fields.
 
 Sections:
+
 1. **Categories & Sub-types** — CRUD, reorder, default priority, routed team, icon, EN/AR labels, archive/restore.
 2. **Custom fields** — types limited to: text, number, dropdown, multi-select, date, yes/no, asset ID. Required toggle. Assign to categories. Do **not** build a general form builder or conditional logic.
 3. **Teams & members** — team email list, Teams webhook URL, members.
@@ -138,6 +139,7 @@ On save: write `AdminAuditLog`, invalidate Redis config cache, emit `config:upda
 ## 13. Seed data (`pnpm db:seed`)
 
 Categories → team → sub-types (default priority):
+
 - Cybersecurity / SOC → SOC: Security alert / suspected incident (P1), Malware / ransomware (P1), Phishing report (P2), Unauthorised access / account compromise (P1), Firewall / VPN issue (P2), SIEM / SOAR alert or tuning (P3), Vulnerability / patch request (P3), Log source not reporting (P3)
 - Network & Connectivity → NOC: Site / link down (P1), Slow network / packet loss (P2), Wi-Fi coverage or access (P3), Switch / router fault (P2), VLAN / IP / DNS / DHCP change (P4), Structured cabling / fibre fault (P3), New port activation (P4)
 - Data Center & Servers → DC Ops: Server down / degraded (P1), Storage / backup failure (P2), Virtualisation issue (P2), Power / UPS alarm (P1), Cooling / environmental alarm (P1), Colocation / rack access (P4), Capacity request (P4)
@@ -159,10 +161,10 @@ Demo orgs/users and tickets matching the design (QNB, Hamad Medical Corporation,
 
 ## 14. Phases (stop after each for approval)
 
-1. **Foundation** — monorepo, Docker Compose, Prisma schema + migrations + seed, auth (client + staff, roles), design tokens + app shell for portal and console, EN/AR + RTL. *Done when:* both logins work and route correctly; `pnpm dev` runs cleanly from a fresh clone following the README.
-2. **Tickets & chat** — New Ticket modal driven by DB config (dependent sub-type, auto-priority, P1 banner, Security Incident behaviour, custom fields, attachments), My tickets, ticket thread, agent Inbox/queue/thread/right panel, Socket.IO realtime chat, internal notes, status/priority/assignee changes with optimistic UI and animations. *Done when:* the E2E realtime flow passes and the internal-note leak test passes.
-3. **SLA & notifications** — SLA calculation with business hours/holidays, SLA worker, email templates via Mailpit, Teams webhook, SMS provider, P1 acknowledge + escalation chain, daily P4 digest, in-app notifications. *Done when:* a P1 ticket produces email + Teams + SMS log, and escalates if not acknowledged.
-4. **Admin panel** — all eleven sections, audit log, live config refresh. *Done when:* adding a new category/sub-type/field in admin appears on an open New Ticket form without reload, and old tickets still render archived items.
+1. **Foundation** — monorepo, Docker Compose, Prisma schema + migrations + seed, auth (client + staff, roles), design tokens + app shell for portal and console, EN/AR + RTL. _Done when:_ both logins work and route correctly; `pnpm dev` runs cleanly from a fresh clone following the README.
+2. **Tickets & chat** — New Ticket modal driven by DB config (dependent sub-type, auto-priority, P1 banner, Security Incident behaviour, custom fields, attachments), My tickets, ticket thread, agent Inbox/queue/thread/right panel, Socket.IO realtime chat, internal notes, status/priority/assignee changes with optimistic UI and animations. _Done when:_ the E2E realtime flow passes and the internal-note leak test passes.
+3. **SLA & notifications** — SLA calculation with business hours/holidays, SLA worker, email templates via Mailpit, Teams webhook, SMS provider, P1 acknowledge + escalation chain, daily P4 digest, in-app notifications. _Done when:_ a P1 ticket produces email + Teams + SMS log, and escalates if not acknowledged.
+4. **Admin panel** — all eleven sections, audit log, live config refresh. _Done when:_ adding a new category/sub-type/field in admin appears on an open New Ticket form without reload, and old tickets still render archived items.
 5. **Views & reports** — Team queue with filters, Customers, Reports (open by category, P1 open, SLA breached, unassigned, avg first reply time), Help center.
 6. **AWS readiness** — Dockerfiles, production env config (RDS, ElastiCache, S3, SES, SNS), migration run on deploy, health checks, a deployment guide in the README. Do not deploy — prepare only.
 

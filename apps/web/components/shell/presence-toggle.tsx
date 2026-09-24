@@ -19,7 +19,11 @@ const isPresence = (value: string): value is Presence => value === 'online' || v
  */
 export function PresenceToggle({ className }: { className?: string }) {
   const t = useTranslations('console.presence');
-  const [presence, setPresence] = useLocalStorageState<Presence>(PRESENCE_KEY, 'online', isPresence);
+  const [presence, setPresence] = useLocalStorageState<Presence>(
+    PRESENCE_KEY,
+    'online',
+    isPresence,
+  );
   const online = presence === 'online';
 
   return (

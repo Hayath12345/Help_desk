@@ -33,7 +33,9 @@ export default function GlobalError({
             </p>
             <div lang="ar" dir="rtl" className="flex flex-col gap-1.5 border-t border-divider pt-3">
               <p className="text-lg font-semibold text-ink">حدث خطأ ما</p>
-              <p className="text-balance text-ink-muted">حدث خطأ غير متوقع. حاول مرة أخرى، أو عد بعد قليل.</p>
+              <p className="text-balance text-ink-muted">
+                حدث خطأ غير متوقع. حاول مرة أخرى، أو عد بعد قليل.
+              </p>
             </div>
             {error.digest ? (
               <p className="font-mono text-xs text-ink-muted">Reference / المرجع: {error.digest}</p>

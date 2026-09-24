@@ -17,7 +17,9 @@ interface MailpitMessage {
 }
 
 async function findInMailpit(subject: string): Promise<MailpitMessage[]> {
-  const res = await fetch(`${MAILPIT_API}/search?query=${encodeURIComponent(`subject:"${subject}"`)}`);
+  const res = await fetch(
+    `${MAILPIT_API}/search?query=${encodeURIComponent(`subject:"${subject}"`)}`,
+  );
   if (!res.ok) throw new Error(`Mailpit search failed: ${res.status}`);
   const body = (await res.json()) as { messages: MailpitMessage[] };
   return body.messages;
@@ -66,7 +68,9 @@ describe('worker', () => {
   afterAll(async () => {
     await workers.close();
     await events.close();
-    await Promise.allSettled([queues.email, queues.notifications, queues.sla].map((q) => q.obliterate({ force: true })));
+    await Promise.allSettled(
+      [queues.email, queues.notifications, queues.sla].map((q) => q.obliterate({ force: true })),
+    );
     await queues.close();
     await redis.del(`${prefix}:${DEAD_LETTER_LIST}`);
     await Promise.all(extraConnections.map((c) => closeRedis(c)));
@@ -85,11 +89,17 @@ describe('worker', () => {
       body: 'Hello {{name}},\n\nThis is an automated test.',
       variables: { name: 'Tester' },
     });
-    const job = await queues.email.add('send', { to, ...rendered, tag: 'test' }, { jobId: `test-${rand()}` });
+    const job = await queues.email.add(
+      'send',
+      { to, ...rendered, tag: 'test' },
+      { jobId: `test-${rand()}` },
+    );
     const result = await job.waitUntilFinished(events, 20_000);
     expect(result.messageId).toBeTruthy();
 
-    await expect.poll(async () => (await findInMailpit(subject)).length, { timeout: 10_000, interval: 250 }).toBe(1);
+    await expect
+      .poll(async () => (await findInMailpit(subject)).length, { timeout: 10_000, interval: 250 })
+      .toBe(1);
     const [message] = await findInMailpit(subject);
     mailpitIds.push(message!.ID);
     expect(message!.To.map((t) => t.Address)).toEqual([to]);
@@ -161,7 +171,11 @@ describe('worker', () => {
     } finally {
       await failWorkers.close();
       await failEvents.close();
-      await Promise.allSettled([failQueues.email, failQueues.notifications, failQueues.sla].map((q) => q.obliterate({ force: true })));
+      await Promise.allSettled(
+        [failQueues.email, failQueues.notifications, failQueues.sla].map((q) =>
+          q.obliterate({ force: true }),
+        ),
+      );
       await failQueues.close();
     }
   });

@@ -25,6 +25,8 @@ export function isE2eUserEmail(email: string): boolean {
   const value = email.toLowerCase();
   return E2E_USER_PATTERNS.some(
     ({ prefix, suffix }) =>
-      value.startsWith(prefix) && value.endsWith(suffix) && value.length > prefix.length + suffix.length,
+      value.startsWith(prefix) &&
+      value.endsWith(suffix) &&
+      value.length > prefix.length + suffix.length,
   );
 }
