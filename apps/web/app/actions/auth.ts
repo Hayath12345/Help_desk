@@ -31,9 +31,11 @@ import {
 import { PROVIDER_IDS } from '@/lib/auth/provider-ids';
 import {
   destinationAfterSignIn,
+  emailConfirmPath,
   landingPathFor,
   needsEmailVerification,
   postSignInRedirect,
+  signInToConfirmPath,
   toRoutingUser,
 } from '@/lib/auth/routing';
 import { parseUserResponse, type SessionUser } from '@/lib/auth/session-user';
@@ -233,10 +235,12 @@ export async function resendVerificationEmailAction(
 
 /**
  * /verify-email/confirm "Confirm" (a POST on purpose: mail scanners pre-fetch links with GET).
- * - The signed-in user confirmed their own address: the session is reloaded now and they go to
- *   their landing page (home, or /pending while awaiting approval).
- * - Nobody is signed in: /login?verified=1.
- * - Someone else is signed in on this browser: a success notice on the page.
+ * The link only confirms the address inside that account's own session (RR-SEC-1): the API gets
+ * the signed-in user and refuses another account's link.
+ * - Confirmed: the session is reloaded now and the user goes to their landing page (home, or
+ *   /pending while awaiting approval).
+ * - Signed out, or signed in as someone else (e.g. the session ended meanwhile): back to the
+ *   link's page, which asks the right account to sign in.
  */
 export async function confirmEmailAction(
   _prev: AuthFormState,
@@ -245,30 +249,38 @@ export async function confirmEmailAction(
   const token = formText(formData, 'token').trim();
   if (!isEmailLinkToken(token)) return { status: 'error', error: 'VERIFY_TOKEN_INVALID' };
 
-  let verified: { id: string; email: string };
+  const current = await getCurrentUser();
+  if (!current) redirect(emailConfirmPath(token) as Route);
+
   try {
     const body = await internalApiFetch<unknown>('/internal/auth/email/verify', {
       method: 'POST',
-      json: { token },
+      json: { token, userId: current.id },
     });
-    const user = parseUserResponse(body);
-    if (!user) return { status: 'error', error: 'INTERNAL' };
-    verified = user;
+    if (!parseUserResponse(body)) return { status: 'error', error: 'INTERNAL' };
   } catch (error) {
     if (error instanceof ApiRequestError) {
+      if (error.code === 'VERIFY_WRONG_ACCOUNT') redirect(emailConfirmPath(token) as Route);
       return { status: 'error', error: verifyEmailErrorCode(error.code) };
     }
     throw error;
   }
 
-  const current = await getCurrentUser();
-  if (!current) redirect(VERIFIED_LOGIN as Route);
-  if (current.id !== verified.id) return { status: 'success', email: verified.email };
-
   // Reload the session from the API so the new flag applies to the very next page.
   const session = await unstable_update({});
   const user = toRoutingUser(session?.user);
   redirect((user ? landingPathFor(user) : VERIFIED_LOGIN) as Route);
+}
+
+/**
+ * "Sign out and continue" on a confirmation link opened in another account's session: signs this
+ * browser out, then asks for the link's account and comes back to the link.
+ */
+export async function signOutToConfirmEmailAction(formData: FormData): Promise<void> {
+  const token = formText(formData, 'token').trim();
+  await signOut({
+    redirectTo: isEmailLinkToken(token) ? signInToConfirmPath(token) : WEB_ROUTES.clientLogin,
+  });
 }
 
 // ── Password reset ──────────────────────────────────────────────────────────

@@ -10,6 +10,8 @@ export const WEB_ROUTES = {
   pendingApproval: '/pending',
   /** Unverified clients land here until they click the link in the verification email. */
   verifyEmail: '/verify-email',
+  /** Target of the emailed verification link (`?token=…`); confirms only inside that account's session. */
+  verifyEmailConfirm: '/verify-email/confirm',
   clientHome: '/tickets',
   help: '/help',
   console: '/console',

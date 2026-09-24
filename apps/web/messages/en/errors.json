@@ -17,6 +17,7 @@
   "EMAIL_NOT_VERIFIED": "Verify your email address, then try again.",
   "RESET_TOKEN_INVALID": "This reset link is invalid or has expired. Request a new one.",
   "VERIFY_TOKEN_INVALID": "This verification link is invalid or has expired. Request a new one.",
+  "VERIFY_WRONG_ACCOUNT": "This link confirms another account's address. Sign in to that account to confirm it.",
   "SIGNIN_FAILED": "We couldn't sign you in. Try again.",
   "CONFIGURATION": "Sign-in is temporarily unavailable. Try again later."
 }

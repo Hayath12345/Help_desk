@@ -155,8 +155,14 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
   email domain (`Organization.emailDomains`), but the account sees **nothing until the email address is verified**
   through the emailed link (24 h, single use) — otherwise anyone could type an address on a client's domain and read
   that organisation's tickets. An unmatched domain creates a *pending approval* account that also sees nothing until
-  an admin links it to an organisation. Linking Google to an unverified password account wipes that password and
-  signs out every existing session.
+  an admin links it to an organisation.
+- The confirmation link only confirms the address **inside that account's own signed-in session**, and only after a
+  click on **Confirm** (a POST, so mail scanners that pre-fetch links can't verify an address). Opened signed out or
+  as another account, it shows *Sign in to confirm this address* instead; a mailbox owner who doesn't know the
+  password uses *Forgot password*, which replaces it and signs out every other session.
+- The first time **Google** is linked to an account that has a password, the password is removed, every existing
+  session, API token and socket is revoked, and the owner is emailed (*Google sign-in was added to your account*):
+  whoever chose that password may not own the mailbox.
 - **Staff** (`@loonsgroup.com`, `STAFF_EMAIL_DOMAIN`) sign in with Microsoft Entra ID (tenant-specific issuer only);
   the staff account must exist in the database.
 - The web app (Auth.js) keeps an encrypted session cookie and mints a **15-minute HS256 access token** for API and

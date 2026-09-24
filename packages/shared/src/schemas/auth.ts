@@ -46,11 +46,35 @@ export const forgotPasswordSchema = z.object({
 });
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
+/** Single-use token from an emailed link (password reset, email confirmation). */
+export const emailLinkTokenSchema = z.string().min(32).max(256);
+
 export const resetPasswordSchema = z.object({
-  token: z.string().min(32).max(256),
+  token: emailLinkTokenSchema,
   password: newPasswordSchema,
 });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** Body of POST /internal/auth/email/link: which account an emailed confirmation link is for. */
+export const emailLinkSchema = z.object({ token: emailLinkTokenSchema });
+
+/** Response of POST /internal/auth/email/link (the link is not used up). */
+export const emailLinkOwnerSchema = z.object({ userId: z.uuid(), email: z.email() });
+export type EmailLinkOwner = z.infer<typeof emailLinkOwnerSchema>;
+
+/**
+ * Body of POST /internal/auth/email/verify: the emailed token and the signed-in user (from the web
+ * session). A link only confirms the address inside that account's own session.
+ */
+export const verifyEmailSchema = z.object({ token: emailLinkTokenSchema, userId: z.uuid() });
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+
+/** Body of POST /internal/auth/email/resend (the signed-in user's id, from the web session). */
+export const resendVerificationSchema = z.object({
+  userId: z.uuid(),
+  locale: z.enum(LOCALES).optional(),
+});
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 
 export const OAUTH_PROVIDERS = ['GOOGLE', 'MICROSOFT_ENTRA_ID'] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];

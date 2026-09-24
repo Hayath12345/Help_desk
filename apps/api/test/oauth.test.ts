@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { hashToken } from '../src/lib/tokens.ts';
 import { TEST_PASSWORD, createTestContext, mintToken, rand, testDomain, testEmail, type TestContext } from './helpers.ts';
 
 describe('POST /internal/auth/oauth', () => {
@@ -25,6 +26,12 @@ describe('POST /internal/auth/oauth', () => {
     });
   const getMe = (token: string) =>
     ctx.app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${token}` } });
+  /** The "Google sign-in was added" email queued for the user's (only) Google link, if any. */
+  async function googleLinkedEmail(userId: string) {
+    const account = await ctx.prisma.authAccount.findFirst({ where: { userId, provider: 'GOOGLE' } });
+    if (!account) return undefined;
+    return ctx.queues.email.getJob(`google-linked-${account.id}`);
+  }
 
   it('Google: new client on a known domain → created ACTIVE in that org, account linked', async () => {
     const domain = testDomain();
@@ -56,16 +63,117 @@ describe('POST /internal/auth/oauth', () => {
     expect(res.json().user).toMatchObject({ status: 'PENDING_APPROVAL', orgId: null });
   });
 
-  it('Google: existing verified password account is linked, not duplicated; password and sessions kept', async () => {
-    const { user } = await ctx.fixtures.client();
-    const res = await google(user.email.toUpperCase());
+  it('Google first linked to a verified password account: linked, password removed, sessions revoked, owner emailed', async () => {
+    const { user } = await ctx.fixtures.client({ locale: 'ar' });
+    const oldToken = await mintToken(ctx.config, { sub: user.id, sv: 0 });
+    expect((await getMe(oldToken)).statusCode).toBe(200); // warms the principal cache
+
+    const providerAccountId = `g-${rand()}`;
+    const res = await google(user.email.toUpperCase(), { providerAccountId });
     expect(res.statusCode).toBe(200);
-    expect(res.json().user).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 0 });
+    expect(res.json().user).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 1 });
     expect(await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })).toBe(1);
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(row.passwordHash).not.toBeNull();
-    expect(row.sessionVersion).toBe(0);
-    expect((await passwordLogin(user.email)).statusCode).toBe(200);
+    expect(row.passwordHash).toBeNull();
+    expect(row.sessionVersion).toBe(1);
+    expect((await passwordLogin(user.email)).statusCode).toBe(401);
+    expect((await getMe(oldToken)).statusCode).toBe(401);
+
+    const job = await googleLinkedEmail(user.id);
+    expect(job, 'queued "Google sign-in added" email').toBeDefined();
+    expect(job!.data).toMatchObject({ to: user.email, tag: 'google-linked' });
+    expect(job!.data.html).toContain(`href="${ctx.config.appUrl}/login"`);
+    expect(job!.data.html).toMatch(/<html[^>]*dir="(rtl|ltr)"/);
+
+    // Later sign-ins with the same Google account just sign in: nothing more is revoked.
+    const again = await google(user.email, { providerAccountId });
+    expect(again.json().user.sessionVersion).toBe(1);
+    const newToken = await mintToken(ctx.config, { sub: user.id, sv: 1 });
+    expect((await getMe(newToken)).statusCode).toBe(200);
+  });
+
+  it('register → confirm via the emailed link → Google link: the registrant loses password and tokens (RR-SEC-1)', async () => {
+    const domain = testDomain();
+    const org = await ctx.fixtures.org({ domains: [domain] });
+    const email = ctx.fixtures.trackEmail(testEmail(domain));
+    // Someone registers the victim's address with a password of their choosing…
+    const reg = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/register',
+      headers: ctx.internalHeaders(),
+      payload: { name: 'Registrant', email, password: TEST_PASSWORD },
+    });
+    expect(reg.statusCode).toBe(201);
+    const registrant = reg.json().user;
+    const registrantToken = await mintToken(ctx.config, { sub: registrant.id, sv: registrant.sessionVersion });
+
+    // …and the address gets confirmed with the emailed link (in the registrant's session).
+    const link = await ctx.prisma.emailVerificationToken.findFirstOrThrow({ where: { userId: registrant.id } });
+    const job = await ctx.queues.email.getJob(`email-verification-${link.id}`);
+    const token = decodeURIComponent(/confirm\?token=([A-Za-z0-9_-]+)/.exec(job!.data.text)![1]!);
+    expect(link.tokenHash).toBe(hashToken(token));
+    const verified = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/email/verify',
+      headers: ctx.internalHeaders(),
+      payload: { token, userId: registrant.id },
+    });
+    expect(verified.statusCode).toBe(200);
+    expect(verified.json().user).toMatchObject({ emailVerified: true, orgId: org.id });
+    expect((await getMe(registrantToken)).statusCode).toBe(200);
+
+    // The mailbox owner later uses "Continue with Google".
+    const res = await google(email);
+    expect(res.statusCode).toBe(200);
+    const owner = res.json().user;
+    expect(owner).toMatchObject({ id: registrant.id, emailVerified: true, sessionVersion: registrant.sessionVersion + 1 });
+
+    // The registrant's password and existing tokens stop working at once…
+    const login = await passwordLogin(email);
+    expect(login.statusCode).toBe(401);
+    expect(login.json().error.code).toBe('INVALID_CREDENTIALS');
+    expect((await getMe(registrantToken)).statusCode).toBe(401);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: registrant.id } })).passwordHash).toBeNull();
+    // …the owner's new session works, and the owner is told what happened.
+    const ownerMe = await getMe(await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }));
+    expect(ownerMe.statusCode).toBe(200);
+    expect((await googleLinkedEmail(registrant.id))?.data.to).toBe(email);
+  });
+
+  it('Google first linked to an account without a password: nothing to remove, nothing revoked or sent', async () => {
+    const { user } = await ctx.fixtures.client({ password: null });
+    const res = await google(user.email);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user).toMatchObject({ id: user.id, sessionVersion: 0 });
+    expect(await googleLinkedEmail(user.id)).toBeUndefined();
+  });
+
+  it('a second Google identity on an account that already has Google is not a first link', async () => {
+    const { user } = await ctx.fixtures.client();
+    await ctx.prisma.authAccount.create({
+      data: { userId: user.id, provider: 'GOOGLE', providerAccountId: `g-${rand()}`, email: user.email },
+    });
+    const res = await google(user.email);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.sessionVersion).toBe(0);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash).not.toBeNull();
+    expect(await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })).toBe(2);
+  });
+
+  it('a queueing failure does not fail the Google sign-in (the revocation stands)', async () => {
+    const { user } = await ctx.fixtures.client();
+    const original = ctx.queues.enqueueEmail;
+    ctx.queues.enqueueEmail = async () => {
+      throw new Error('queue unavailable');
+    };
+    try {
+      const res = await google(user.email);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().user.sessionVersion).toBe(1);
+    } finally {
+      ctx.queues.enqueueEmail = original;
+    }
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash).toBeNull();
   });
 
   it('Google on an address nobody verified: the pre-registered password and sessions are revoked (SEC-2)', async () => {

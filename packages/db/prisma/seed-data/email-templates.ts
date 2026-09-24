@@ -456,4 +456,38 @@ export const EMAIL_TEMPLATES: readonly EmailTemplateSeed[] = [
       'دعم لونز',
     ),
   },
+  {
+    // Google was first linked to an account that had a password: the password was removed and
+    // every other session signed out.
+    key: 'GOOGLE_LINKED',
+    variables: ['name', 'signInUrl'],
+    subjectEn: 'Google sign-in was added to your Loons Help Desk account',
+    bodyEn: lines(
+      'Hi {{name}},',
+      '',
+      'Google sign-in was just added to your Loons Help Desk account. To keep your account safe, we removed its password and signed out all other sessions.',
+      '',
+      'From now on, sign in with “Continue with Google”:',
+      '',
+      '{{signInUrl}}',
+      '',
+      'To use a password again, choose “Forgot password?” on the sign-in page and set a new one. If you didn’t add Google sign-in, contact Loons Support right away.',
+      '',
+      'Loons Support',
+    ),
+    subjectAr: 'تمت إضافة تسجيل الدخول عبر Google إلى حسابك في مكتب دعم لونز',
+    bodyAr: lines(
+      'مرحبًا {{name}}،',
+      '',
+      'تمت للتو إضافة تسجيل الدخول عبر Google إلى حسابك في مكتب دعم لونز. وحفاظًا على أمان حسابك، أزلنا كلمة المرور الخاصة به وسجّلنا الخروج من جميع الجلسات الأخرى.',
+      '',
+      'من الآن فصاعدًا، سجّل الدخول باستخدام «المتابعة باستخدام Google»:',
+      '',
+      '{{signInUrl}}',
+      '',
+      'ولاستخدام كلمة مرور مجددًا، اختر «نسيت كلمة المرور؟» في صفحة تسجيل الدخول وعيّن كلمة مرور جديدة. إذا لم تُضِف تسجيل الدخول عبر Google بنفسك، فتواصل مع دعم لونز فورًا.',
+      '',
+      'دعم لونز',
+    ),
+  },
 ];

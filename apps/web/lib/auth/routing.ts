@@ -20,8 +20,16 @@ export interface RoutingUser {
   emailVerified: boolean;
 }
 
-/** Where the emailed verification link points (`?token=…`); public, signed in or out. */
-export const VERIFY_EMAIL_CONFIRM_PATH = `${WEB_ROUTES.verifyEmail}/confirm`;
+/**
+ * Where the emailed verification link points (`?token=…`). Public, signed in or out, but the
+ * address is only confirmed inside that account's own session: anyone else is asked to sign in.
+ */
+export const VERIFY_EMAIL_CONFIRM_PATH = WEB_ROUTES.verifyEmailConfirm;
+
+/** `/verify-email/confirm?token=…` */
+export function emailConfirmPath(token: string): string {
+  return `${VERIFY_EMAIL_CONFIRM_PATH}?${new URLSearchParams({ token }).toString()}`;
+}
 
 /**
  * Pages for signed-out visitors (a signed-in visitor is sent home — except on /reset-password,
@@ -47,6 +55,10 @@ const PORTAL_PREFIXES = [WEB_ROUTES.clientHome, WEB_ROUTES.help] as const;
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function pathOf(url: string): string {
+  return url.split(/[?#]/)[0] ?? '/';
 }
 
 export function isAuthPage(pathname: string): boolean {
@@ -119,6 +131,12 @@ export function loginRedirectFor(pathname: string, search = ''): string {
   const target = safeCallbackUrl(`${pathname}${search}`);
   if (!target || target === '/') return loginPath;
   return `${loginPath}?${new URLSearchParams({ callbackUrl: target }).toString()}`;
+}
+
+/** `/login?callbackUrl=…` that comes back to the emailed confirmation link after signing in. */
+export function signInToConfirmPath(token: string): string {
+  const query = new URLSearchParams({ callbackUrl: emailConfirmPath(token) });
+  return `${WEB_ROUTES.clientLogin}?${query.toString()}`;
 }
 
 /** Whether `user` may open `pathname` (coarse, role-level check). */
@@ -198,12 +216,14 @@ export function resolveRedirect(
 
 /**
  * Where to go right after a successful sign-in: the sanitised callbackUrl, unless it points
- * back at an auth page (then `/`, which the proxy resolves to the user's home).
+ * back at an auth page (then `/`, which the proxy resolves to the user's home). The emailed
+ * confirmation link is kept: its page asks the account to sign in before it confirms anything.
  */
 export function postSignInRedirect(callbackUrl: unknown): string {
   const target = safeCallbackUrl(callbackUrl);
   if (!target) return '/';
-  const path = target.split(/[?#]/)[0] ?? '/';
+  const path = pathOf(target);
+  if (path === VERIFY_EMAIL_CONFIRM_PATH) return target;
   if (
     isAuthPage(path) ||
     matchesPrefix(path, WEB_ROUTES.pendingApproval) ||
@@ -216,14 +236,16 @@ export function postSignInRedirect(callbackUrl: unknown): string {
 
 /**
  * The final destination for a user who just signed in: the (sanitised) callbackUrl when this
- * user may open it, otherwise their landing page (home, /verify-email or /pending).
+ * user may open it, otherwise their landing page (home, /verify-email or /pending). A sign-in
+ * started from the emailed confirmation link goes back to it, confirmed or not (that is what the
+ * unverified client signed in for).
  */
 export function destinationAfterSignIn(user: RoutingUser, callbackUrl: unknown): string {
   const landing = landingPathFor(user);
-  if (!isUsable(user)) return landing;
   const target = postSignInRedirect(callbackUrl);
-  if (target === '/') return landing;
-  const path = target.split(/[?#]/)[0] ?? '/';
+  const path = pathOf(target);
+  if (path === VERIFY_EMAIL_CONFIRM_PATH) return target;
+  if (!isUsable(user) || target === '/') return landing;
   return canAccess(path, user) ? target : landing;
 }
 

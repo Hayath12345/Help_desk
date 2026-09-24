@@ -44,6 +44,12 @@ export const errors = {
     new AppError(400, 'RESET_TOKEN_INVALID', 'This reset link is invalid or has expired. Request a new one.'),
   verifyTokenInvalid: () =>
     new AppError(400, 'VERIFY_TOKEN_INVALID', 'This verification link is invalid or has expired. Request a new one.'),
+  verifyWrongAccount: () =>
+    new AppError(
+      403,
+      'VERIFY_WRONG_ACCOUNT',
+      'This link confirms the address of another account. Sign in to that account to confirm it.',
+    ),
 };
 
 /** Response schema for every non-2xx reply (documentation + serialization). */

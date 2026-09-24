@@ -357,6 +357,7 @@ describe('macros, email templates, help articles, tags', () => {
       'P4_DAILY_DIGEST',
       'PASSWORD_RESET',
       'EMAIL_VERIFICATION',
+      'GOOGLE_LINKED',
     ]);
     for (const t of EMAIL_TEMPLATES) {
       expectUnique([...t.variables], `${t.key} variable`);
@@ -380,6 +381,10 @@ describe('macros, email templates, help articles, tags', () => {
       'name',
       'verifyUrl',
       'expiresHours',
+    ]);
+    expect(EMAIL_TEMPLATES.find((t) => t.key === 'GOOGLE_LINKED')?.variables).toEqual([
+      'name',
+      'signInUrl',
     ]);
   });
 

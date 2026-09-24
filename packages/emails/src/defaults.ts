@@ -5,7 +5,7 @@ import type { Locale } from '@loons/shared';
 // CTA labels are part of the layout and stay in code. Variable names match the seeded rows
 // (packages/db/prisma/seed-data/email-templates.ts).
 
-export const EMAIL_TEMPLATE_KEYS = ['PASSWORD_RESET', 'EMAIL_VERIFICATION'] as const;
+export const EMAIL_TEMPLATE_KEYS = ['PASSWORD_RESET', 'EMAIL_VERIFICATION', 'GOOGLE_LINKED'] as const;
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 
 export interface EmailTemplateText {
@@ -59,6 +59,28 @@ export const DEFAULT_EMAIL_TEMPLATES: Readonly<Record<EmailTemplateKey, DefaultE
     ].join('\n\n'),
     ctaEn: 'Confirm email address',
     ctaAr: 'تأكيد البريد الإلكتروني',
+  },
+  // Sent when Google is first linked to an account that had a password: the password is removed
+  // and every other session signed out (whoever chose that password may not own the mailbox).
+  GOOGLE_LINKED: {
+    key: 'GOOGLE_LINKED',
+    variables: ['name', 'signInUrl'],
+    subjectEn: 'Google sign-in was added to your Loons Help Desk account',
+    bodyEn: [
+      'Hi {{name}},',
+      'Google sign-in was just added to your Loons Help Desk account. To keep your account safe, we removed its password and signed out all other sessions.',
+      'From now on, sign in with “Continue with Google”. To use a password again, choose “Forgot password?” on the sign-in page and set a new one.',
+      "If you didn't add Google sign-in, contact Loons Support right away.",
+    ].join('\n\n'),
+    subjectAr: 'تمت إضافة تسجيل الدخول عبر Google إلى حسابك في مكتب دعم لونز',
+    bodyAr: [
+      'مرحباً {{name}}،',
+      'تمت للتو إضافة تسجيل الدخول عبر Google إلى حسابك في مكتب دعم لونز. وحفاظاً على أمان حسابك، أزلنا كلمة المرور الخاصة به وسجّلنا الخروج من جميع الجلسات الأخرى.',
+      'من الآن فصاعداً، سجّل الدخول باستخدام «المتابعة باستخدام Google». ولاستخدام كلمة مرور مجدداً، اختر «نسيت كلمة المرور؟» في صفحة تسجيل الدخول وعيّن كلمة مرور جديدة.',
+      'إذا لم تُضِف تسجيل الدخول عبر Google بنفسك، فتواصل مع دعم لونز فوراً.',
+    ].join('\n\n'),
+    ctaEn: 'Sign in',
+    ctaAr: 'تسجيل الدخول',
   },
 };
 

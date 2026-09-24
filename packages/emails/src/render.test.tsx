@@ -168,6 +168,7 @@ describe('renderTemplateEmail links (only template text and app-generated URL va
     expect(LINK_VARIABLES).toEqual([
       'resetUrl',
       'verifyUrl',
+      'signInUrl',
       'portalUrl',
       'ticketUrl',
       'ackUrl',
@@ -232,5 +233,42 @@ describe('EMAIL_VERIFICATION default template', () => {
     expect(out.html).toMatch(/<html[^>]*dir="rtl"/);
     expect(out.text).toContain('مرحباً ليلى');
     expect(out.text).toContain(`تأكيد البريد الإلكتروني: ${verifyUrl}`);
+  });
+});
+
+describe('GOOGLE_LINKED default template', () => {
+  const linked = DEFAULT_EMAIL_TEMPLATES.GOOGLE_LINKED;
+  const signInUrl = 'https://help.example.com/login';
+
+  it('declares its variables and tells the owner the password was removed (EN)', async () => {
+    expect(linked.variables).toEqual(['name', 'signInUrl']);
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: linked.subjectEn,
+      body: linked.bodyEn,
+      variables: { name: 'Ada', signInUrl },
+      cta: { label: defaultCtaLabel('GOOGLE_LINKED', 'en') ?? '', url: signInUrl },
+    });
+    expect(out.subject).toBe('Google sign-in was added to your Loons Help Desk account');
+    expect(out.text).toContain('Hi Ada,');
+    expect(out.text).toContain('we removed its password and signed out all other sessions');
+    expect(out.html).toContain(`href="${signInUrl}"`);
+    expect(out.text).toContain(`Sign in: ${signInUrl}`);
+  });
+
+  it('renders Arabic right-to-left with the Arabic product name', async () => {
+    const text = pickTemplateText(linked, 'ar');
+    expect(text.locale).toBe('ar');
+    const out = await renderTemplateEmail({
+      locale: text.locale,
+      subject: text.subject,
+      body: text.body,
+      variables: { name: 'ليلى', signInUrl },
+      cta: { label: defaultCtaLabel('GOOGLE_LINKED', 'ar') ?? '', url: signInUrl },
+    });
+    expect(out.html).toMatch(/<html[^>]*dir="rtl"/);
+    expect(out.subject).toContain('مكتب دعم لونز');
+    expect(out.text).toContain('مرحباً ليلى');
+    expect(out.text).toContain(`تسجيل الدخول: ${signInUrl}`);
   });
 });

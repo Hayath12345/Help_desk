@@ -26,6 +26,7 @@ export interface EmailCta {
 export const LINK_VARIABLES = [
   'resetUrl',
   'verifyUrl',
+  'signInUrl',
   'portalUrl',
   'ticketUrl',
   'ackUrl',

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@loons/db';
 import type { EmailTemplateKey, RenderedEmail } from '@loons/emails';
-import { WEB_ROUTES, type AuthUser, type Locale } from '@loons/shared';
+import { WEB_ROUTES, type AuthUser, type EmailLinkOwner, type Locale, type VerifyEmailInput } from '@loons/shared';
 import type { AppConfig } from '../config.ts';
 import { authUserSelect, toAuthUser, type PrincipalStore } from '../lib/actor.ts';
 import { errors } from '../lib/errors.ts';
@@ -12,6 +12,11 @@ import { renderStoredTemplate } from './email-templates.ts';
 // Client self-signup must prove mailbox ownership before the account can see its organisation's
 // data (the org is matched on the email domain). Unverified clients can sign in, but every
 // Bearer route except /me answers 403 EMAIL_NOT_VERIFIED until they open the emailed link.
+//
+// A link confirms the address only inside that account's own signed-in session (RR-SEC-1).
+// Whoever registered the address chose its password; if the mailbox owner could confirm it while
+// signed out, the registrant would keep a verified account on the owner's address. Signed out, the
+// owner signs in first (or resets the password, which replaces it and ends every other session).
 
 export const EMAIL_VERIFICATION_TEMPLATE_KEY = 'EMAIL_VERIFICATION' satisfies EmailTemplateKey;
 
@@ -34,11 +39,17 @@ export interface EmailVerificationService {
    */
   requestResend(input: { userId: string; locale?: Locale | undefined }): Promise<void>;
   /**
-   * Consumes a link (single use): marks the email verified, deletes the user's other links and
-   * clears the cached principal. Unknown, used or expired links (or a disabled account) →
-   * 400 VERIFY_TOKEN_INVALID.
+   * Which account a link is for, without using it up (the confirmation page shows who has to sign
+   * in). Unknown, used or expired links (or a disabled account) → 400 VERIFY_TOKEN_INVALID.
    */
-  verify(token: string): Promise<AuthUser>;
+  describeLink(token: string): Promise<EmailLinkOwner>;
+  /**
+   * Consumes a link (single use) for the signed-in `userId`: marks the email verified, deletes the
+   * user's other links and clears the cached principal. Unknown, used or expired links (or a
+   * disabled account) → 400 VERIFY_TOKEN_INVALID; another account's link → 403
+   * VERIFY_WRONG_ACCOUNT (the link stays usable).
+   */
+  verify(input: VerifyEmailInput): Promise<AuthUser>;
   /** Renders the email from the EmailTemplate row (or the built-in default). */
   renderVerificationEmail(args: { name: string; locale: Locale; verifyUrl: string }): Promise<RenderedEmail>;
 }
@@ -73,7 +84,7 @@ export function createEmailVerificationService(deps: {
       });
     });
 
-    const verifyUrl = `${config.appUrl}${WEB_ROUTES.verifyEmail}/confirm?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${config.appUrl}${WEB_ROUTES.verifyEmailConfirm}?token=${encodeURIComponent(token)}`;
     const message = await renderVerificationEmail({ name: user.name, locale, verifyUrl });
     const jobId = await queues.enqueueEmail(
       { to: user.email, subject: message.subject, html: message.html, text: message.text, tag: 'email-verification' },
@@ -99,20 +110,39 @@ export function createEmailVerificationService(deps: {
     await sendVerification(user, input.locale ?? user.locale);
   }
 
-  async function verify(token: string): Promise<AuthUser> {
-    const now = new Date();
+  /** The unused, unexpired link of an account that is not disabled; else 400 VERIFY_TOKEN_INVALID. */
+  async function usableLink(token: string, now: Date) {
     const record = await prisma.emailVerificationToken.findUnique({
       where: { tokenHash: hashToken(token) },
-      select: { id: true, userId: true, expiresAt: true, usedAt: true, user: { select: { status: true } } },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+        usedAt: true,
+        user: { select: { email: true, status: true } },
+      },
     });
     if (!record || record.usedAt !== null || record.expiresAt <= now || record.user.status === 'DISABLED') {
       throw errors.verifyTokenInvalid();
     }
+    return record;
+  }
+
+  async function describeLink(token: string): Promise<EmailLinkOwner> {
+    const record = await usableLink(token, new Date());
+    return { userId: record.userId, email: record.user.email };
+  }
+
+  async function verify({ token, userId }: VerifyEmailInput): Promise<AuthUser> {
+    const now = new Date();
+    const record = await usableLink(token, now);
+    // Only the account's own session confirms its address (RR-SEC-1); the link stays usable.
+    if (record.userId !== userId) throw errors.verifyWrongAccount();
 
     const user = await prisma.$transaction(async (tx) => {
       // Conditional claim: two concurrent requests with the same link can't both succeed.
       const claimed = await tx.emailVerificationToken.updateMany({
-        where: { id: record.id, usedAt: null, expiresAt: { gt: now } },
+        where: { id: record.id, userId, usedAt: null, expiresAt: { gt: now } },
         data: { usedAt: now },
       });
       if (claimed.count !== 1) throw errors.verifyTokenInvalid();
@@ -126,5 +156,5 @@ export function createEmailVerificationService(deps: {
     return toAuthUser(user);
   }
 
-  return { sendVerification, requestResend, verify, renderVerificationEmail };
+  return { sendVerification, requestResend, describeLink, verify, renderVerificationEmail };
 }

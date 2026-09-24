@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   canAccess,
   destinationAfterSignIn,
+  emailConfirmPath,
   landingPathFor,
   loginRedirectFor,
   postSignInRedirect,
   resolveRedirect,
+  signInToConfirmPath,
   staffAuthErrorLocation,
   toRoutingUser,
   type RoutingUser,
@@ -281,6 +283,28 @@ describe('destinationAfterSignIn', () => {
     expect(destinationAfterSignIn(unverified, '/tickets/42')).toBe('/verify-email');
     expect(destinationAfterSignIn(unverifiedPending, undefined)).toBe('/verify-email');
   });
+
+  it('goes back to the emailed confirmation link a sign-in started from, confirmed or not (RR-SEC-1)', () => {
+    const link = '/verify-email/confirm?token=abc';
+    expect(destinationAfterSignIn(unverified, link)).toBe(link);
+    expect(destinationAfterSignIn(unverifiedPending, link)).toBe(link);
+    // Anyone else too: the page itself decides (it asks for the right account).
+    expect(destinationAfterSignIn(client, link)).toBe(link);
+    expect(destinationAfterSignIn(agent, link)).toBe(link);
+    // Only that exact page, not the rest of the /verify-email area.
+    expect(destinationAfterSignIn(unverified, '/verify-email/confirmed')).toBe('/verify-email');
+  });
+});
+
+describe('confirmation link paths', () => {
+  it('builds the link page and the sign-in that comes back to it', () => {
+    const token = 'A-b_9'.repeat(9);
+    expect(emailConfirmPath(token)).toBe(`/verify-email/confirm?token=${token}`);
+    const signIn = signInToConfirmPath(token);
+    expect(signIn).toBe(`/login?callbackUrl=${encodeURIComponent(emailConfirmPath(token))}`);
+    const callbackUrl = new URL(signIn, 'http://localhost').searchParams.get('callbackUrl');
+    expect(postSignInRedirect(callbackUrl)).toBe(emailConfirmPath(token));
+  });
 });
 
 describe('postSignInRedirect', () => {
@@ -298,8 +322,14 @@ describe('postSignInRedirect', () => {
     expect(postSignInRedirect('/staff/login?callbackUrl=/admin')).toBe('/');
     expect(postSignInRedirect('/pending')).toBe('/');
     expect(postSignInRedirect('/verify-email')).toBe('/');
-    expect(postSignInRedirect('/verify-email/confirm?token=abc')).toBe('/');
+    expect(postSignInRedirect('/verify-email?checked=1')).toBe('/');
     expect(postSignInRedirect('/api/auth/signout')).toBe('/');
+  });
+
+  it('keeps the emailed confirmation link (its page asks the right account to sign in)', () => {
+    expect(postSignInRedirect('/verify-email/confirm?token=abc')).toBe(
+      '/verify-email/confirm?token=abc',
+    );
   });
 });
 

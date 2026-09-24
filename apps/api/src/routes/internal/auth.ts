@@ -2,13 +2,16 @@ import { normalizeIP } from '@fastify/rate-limit';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
-  LOCALES,
   authUserSchema,
+  emailLinkOwnerSchema,
+  emailLinkSchema,
   forgotPasswordSchema,
   loginSchema,
   oauthResolveSchema,
   registerSchema,
+  resendVerificationSchema,
   resetPasswordSchema,
+  verifyEmailSchema,
 } from '@loons/shared';
 import { errorResponses, errors } from '../../lib/errors.ts';
 import { CLIENT_IP_HEADER, clientIp, internalKeyGuard } from '../../lib/internal-auth.ts';
@@ -17,11 +20,6 @@ import { HOUR, MINUTE, hashKeyPart, limitGuard } from '../../lib/rate-limit.ts';
 const userResponse = z.object({ user: authUserSchema });
 const acceptedResponse = z.object({ ok: z.literal(true) });
 const security = [{ internalApiKey: [] }];
-
-/** Body of POST /internal/auth/email/verify (the token from the emailed link). */
-export const verifyEmailSchema = z.object({ token: z.string().min(32).max(256) });
-/** Body of POST /internal/auth/email/resend (the signed-in user's id, from the web session). */
-export const resendVerificationSchema = z.object({ userId: z.uuid(), locale: z.enum(LOCALES).optional() });
 
 /**
  * Server-to-server sign-in support for the web app (`/internal/auth/*`).
@@ -95,6 +93,7 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     failClosed,
   );
   const resetLimit = limitGuard(app, [{ name: 'reset:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const linkLimit = limitGuard(app, [{ name: 'link:ip', max: 30, windowMs: 15 * MINUTE, key: ip }], failClosed);
   const verifyLimit = limitGuard(app, [{ name: 'verify:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
   const resendLimit = limitGuard(
     app,
@@ -212,19 +211,36 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.post(
+    '/email/link',
+    {
+      config: noGlobalLimit,
+      preHandler: linkLimit,
+      schema: {
+        tags: ['internal-auth'],
+        summary: 'Which account an emailed confirmation link belongs to (the link is not used up)',
+        security,
+        body: emailLinkSchema,
+        response: { 200: emailLinkOwnerSchema, ...errorResponses(400, 401, 403, 429, 503) },
+      },
+    },
+    async (req) => app.services.emailVerification.describeLink(req.body.token),
+  );
+
+  app.post(
     '/email/verify',
     {
       config: noGlobalLimit,
       preHandler: verifyLimit,
       schema: {
         tags: ['internal-auth'],
-        summary: 'Confirm a client’s email address with the emailed token (single use, 24 h)',
+        summary:
+          'Confirm a client’s email address with the emailed token (single use, 24 h), inside that client’s own session',
         security,
         body: verifyEmailSchema,
         response: { 200: userResponse, ...errorResponses(400, 401, 403, 429, 503) },
       },
     },
-    async (req) => ({ user: await app.services.emailVerification.verify(req.body.token) }),
+    async (req) => ({ user: await app.services.emailVerification.verify(req.body) }),
   );
 
   app.post(

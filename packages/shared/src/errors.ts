@@ -22,6 +22,11 @@ export const ERROR_CODES = [
   'EMAIL_NOT_VERIFIED',
   'RESET_TOKEN_INVALID',
   'VERIFY_TOKEN_INVALID',
+  /**
+   * A valid email confirmation link opened outside its own account's session (signed out, or
+   * signed in as someone else): sign in to that account to confirm it.
+   */
+  'VERIFY_WRONG_ACCOUNT',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -16,6 +16,7 @@ import {
   registerAction,
   resendVerificationEmailAction,
   resetPasswordAction,
+  signOutToConfirmEmailAction,
 } from './auth';
 
 class RedirectSignal extends Error {
@@ -110,8 +111,10 @@ beforeEach(() => {
 
 describe('confirmEmailAction', () => {
   const confirm = (token = TOKEN) => confirmEmailAction(initialAuthFormState, form({ token }));
+  const LINK_PAGE = `/verify-email/confirm?token=${TOKEN}`;
 
   it('rejects a malformed token without calling the API', async () => {
+    currentUser.mockResolvedValue(sessionUser());
     await expect(confirm('short')).resolves.toEqual({
       status: 'error',
       error: 'VERIFY_TOKEN_INVALID',
@@ -119,21 +122,33 @@ describe('confirmEmailAction', () => {
     expect(apiFetch).not.toHaveBeenCalled();
   });
 
-  it('POSTs the token and shows "invalid or expired" when the API refuses it', async () => {
+  it('confirms for the signed-in user only: the API gets the session user (RR-SEC-1)', async () => {
+    currentUser.mockResolvedValue(sessionUser());
     apiFetch.mockRejectedValueOnce(new ApiRequestError(400, 'VERIFY_TOKEN_INVALID', 'used'));
     await expect(confirm()).resolves.toEqual({ status: 'error', error: 'VERIFY_TOKEN_INVALID' });
     expect(apiFetch).toHaveBeenCalledWith('/internal/auth/email/verify', {
       method: 'POST',
-      json: { token: TOKEN },
+      json: { token: TOKEN, userId: USER_ID },
     });
 
     apiFetch.mockRejectedValueOnce(new ApiRequestError(429, 'RATE_LIMITED', 'slow down'));
     await expect(confirm()).resolves.toEqual({ status: 'error', error: 'RATE_LIMITED' });
   });
 
-  it('signed out: continues at /login?verified=1', async () => {
-    apiFetch.mockResolvedValueOnce({ user: apiUser });
-    await expect(redirectOf(confirm)).resolves.toBe('/login?verified=1');
+  it('signed out: never calls the API; back to the link page, which asks to sign in', async () => {
+    await expect(redirectOf(confirm)).resolves.toBe(LINK_PAGE);
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('another account signed in: the API refuses it and the link page asks for that account', async () => {
+    currentUser.mockResolvedValue(sessionUser({ id: OTHER_ID, email: 'someone@else.qa' }));
+    apiFetch.mockRejectedValueOnce(new ApiRequestError(403, 'VERIFY_WRONG_ACCOUNT', 'other'));
+    await expect(redirectOf(confirm)).resolves.toBe(LINK_PAGE);
+    expect(apiFetch).toHaveBeenCalledWith('/internal/auth/email/verify', {
+      method: 'POST',
+      json: { token: TOKEN, userId: OTHER_ID },
+    });
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -154,11 +169,25 @@ describe('confirmEmailAction', () => {
     await expect(redirectOf(confirm)).resolves.toBe('/pending');
   });
 
-  it('another account signed in: confirms, then says so on the page', async () => {
+  it('confirmed but the session could not be reloaded: /login?verified=1', async () => {
     apiFetch.mockResolvedValueOnce({ user: apiUser });
-    currentUser.mockResolvedValue(sessionUser({ id: OTHER_ID, email: 'someone@else.qa' }));
-    await expect(confirm()).resolves.toEqual({ status: 'success', email: apiUser.email });
-    expect(update).not.toHaveBeenCalled();
+    currentUser.mockResolvedValue(sessionUser());
+    update.mockResolvedValueOnce(null);
+    await expect(redirectOf(confirm)).resolves.toBe('/login?verified=1');
+  });
+});
+
+describe('signOutToConfirmEmailAction ("Sign out and continue")', () => {
+  it('signs out, then asks for the link’s account and comes back to the link', async () => {
+    await signOutToConfirmEmailAction(form({ token: TOKEN }));
+    expect(signOutMock).toHaveBeenCalledWith({
+      redirectTo: `/login?callbackUrl=${encodeURIComponent(`/verify-email/confirm?token=${TOKEN}`)}`,
+    });
+  });
+
+  it('a malformed token just goes to /login', async () => {
+    await signOutToConfirmEmailAction(form({ token: 'nope' }));
+    expect(signOutMock).toHaveBeenCalledWith({ redirectTo: '/login' });
   });
 });
 

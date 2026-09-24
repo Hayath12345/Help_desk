@@ -50,6 +50,7 @@ export function createServices(deps: {
   return {
     auth: createAuthService({
       prisma: deps.prisma,
+      queues: deps.queues,
       config: deps.config,
       principals: deps.principals,
       sessions,

@@ -31,7 +31,9 @@ describe('email verification', () => {
     ctx.app.inject({ method: 'POST', url: `/internal/auth${url}`, headers: ctx.internalHeaders(clientIp), payload });
   const register = (email: string, extra: Record<string, unknown> = {}) =>
     post('/register', { name: 'Nadia Test', company: 'Acme', email, password: TEST_PASSWORD, ...extra });
-  const verify = (token: string, clientIp?: string) => post('/email/verify', { token }, clientIp);
+  /** Confirms `token` from the signed-in session of `userId` (the web server sends the session user). */
+  const verify = (token: string, userId: string, clientIp?: string) => post('/email/verify', { token, userId }, clientIp);
+  const describeLink = (token: string, clientIp?: string) => post('/email/link', { token }, clientIp);
   const resend = async (payload: Record<string, unknown>, clientIp?: string) => {
     const res = await post('/email/resend', payload, clientIp);
     await ctx.app.background.drain(); // the email is prepared after the 202
@@ -160,7 +162,7 @@ describe('email verification', () => {
     // Warm the principal cache with the unverified state.
     expect((await bearer('GET', '/__test/protected', user.id)).statusCode).toBe(403);
 
-    const res = await verify(token);
+    const res = await verify(token, user.id);
     expect(res.statusCode).toBe(200);
     expect(authUserSchema.parse(res.json().user)).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 0 });
 
@@ -174,9 +176,10 @@ describe('email verification', () => {
     expect(allowed.json()).toEqual({ id: user.id });
     expect((await bearer('GET', '/me', user.id)).json().org).toMatchObject({ id: user.orgId });
 
-    const again = await verify(token);
+    const again = await verify(token, user.id);
     expect(again.statusCode).toBe(400);
     expect(again.json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    expect((await describeLink(token)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
   });
 
   it('verify deletes the user’s other links', async () => {
@@ -186,9 +189,9 @@ describe('email verification', () => {
     await ctx.prisma.emailVerificationToken.create({
       data: { userId: user.id, tokenHash: hashToken(other), expiresAt: new Date(Date.now() + 3_600_000) },
     });
-    expect((await verify(token)).statusCode).toBe(200);
+    expect((await verify(token, user.id)).statusCode).toBe(200);
     expect(await tokensOf(user.id)).toHaveLength(1); // only the used one is kept
-    expect((await verify(other)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    expect((await verify(other, user.id)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
   });
 
   it('expired, unknown and disabled-account links → 400 VERIFY_TOKEN_INVALID; malformed → 400 VALIDATION_FAILED', async () => {
@@ -197,12 +200,12 @@ describe('email verification', () => {
     await ctx.prisma.emailVerificationToken.create({
       data: { userId: user.id, tokenHash: hashToken(expired), expiresAt: new Date(Date.now() - 1000) },
     });
-    const expiredRes = await verify(expired);
+    const expiredRes = await verify(expired, user.id);
     expect(expiredRes.statusCode).toBe(400);
     expect(expiredRes.json().error.code).toBe('VERIFY_TOKEN_INVALID');
     expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
 
-    const unknown = await verify('u'.repeat(43));
+    const unknown = await verify('u'.repeat(43), user.id);
     expect(unknown.statusCode).toBe(400);
     expect(unknown.json().error.code).toBe('VERIFY_TOKEN_INVALID');
 
@@ -211,11 +214,52 @@ describe('email verification', () => {
     await ctx.prisma.emailVerificationToken.create({
       data: { userId: disabled.id, tokenHash: hashToken(disabledToken), expiresAt: new Date(Date.now() + 3_600_000) },
     });
-    expect((await verify(disabledToken)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    expect((await verify(disabledToken, disabled.id)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    for (const dead of [expired, 'u'.repeat(43), disabledToken]) {
+      expect((await describeLink(dead)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    }
 
-    const malformed = await verify('short');
+    const malformed = await verify('short', user.id);
     expect(malformed.statusCode).toBe(400);
     expect(malformed.json().error.code).toBe('VALIDATION_FAILED');
+    // The signed-in user is required.
+    const valid = 'no-session-link-'.padEnd(43, 'n');
+    await ctx.prisma.emailVerificationToken.create({
+      data: { userId: user.id, tokenHash: hashToken(valid), expiresAt: new Date(Date.now() + 3_600_000) },
+    });
+    const noUser = await post('/email/verify', { token: valid });
+    expect(noUser.statusCode).toBe(400);
+    expect(noUser.json().error.code).toBe('VALIDATION_FAILED');
+    expect((await describeLink('short')).json().error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('link lookup names the account without using the link up (the page shows who must sign in)', async () => {
+    const { user, email } = await registeredClient();
+    const { token, record } = await latestLink(user.id);
+    for (let i = 0; i < 2; i++) {
+      const res = await describeLink(token);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ userId: user.id, email });
+    }
+    expect((await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } })).usedAt).toBeNull();
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
+  });
+
+  it('a link only confirms inside its own account’s session: signed out / another user → 403, link kept (RR-SEC-1)', async () => {
+    const { user } = await registeredClient();
+    const { token, record } = await latestLink(user.id);
+    const other = await ctx.fixtures.user();
+
+    for (const userId of [other.id, crypto.randomUUID()]) {
+      const res = await verify(token, userId);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('VERIFY_WRONG_ACCOUNT');
+    }
+    // Nothing changed: the address is unverified and the link still works for its owner.
+    expect((await ctx.prisma.emailVerificationToken.findUniqueOrThrow({ where: { id: record.id } })).usedAt).toBeNull();
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeNull();
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { id: other.id } })).sessionVersion).toBe(0);
+    expect((await verify(token, user.id)).statusCode).toBe(200);
   });
 
   it('resend → 202; a new link replaces the old one (in the requested language)', async () => {
@@ -229,8 +273,8 @@ describe('email verification', () => {
     expect(second.record.id).not.toBe(first.record.id);
     const lang = (await arabicAvailable()) ? 'ar' : 'en';
     expect(second.job.data.html).toMatch(new RegExp(`<html[^>]*lang="${lang}"`));
-    expect((await verify(first.token)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
-    expect((await verify(second.token)).statusCode).toBe(200);
+    expect((await verify(first.token, user.id)).json().error.code).toBe('VERIFY_TOKEN_INVALID');
+    expect((await verify(second.token, user.id)).statusCode).toBe(200);
   });
 
   it('resend sends nothing for verified, staff, disabled or unknown users (still 202)', async () => {
@@ -256,9 +300,19 @@ describe('email verification', () => {
   it('verify: 10 attempts per client IP per 15 min', async () => {
     const ip = '100.64.3.1';
     const statuses: number[] = [];
-    for (let i = 0; i < 11; i++) statuses.push((await verify(`guess-${i}`.padEnd(43, 'g'), ip)).statusCode);
+    const userId = crypto.randomUUID();
+    for (let i = 0; i < 11; i++) statuses.push((await verify(`guess-${i}`.padEnd(43, 'g'), userId, ip)).statusCode);
     expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
     expect(statuses[10]).toBe(429);
-    expect((await verify('another'.padEnd(43, 'g'), '100.64.3.2')).statusCode).toBe(400);
+    expect((await verify('another'.padEnd(43, 'g'), userId, '100.64.3.2')).statusCode).toBe(400);
+  });
+
+  it('link lookup: 30 per client IP per 15 min', async () => {
+    const ip = '100.64.4.1';
+    const statuses: number[] = [];
+    for (let i = 0; i < 31; i++) statuses.push((await describeLink(`peek-${i}`.padEnd(43, 'p'), ip)).statusCode);
+    expect(statuses.slice(0, 30).every((s) => s === 400)).toBe(true);
+    expect(statuses[30]).toBe(429);
+    expect((await describeLink('another'.padEnd(43, 'p'), '100.64.4.2')).statusCode).toBe(400);
   });
 });

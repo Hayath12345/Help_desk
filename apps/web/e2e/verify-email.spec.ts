@@ -1,6 +1,6 @@
-// Client sign-up → email verification (SEC-1) → password reset while signed in (F4), end to end:
-// the API (seeded org domains), its email worker, Mailpit and the web app. The Playwright config
-// starts what is not running yet.
+// Client sign-up → email verification (SEC-1, RR-SEC-1) → password reset while signed in (F4),
+// end to end: the API (seeded org domains), its email worker, Mailpit and the web app. The
+// Playwright config starts what is not running yet.
 //
 // Each run registers one new client (`e2e-<timestamp>@hamad.qa`): the API allows 5 sign-ups per
 // hour per IP, so back-to-back reruns may be rate limited.
@@ -11,6 +11,9 @@ import { waitForEmailLink } from './mailpit';
 /** hamad.qa belongs to a seeded organisation, so the new client joins it once verified. */
 const ORG_DOMAIN = 'hamad.qa';
 const PASSWORD = 'VerifyE2e2026';
+/** A seeded demo client (another account signed in on the browser that opens the link). */
+const OTHER_CLIENT_EMAIL = 'f.alsulaiti@ooredoo.qa';
+const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD || 'LoonsDemo2026';
 const NEW_PASSWORD = 'VerifyE2e2027';
 const CONFIRM_LINK = /https?:\/\/[^\s"'<>]+\/verify-email\/confirm\?token=[A-Za-z0-9_-]+/;
 const RESET_LINK = /https?:\/\/[^\s"'<>]+\/reset-password\?token=[A-Za-z0-9_-]+/;
@@ -47,8 +50,45 @@ test.describe('email verification', () => {
     await expect(page).toHaveURL(/\/verify-email\?checked=1$/);
     await expect(page.getByText("We haven't received your confirmation yet.")).toBeVisible();
 
-    // Opening the link does nothing by itself (mail scanners pre-fetch links)…
     const link = await waitForEmailLink(request, email, CONFIRM_LINK);
+
+    // RR-SEC-1: the link confirms nothing outside its own account's session. On another browser
+    // it asks to sign in to that account — signed out, or signed in as someone else — and comes
+    // back to the link afterwards.
+    await test.step('the link asks for its own account elsewhere', async () => {
+      const other = await browser.newContext({ baseURL, storageState: ENGLISH_STORAGE_STATE });
+      const elsewhere = await other.newPage();
+      const signIn = async (address: string, password: string) => {
+        await expect(elsewhere).toHaveURL(/\/login\?callbackUrl=%2Fverify-email%2Fconfirm/);
+        await elsewhere.getByLabel('Email', { exact: true }).fill(address);
+        await elsewhere.getByLabel('Password', { exact: true }).fill(password);
+        await elsewhere.getByRole('button', { name: 'Sign in', exact: true }).click();
+      };
+      const signInCard = elsewhere.getByRole('heading', { name: 'Sign in to confirm this address' });
+
+      await elsewhere.goto(link);
+      await expect(signInCard).toBeVisible();
+      await expect(elsewhere.getByText(email)).toBeVisible();
+      await expect(elsewhere.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
+
+      // Signing in as another account comes back here, and still can't confirm.
+      await elsewhere.getByRole('link', { name: 'Sign in to continue' }).click();
+      await signIn(OTHER_CLIENT_EMAIL, DEMO_PASSWORD);
+      await expect(signInCard).toBeVisible();
+      await expect(elsewhere.getByText(OTHER_CLIENT_EMAIL)).toBeVisible();
+      await expect(elsewhere.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
+
+      // "Sign out and continue", then the link's own account: now it may confirm (not pressed:
+      // the registrant's browser confirms below).
+      await elsewhere.getByRole('button', { name: 'Sign out and continue' }).click();
+      await signIn(email, PASSWORD);
+      await expect(
+        elsewhere.getByRole('heading', { name: 'Confirm your email address' }),
+      ).toBeVisible();
+      await other.close();
+    });
+
+    // Opening the link does nothing by itself (mail scanners pre-fetch links)…
     await page.goto(link);
     await expect(page.getByRole('heading', { name: 'Confirm your email address' })).toBeVisible();
 
@@ -56,12 +96,9 @@ test.describe('email verification', () => {
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(page).toHaveURL(/\/tickets(?:[/?#]|$)/);
 
-    // The link is single use.
+    // The link is single use: opening it again just continues to the portal.
     await page.goto(link);
-    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-    await expect(
-      page.getByText('This verification link is invalid or has expired. Request a new one.'),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/tickets(?:[/?#]|$)/);
 
     // F4 (same new account, so no demo password changes): a reset link works while signed in,
     // and a successful reset signs this browser out.

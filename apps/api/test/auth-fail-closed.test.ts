@@ -91,7 +91,8 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
     );
     expectServiceUnavailable(await post('/password/forgot', { email, locale: 'en' }));
     expectServiceUnavailable(await post('/password/reset', { token: 'x'.repeat(43), password: 'Valid-pass-123' }));
-    expectServiceUnavailable(await post('/email/verify', { token: 'x'.repeat(43) }));
+    expectServiceUnavailable(await post('/email/link', { token: 'x'.repeat(43) }));
+    expectServiceUnavailable(await post('/email/verify', { token: 'x'.repeat(43), userId: crypto.randomUUID() }));
     expectServiceUnavailable(await post('/email/resend', { userId: crypto.randomUUID(), locale: 'en' }));
   });
 
