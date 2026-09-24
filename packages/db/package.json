@@ -14,6 +14,7 @@
     "db:seed": "dotenv -e ../../.env -v NODE_ENV=development -- prisma db seed",
     "db:reset": "prisma migrate reset --force && pnpm run db:seed",
     "db:studio": "prisma studio",
+    "db:cleanup-e2e": "dotenv -e ../../.env -- tsx scripts/cleanup-e2e.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -7,6 +7,8 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 export default defineConfig({
   testDir: './e2e',
+  // Deletes the accounts the run created (packages/db/scripts/cleanup-e2e.ts).
+  globalTeardown: './e2e/global-teardown.ts',
   // Sign-in is rate limited per IP + email by the API: keep the run sequential and predictable.
   fullyParallel: false,
   workers: 1,

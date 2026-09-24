@@ -2,8 +2,9 @@
 // end to end: the API (seeded org domains), its email worker, Mailpit and the web app. The
 // Playwright config starts what is not running yet.
 //
-// Each run registers one new client (`e2e-<timestamp>@hamad.qa`): the API allows 5 sign-ups per
-// hour per IP, so back-to-back reruns may be rate limited.
+// Each run registers one new client (`e2e-<timestamp>@hamad.qa`), deleted again by the global
+// teardown (e2e/global-teardown.ts). The API allows 5 sign-ups per hour per IP, so back-to-back
+// reruns may still be rate limited (README → Troubleshooting).
 import { expect, test } from '@playwright/test';
 import { ENGLISH_STORAGE_STATE } from './fixtures';
 import { waitForEmailLink } from './mailpit';
