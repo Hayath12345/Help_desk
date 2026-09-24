@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { escapeHtml, interpolate, templateVariables } from './interpolate.ts';
+import { escapeHtml, interpolate, parseTemplate, templateVariables, variableText } from './interpolate.ts';
 
 describe('interpolate', () => {
   it('replaces placeholders, with or without inner spaces', () => {
@@ -57,5 +57,26 @@ describe('escapeHtml', () => {
 describe('templateVariables', () => {
   it('lists distinct placeholder names in order', () => {
     expect(templateVariables('{{b}} {{a}} {{ b }} {{c.d}}')).toEqual(['b', 'a', 'c.d']);
+  });
+});
+
+describe('parseTemplate', () => {
+  it('splits literal text and placeholders in order', () => {
+    expect(parseTemplate('Hi {{ name }},\n{{url}}')).toEqual([
+      { type: 'text', text: 'Hi ' },
+      { type: 'variable', name: 'name' },
+      { type: 'text', text: ',\n' },
+      { type: 'variable', name: 'url' },
+    ]);
+    expect(parseTemplate('')).toEqual([]);
+  });
+});
+
+describe('variableText', () => {
+  it('stringifies own values and reports missing ones', () => {
+    const onMissing = vi.fn();
+    expect(variableText({ n: 3 }, 'n', onMissing)).toBe('3');
+    expect(variableText({}, 'toString', onMissing)).toBe('');
+    expect(onMissing).toHaveBeenCalledWith('toString');
   });
 });

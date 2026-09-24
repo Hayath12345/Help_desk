@@ -43,7 +43,12 @@ export function UserMenu({ name, email, initials, showNewTicket = false }: UserM
         <DropdownMenuContent align="end" sideOffset={8} className="w-[220px]">
           <DropdownMenuLabel className="mb-1 flex flex-col gap-0.5 border-b border-divider pt-2 pb-2.5 font-normal">
             <span className="truncate text-sm font-semibold text-ink">{name}</span>
-            <span className="truncate text-xs text-ink-muted">{email}</span>
+            {/* LTR so a long address truncates at its end (not its local part) in Arabic.
+                self-start keeps a short one on the menu's start edge (text-start would resolve
+                against the span's own LTR direction); max-w-full caps a long one so it truncates. */}
+            <span dir="ltr" className="max-w-full self-start truncate text-xs text-ink-muted">
+              {email}
+            </span>
           </DropdownMenuLabel>
           {showNewTicket ? (
             <DropdownMenuItem disabled>

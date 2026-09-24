@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { useForm } from 'react-hook-form';
 import { resetPasswordAction } from '@/app/actions/auth';
+import { clearApiToken } from '@/lib/api/browser';
 import {
   PASSWORD_MIN,
   initialAuthFormState,
@@ -19,7 +20,10 @@ import { FormError } from './form-message';
 import { useActionSubmit, useServerFieldErrors, useValidationMessage } from './form-hooks';
 import { SubmitButton } from './submit-button';
 
-/** New password + confirmation; success redirects to /login?reset=1 (server action). */
+/**
+ * New password + confirmation; success signs this browser out (if signed in) and redirects to
+ * /login?reset=1 (server action).
+ */
 export function ResetPasswordForm({ token }: { token: string }) {
   const t = useTranslations('auth');
   const tErrors = useTranslations('errors');
@@ -34,7 +38,8 @@ export function ResetPasswordForm({ token }: { token: string }) {
     defaultValues: { password: '', confirmPassword: '' },
   });
   useServerFieldErrors(form, state);
-  const onSubmit = useActionSubmit(form, formAction);
+  // A successful reset ends the session on this browser: never reuse its cached API token.
+  const onSubmit = useActionSubmit(form, formAction, clearApiToken);
   const { errors } = form.formState;
 
   return (

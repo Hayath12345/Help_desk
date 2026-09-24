@@ -12,7 +12,12 @@ import authConfig, { PROVIDER_IDS } from '@/auth.config';
 import { ApiRequestError } from '@/lib/api/errors';
 import { internalApiFetch } from '@/lib/api/internal';
 import { clientIpFromHeaders } from '@/lib/auth/client-ip';
-import { isDevStaffLoginEnabled, trustedProxyHops } from '@/lib/auth/env';
+import {
+  entraConfig,
+  isDevStaffLoginEnabled,
+  isFromEntraTenant,
+  trustedProxyHops,
+} from '@/lib/auth/env';
 import { loginErrorCode, oauthErrorKey, type AuthErrorKey } from '@/lib/auth/errors';
 import { readLocaleCookie, syncLocaleOnSignIn } from '@/lib/auth/locale-sync';
 import { recordSignedInUser } from '@/lib/auth/sign-in-capture';
@@ -22,8 +27,8 @@ import {
   refreshSessionToken,
   sessionUserFromAuthJsUser,
   toSessionUser,
-  type UserLookup,
 } from '@/lib/auth/session-user';
+import { lookupUser } from '@/lib/auth/user-lookup';
 
 /**
  * A rejected password sign-in. `code` (our API error code) is what the login form shows; it
@@ -57,24 +62,10 @@ function oauthEmail(user: User, profile: Profile | undefined): string | null {
 }
 
 function oauthEmailVerified(provider: OAuthProvider, profile: Profile | undefined): boolean {
-  // Google states verification explicitly. Entra ID accounts come from the tenant-restricted
-  // issuer, so their address is managed by Loons IT.
+  // Google states verification explicitly. Entra ID accounts come from our own tenant (issuer and
+  // `tid` checked), so their address is managed by Loons IT.
   if (provider === 'GOOGLE') return profile?.email_verified === true;
   return true;
-}
-
-async function lookupUser(userId: string): Promise<UserLookup> {
-  try {
-    const body = await internalApiFetch<unknown>(
-      `/internal/auth/users/${encodeURIComponent(userId)}`,
-      { clientIp: null },
-    );
-    const user = parseUserResponse(body);
-    return user ? { kind: 'found', user } : { kind: 'unavailable' };
-  } catch (error) {
-    if (error instanceof ApiRequestError && error.status === 404) return { kind: 'gone' };
-    return { kind: 'unavailable' };
-  }
 }
 
 function describeError(error: unknown): string {
@@ -138,6 +129,12 @@ const config = {
 
       const provider = OAUTH_PROVIDERS[account.provider];
       if (!provider) return oauthFailure(provider, 'SIGNIN_FAILED');
+      // The tenant-specific issuer already makes Auth.js reject other tenants; the ID token's
+      // `tid` is re-checked here as defence in depth.
+      if (provider === 'MICROSOFT_ENTRA_ID' && !isFromEntraTenant(profile?.tid, entraConfig())) {
+        console.warn('[auth] Rejected a Microsoft sign-in from outside the configured tenant');
+        return oauthFailure(provider, 'FORBIDDEN');
+      }
       const email = oauthEmail(user, profile);
       if (!email) return oauthFailure(provider, 'SIGNIN_FAILED');
 

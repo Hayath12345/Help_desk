@@ -17,9 +17,11 @@ import {
 } from '@loons/shared';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import type { AppConfig } from '../config.ts';
-import { authUserSelect, toAuthUser, type AuthUserRow } from '../lib/actor.ts';
+import { authUserSelect, toAuthUser, type AuthUserRow, type PrincipalStore } from '../lib/actor.ts';
 import { errors } from '../lib/errors.ts';
+import type { EmailVerificationService } from './email-verification.service.ts';
 import { matchOrganizationByDomain } from './organizations.ts';
+import { REVOKE_SESSIONS_DATA, type SessionsService } from './sessions.service.ts';
 
 export interface AuthService {
   login(input: LoginInput): Promise<AuthUser>;
@@ -32,15 +34,15 @@ function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
 
-const oauthUserSelect = { ...authUserSelect, emailVerifiedAt: true } as const;
-type OAuthUserRow = AuthUserRow & { emailVerifiedAt: Date | null };
-
 export function createAuthService(deps: {
   prisma: PrismaClient;
   config: Pick<AppConfig, 'staffEmailDomain' | 'devStaffLogin'>;
+  principals: PrincipalStore;
+  sessions: Pick<SessionsService, 'sessionsRevoked'>;
+  verification: Pick<EmailVerificationService, 'sendVerification'>;
   logger: Logger;
 }): AuthService {
-  const { prisma, config } = deps;
+  const { prisma, config, principals, sessions, verification, logger } = deps;
   const isStaffDomain = (email: string) => isStaffEmail(email, config.staffEmailDomain);
 
   async function login(input: LoginInput): Promise<AuthUser> {
@@ -72,20 +74,28 @@ export function createAuthService(deps: {
     return toAuthUser(user);
   }
 
-  async function findOAuthUser(input: OAuthResolveInput, email: string): Promise<OAuthUserRow | null> {
+  async function findOAuthUser(input: OAuthResolveInput, email: string): Promise<AuthUserRow | null> {
     const linked = await prisma.authAccount.findUnique({
       where: {
         provider_providerAccountId: { provider: input.provider, providerAccountId: input.providerAccountId },
       },
-      select: { user: { select: oauthUserSelect } },
+      select: { user: { select: authUserSelect } },
     });
     if (linked) return linked.user;
-    return prisma.user.findUnique({ where: { email }, select: oauthUserSelect });
+    return prisma.user.findUnique({ where: { email }, select: authUserSelect });
   }
 
-  async function linkAndTouch(user: OAuthUserRow, input: OAuthResolveInput, email: string): Promise<void> {
+  /**
+   * Links the provider identity (if new), records the sign-in and marks the email verified.
+   * Google proves ownership of the mailbox, so an account whose address was never verified may
+   * have been registered by someone else first (pre-hijacking): its password is removed and every
+   * existing session, API token and socket is revoked, in the same transaction as the link.
+   */
+  async function linkAndTouch(user: AuthUserRow, input: OAuthResolveInput, email: string): Promise<AuthUserRow> {
     const now = new Date();
-    await prisma.$transaction(async (tx) => {
+    let claimedUnverified = false;
+    let becameVerified = false;
+    const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.authAccount.findUnique({
         where: {
           provider_providerAccountId: { provider: input.provider, providerAccountId: input.providerAccountId },
@@ -100,11 +110,32 @@ export function createAuthService(deps: {
         // The provider identity is already linked to another account; never re-link silently.
         throw errors.forbidden('This sign-in is linked to a different account.');
       }
-      await tx.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: now, ...(user.emailVerifiedAt ? {} : { emailVerifiedAt: now }) },
-      });
+      // Conditional updates (they only match while the address is still unverified), so the
+      // decision can't race with a verification committing at the same time.
+      if (input.provider === 'GOOGLE') {
+        const claimed = await tx.user.updateMany({
+          where: { id: user.id, emailVerifiedAt: null },
+          data: { passwordHash: null, emailVerifiedAt: now, ...REVOKE_SESSIONS_DATA },
+        });
+        claimedUnverified = claimed.count === 1;
+        if (claimedUnverified) await tx.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+      } else {
+        // Staff are gated by Entra itself; a successful sign-in also proves the address.
+        const verified = await tx.user.updateMany({
+          where: { id: user.id, emailVerifiedAt: null },
+          data: { emailVerifiedAt: now },
+        });
+        becameVerified = verified.count === 1;
+      }
+      return tx.user.update({ where: { id: user.id }, data: { lastLoginAt: now }, select: authUserSelect });
     });
+    if (claimedUnverified) {
+      await sessions.sessionsRevoked(user.id);
+      logger.info({ userId: user.id }, 'unverified account claimed with Google: password removed, sessions revoked');
+    } else if (becameVerified) {
+      await principals.invalidate(user.id);
+    }
+    return updated;
   }
 
   async function createGoogleClient(input: OAuthResolveInput, email: string): Promise<AuthUserRow> {
@@ -154,8 +185,7 @@ export function createAuthService(deps: {
     }
 
     if (!user) return toAuthUser(await createGoogleClient(input, email));
-    await linkAndTouch(user, input, email);
-    return toAuthUser(user);
+    return toAuthUser(await linkAndTouch(user, input, email));
   }
 
   async function resolveOAuth(input: OAuthResolveInput): Promise<AuthUser> {
@@ -179,8 +209,9 @@ export function createAuthService(deps: {
     const org = await matchOrganizationByDomain(prisma, emailDomain(email));
     const passwordHash = await hashPassword(input.password);
     const company = input.company.trim();
+    let user: AuthUserRow;
     try {
-      const user = await prisma.user.create({
+      user = await prisma.user.create({
         data: {
           email,
           name: input.name.trim(),
@@ -194,11 +225,18 @@ export function createAuthService(deps: {
         },
         select: authUserSelect,
       });
-      return toAuthUser(user);
     } catch (err) {
       if (isUniqueViolation(err)) throw errors.emailTaken();
       throw err;
     }
+    // The account stays unverified (no data access) until the emailed link is opened. A queueing
+    // failure doesn't undo the sign-up: /verify-email offers "Resend email".
+    try {
+      await verification.sendVerification(user);
+    } catch (err) {
+      logger.error({ err, userId: user.id }, 'could not queue the verification email');
+    }
+    return toAuthUser(user);
   }
 
   async function getUser(id: string): Promise<AuthUser> {

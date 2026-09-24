@@ -1,10 +1,11 @@
-import { WEB_ROUTES, homePathFor } from '@loons/shared';
+import { WEB_ROUTES } from '@loons/shared';
 import type { Metadata, Route } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { AuthCard, AuthCardHeader } from '@/components/auth/auth-card';
 import { PendingActions } from '@/components/auth/pending-actions';
 import { firstParam } from '@/lib/auth/callback-url';
+import { landingPathFor } from '@/lib/auth/routing';
 import { getCurrentUser } from '@/lib/session';
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -22,7 +23,9 @@ export default async function PendingApprovalPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect(WEB_ROUTES.clientLogin);
-  if (user.status === 'ACTIVE') redirect(homePathFor(user.role) as Route);
+  // Active users go home; unverified clients confirm their email address first.
+  const landing = landingPathFor(user);
+  if (landing !== WEB_ROUTES.pendingApproval) redirect(landing as Route);
 
   const params = await searchParams;
   const t = await getTranslations('auth.pending');

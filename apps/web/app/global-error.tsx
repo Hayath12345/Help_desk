@@ -36,7 +36,7 @@ export default function GlobalError({
               <p className="text-balance text-ink-muted">حدث خطأ غير متوقع. حاول مرة أخرى، أو عد بعد قليل.</p>
             </div>
             {error.digest ? (
-              <p className="font-mono text-xs text-ink-subtle">Reference / المرجع: {error.digest}</p>
+              <p className="font-mono text-xs text-ink-muted">Reference / المرجع: {error.digest}</p>
             ) : null}
             <button
               type="button"

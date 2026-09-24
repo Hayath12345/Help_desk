@@ -32,6 +32,7 @@ describe('POST /internal/auth/login', () => {
       locale: 'ar',
       teamIds: [],
       sessionVersion: 0,
+      emailVerified: true,
     });
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(row.lastLoginAt).not.toBeNull();

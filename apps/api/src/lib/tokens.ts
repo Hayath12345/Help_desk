@@ -7,6 +7,11 @@ import type { AppConfig } from '../config.ts';
 
 export interface AccessTokenVerifier {
   verify(token: string): Promise<ApiTokenClaims>;
+  /**
+   * When a verified token stops being accepted (epoch ms): its `exp`, or earlier if it would
+   * outlive the maximum token age first.
+   */
+  expiresAt(claims: Pick<ApiTokenClaims, 'iat' | 'exp'>): number;
 }
 
 export class InvalidTokenError extends Error {
@@ -45,6 +50,9 @@ export function createAccessTokenVerifier(jwt: AppConfig['jwt']): AccessTokenVer
       if (!claims.success) throw new InvalidTokenError('claims');
       return claims.data;
     },
+    expiresAt(claims) {
+      return Math.min(claims.exp, claims.iat + maxTokenAge) * 1000;
+    },
   };
 }
 
@@ -55,9 +63,10 @@ export function bearerToken(header: string | undefined): string | null {
   return match?.[1] ?? null;
 }
 
-// ───────────── Password reset tokens ─────────────
+// ───────────── One-time email tokens (password reset, email verification) ─────────────
 
 export const RESET_TOKEN_TTL_MINUTES = 30;
+export const EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24;
 
 /** SHA-256 (hex) of a raw token — only the hash is stored. */
 export function hashToken(token: string): string {
@@ -65,7 +74,7 @@ export function hashToken(token: string): string {
 }
 
 /** 32 random bytes, base64url (43 chars). */
-export function generateResetToken(): { token: string; tokenHash: string } {
+export function generateOneTimeToken(): { token: string; tokenHash: string } {
   const token = randomBytes(32).toString('base64url');
   return { token, tokenHash: hashToken(token) };
 }

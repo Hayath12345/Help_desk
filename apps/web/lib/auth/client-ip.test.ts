@@ -26,6 +26,13 @@ describe('clientIpFromHeaders', () => {
     ).toBe('::1');
   });
 
+  it('knows no IP when nothing appends to X-Forwarded-For (TRUSTED_PROXY_HOPS=0)', () => {
+    // Without a proxy the client writes every forwarding header itself.
+    const headers = new Headers({ 'x-forwarded-for': '192.0.2.77', 'x-real-ip': '192.0.2.78' });
+    expect(clientIpFromHeaders(headers, 0)).toBeNull();
+    expect(clientIpFromHeaders(headers, Number.NaN)).toBeNull();
+  });
+
   it('returns null without usable headers', () => {
     expect(clientIpFromHeaders(new Headers())).toBeNull();
     expect(clientIpFromHeaders(new Headers({ 'x-forwarded-for': 'unknown' }))).toBeNull();

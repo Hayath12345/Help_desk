@@ -16,7 +16,8 @@ export function AuthCardHeader({
 }) {
   return (
     <header className="flex flex-col gap-1">
-      <h1 id={titleId} className="text-[22px] leading-tight font-semibold text-ink">
+      {/* No leading-* override: the design's `line-height: normal` (globals.css) gives the 28px title. */}
+      <h1 id={titleId} className="text-[22px] font-semibold text-ink">
         {title}
       </h1>
       {subtitle ? <p className="leading-normal text-ink-muted">{subtitle}</p> : null}

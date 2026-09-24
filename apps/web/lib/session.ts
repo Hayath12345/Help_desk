@@ -12,6 +12,7 @@ import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { auth } from '@/auth';
+import { needsEmailVerification } from '@/lib/auth/routing';
 
 export interface CurrentUser {
   id: string;
@@ -23,6 +24,8 @@ export interface CurrentUser {
   locale: Locale;
   /** Session version the session was established with; API tokens carry it as `sv`. */
   sessionVersion: number;
+  /** Mailbox ownership proven. An unverified client may only use the /verify-email screens. */
+  emailVerified: boolean;
 }
 
 // One session decode per request, however many layouts/pages ask for the user.
@@ -39,6 +42,7 @@ const loadCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     orgId: user.orgId ?? null,
     locale: user.locale,
     sessionVersion: user.sessionVersion,
+    emailVerified: user.emailVerified === true,
   };
 });
 
@@ -53,6 +57,7 @@ function isStaffOnly(roles: readonly Role[]): boolean {
 /**
  * Returns the signed-in, active user or redirects:
  * - not signed in → `/login` (or `/staff/login` when every allowed role is a staff role)
+ * - a client who has not verified their email address → `/verify-email` (checked first)
  * - awaiting approval → `/pending`
  * - role not in `roles` → the user's own home
  */
@@ -63,6 +68,7 @@ export async function requireUser(roles?: readonly Role[]): Promise<CurrentUser>
       (roles && isStaffOnly(roles) ? WEB_ROUTES.staffLogin : WEB_ROUTES.clientLogin) as Route,
     );
   }
+  if (needsEmailVerification(user)) redirect(WEB_ROUTES.verifyEmail as Route);
   if (user.status !== 'ACTIVE') redirect(WEB_ROUTES.pendingApproval as Route);
   if (roles && roles.length > 0 && !roles.includes(user.role)) {
     redirect(homePathFor(user.role) as Route);

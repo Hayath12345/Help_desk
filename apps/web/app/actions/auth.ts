@@ -4,7 +4,6 @@
 
 import {
   WEB_ROUTES,
-  homePathFor,
   isStaffRole,
   resetPasswordSchema,
   type ErrorCode,
@@ -15,21 +14,28 @@ import { AuthError, CredentialsSignin } from 'next-auth';
 import { getLocale } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { signIn, signOut, unstable_update } from '@/auth';
-import { PROVIDER_IDS } from '@/auth.config';
 import { ApiRequestError, validationIssues } from '@/lib/api/errors';
 import { internalApiFetch } from '@/lib/api/internal';
 import { isDevStaffLoginEnabled, isEntraConfigured, isGoogleConfigured } from '@/lib/auth/env';
-import { resolveAuthErrorKey, type AuthErrorKey } from '@/lib/auth/errors';
+import { resolveAuthErrorKey, verifyEmailErrorCode, type AuthErrorKey } from '@/lib/auth/errors';
 import {
   fieldErrorsFrom,
   forgotPasswordFormSchema,
   formText,
+  isEmailLinkToken,
   loginFormSchema,
   resetPasswordFormSchema,
   signupFormSchema,
   type AuthFormState,
 } from '@/lib/auth/forms';
-import { destinationAfterSignIn, postSignInRedirect } from '@/lib/auth/routing';
+import { PROVIDER_IDS } from '@/lib/auth/provider-ids';
+import {
+  destinationAfterSignIn,
+  landingPathFor,
+  needsEmailVerification,
+  postSignInRedirect,
+  toRoutingUser,
+} from '@/lib/auth/routing';
 import { parseUserResponse, type SessionUser } from '@/lib/auth/session-user';
 import { captureSignedInUser } from '@/lib/auth/sign-in-capture';
 import { getCurrentUser } from '@/lib/session';
@@ -38,6 +44,9 @@ type LoginField = 'email' | 'password';
 type SignupField = 'name' | 'company' | 'email' | 'password';
 type ForgotField = 'email';
 type ResetField = 'password' | 'confirmPassword';
+
+/** `/login?verified=1`: shows "email address confirmed, sign in to continue". */
+const VERIFIED_LOGIN = `${WEB_ROUTES.clientLogin}?verified=1`;
 
 function withError(page: string, key: AuthErrorKey): Route {
   return `${page}?${new URLSearchParams({ error: key }).toString()}` as Route;
@@ -176,7 +185,8 @@ export async function registerAction(
     throw error;
   }
 
-  // The account exists now: sign straight in. Pending accounts land on the approval screen.
+  // The account exists now: sign straight in. A new client has not confirmed their address yet,
+  // so they land on /verify-email (the API has already queued the email with the link).
   let user: SessionUser | null;
   try {
     ({ user } = await captureSignedInUser(() =>
@@ -194,6 +204,71 @@ export async function registerAction(
   }
   if (!user) redirect(withError(WEB_ROUTES.clientLogin, 'SIGNIN_FAILED'));
   redirect(destinationAfterSignIn(user, null) as Route);
+}
+
+// ── Email verification ──────────────────────────────────────────────────────
+
+/** /verify-email "Resend email": asks the API to email the signed-in client a new link. */
+export async function resendVerificationEmailAction(
+  _prev: AuthFormState,
+  _formData: FormData,
+): Promise<AuthFormState> {
+  const user = await getCurrentUser();
+  if (!user) redirect(WEB_ROUTES.clientLogin as Route);
+  if (!needsEmailVerification(user)) redirect(landingPathFor(user) as Route);
+  try {
+    // Always 202: the API only sends while the account still needs it, and rate-limits per user.
+    await internalApiFetch('/internal/auth/email/resend', {
+      method: 'POST',
+      json: { userId: user.id, locale: await getLocale() },
+    });
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return apiFormError(error, ['RATE_LIMITED', 'SERVICE_UNAVAILABLE']);
+    }
+    throw error;
+  }
+  return { status: 'success', email: user.email };
+}
+
+/**
+ * /verify-email/confirm "Confirm" (a POST on purpose: mail scanners pre-fetch links with GET).
+ * - The signed-in user confirmed their own address: the session is reloaded now and they go to
+ *   their landing page (home, or /pending while awaiting approval).
+ * - Nobody is signed in: /login?verified=1.
+ * - Someone else is signed in on this browser: a success notice on the page.
+ */
+export async function confirmEmailAction(
+  _prev: AuthFormState,
+  formData: FormData,
+): Promise<AuthFormState> {
+  const token = formText(formData, 'token').trim();
+  if (!isEmailLinkToken(token)) return { status: 'error', error: 'VERIFY_TOKEN_INVALID' };
+
+  let verified: { id: string; email: string };
+  try {
+    const body = await internalApiFetch<unknown>('/internal/auth/email/verify', {
+      method: 'POST',
+      json: { token },
+    });
+    const user = parseUserResponse(body);
+    if (!user) return { status: 'error', error: 'INTERNAL' };
+    verified = user;
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return { status: 'error', error: verifyEmailErrorCode(error.code) };
+    }
+    throw error;
+  }
+
+  const current = await getCurrentUser();
+  if (!current) redirect(VERIFIED_LOGIN as Route);
+  if (current.id !== verified.id) return { status: 'success', email: verified.email };
+
+  // Reload the session from the API so the new flag applies to the very next page.
+  const session = await unstable_update({});
+  const user = toRoutingUser(session?.user);
+  redirect((user ? landingPathFor(user) : VERIFIED_LOGIN) as Route);
 }
 
 // ── Password reset ──────────────────────────────────────────────────────────
@@ -261,7 +336,12 @@ export async function resetPasswordAction(
     }
     throw error;
   }
-  redirect(`${WEB_ROUTES.clientLogin}?reset=1` as Route);
+
+  const done = `${WEB_ROUTES.clientLogin}?reset=1`;
+  // The reset ended every session of that account. Whoever is signed in on this browser (that
+  // account or another one) is signed out as well, so the next sign-in uses the new password.
+  if (await getCurrentUser()) await signOut({ redirectTo: done });
+  redirect(done as Route);
 }
 
 // ── Session ─────────────────────────────────────────────────────────────────
@@ -274,13 +354,24 @@ export async function signOutAction(): Promise<void> {
   await signOut({ redirectTo });
 }
 
-/** Re-reads the account from the API now (the pending screen's "Check again"). */
-export async function refreshSessionAction(): Promise<void> {
+/**
+ * Re-reads the account from the API now, then goes wherever the user belongs. When that is still
+ * `page` (nothing changed yet) the page reloads with `?checked=1` (a "still waiting" notice).
+ */
+async function refreshAndLand(page: string): Promise<never> {
   const session = await unstable_update({});
-  const user = session?.user;
-  if (!user?.role || !user.status || user.status === 'DISABLED') {
-    redirect(WEB_ROUTES.clientLogin as Route);
-  }
-  if (user.status === 'ACTIVE') redirect(homePathFor(user.role) as Route);
-  redirect(`${WEB_ROUTES.pendingApproval}?checked=1` as Route);
+  const user = toRoutingUser(session?.user);
+  if (!user || user.status === 'DISABLED') redirect(WEB_ROUTES.clientLogin as Route);
+  const landing = landingPathFor(user);
+  redirect((landing === page ? `${page}?checked=1` : landing) as Route);
+}
+
+/** The pending screen's "Check again". */
+export async function refreshSessionAction(): Promise<void> {
+  await refreshAndLand(WEB_ROUTES.pendingApproval);
+}
+
+/** The /verify-email screen's "I've verified — continue". */
+export async function recheckEmailVerificationAction(): Promise<void> {
+  await refreshAndLand(WEB_ROUTES.verifyEmail);
 }

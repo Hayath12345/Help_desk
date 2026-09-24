@@ -5,7 +5,7 @@ import type { Locale } from '@loons/shared';
 // CTA labels are part of the layout and stay in code. Variable names match the seeded rows
 // (packages/db/prisma/seed-data/email-templates.ts).
 
-export const EMAIL_TEMPLATE_KEYS = ['PASSWORD_RESET'] as const;
+export const EMAIL_TEMPLATE_KEYS = ['PASSWORD_RESET', 'EMAIL_VERIFICATION'] as const;
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 
 export interface EmailTemplateText {
@@ -41,6 +41,24 @@ export const DEFAULT_EMAIL_TEMPLATES: Readonly<Record<EmailTemplateKey, DefaultE
     ].join('\n\n'),
     ctaEn: 'Reset password',
     ctaAr: 'إعادة تعيين كلمة المرور',
+  },
+  EMAIL_VERIFICATION: {
+    key: 'EMAIL_VERIFICATION',
+    variables: ['name', 'verifyUrl', 'expiresHours'],
+    subjectEn: 'Confirm your email address for Loons Help Desk',
+    bodyEn: [
+      'Hi {{name}},',
+      'Thanks for signing up for Loons Help Desk. Use the button below to confirm your email address and finish setting up your account. The link expires in {{expiresHours}} hours and can only be used once.',
+      "If you didn't create an account, you can safely ignore this email.",
+    ].join('\n\n'),
+    subjectAr: 'تأكيد بريدك الإلكتروني في Loons Help Desk',
+    bodyAr: [
+      'مرحباً {{name}}،',
+      'شكراً لتسجيلك في Loons Help Desk. استخدم الزر أدناه لتأكيد بريدك الإلكتروني وإكمال إعداد حسابك. تنتهي صلاحية الرابط خلال {{expiresHours}} ساعة ويمكن استخدامه مرة واحدة فقط.',
+      'إذا لم تنشئ حساباً، يمكنك تجاهل هذه الرسالة بأمان.',
+    ].join('\n\n'),
+    ctaEn: 'Confirm email address',
+    ctaAr: 'تأكيد البريد الإلكتروني',
   },
 };
 

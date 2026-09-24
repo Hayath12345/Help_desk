@@ -13,17 +13,27 @@ describe('POST /internal/auth/register', () => {
   const register = (payload: Record<string, unknown>) =>
     ctx.app.inject({ method: 'POST', url: '/internal/auth/register', headers: ctx.internalHeaders(), payload });
 
-  it('email domain matching an organisation → ACTIVE member of that organisation', async () => {
+  it('email domain matching an organisation → ACTIVE member of that organisation, email not yet verified', async () => {
     const domain = testDomain();
     const org = await ctx.fixtures.org({ domains: [domain] });
     const email = ctx.fixtures.trackEmail(testEmail(domain));
     const res = await register({ name: 'Nadia Test', company: 'Ignored', email: email.toUpperCase(), password: TEST_PASSWORD, locale: 'ar' });
     expect(res.statusCode).toBe(201);
-    expect(res.json().user).toMatchObject({ email, role: 'CLIENT', status: 'ACTIVE', orgId: org.id, locale: 'ar' });
+    expect(res.json().user).toMatchObject({
+      email,
+      role: 'CLIENT',
+      status: 'ACTIVE',
+      orgId: org.id,
+      locale: 'ar',
+      emailVerified: false,
+    });
 
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { email } });
     expect(row.passwordHash).toMatch(/^\$argon2id\$/);
     expect(row.signupCompany).toBeNull();
+    // No data access until the emailed link is opened (see email-verification.test.ts).
+    expect(row.emailVerifiedAt).toBeNull();
+    expect(await ctx.prisma.emailVerificationToken.count({ where: { userId: row.id } })).toBe(1);
   });
 
   it('no matching organisation → PENDING_APPROVAL, no org, company kept for review', async () => {

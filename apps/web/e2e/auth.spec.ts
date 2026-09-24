@@ -4,6 +4,7 @@
 // The API rate-limits sign-in per (IP, email): flows are spread over several demo accounts and
 // tests that only need "a signed-in client" reuse one saved session.
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { ENGLISH_STORAGE_STATE } from './fixtures';
 
 const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD || 'LoonsDemo2026';
 const CLIENT_EMAIL = 'aisha.alkuwari@hamad.qa';
@@ -25,7 +26,8 @@ async function fillCredentials(page: Page, email: string, password: string) {
 /** A page signed in as the demo client (signs in once per run, then reuses the session). */
 async function signedInClientPage(browser: Browser, baseURL: string | undefined) {
   if (!clientSession) {
-    const context = await browser.newContext({ baseURL });
+    // browser.newContext() does not inherit the config `use` options, so pass the English cookie explicitly.
+    const context = await browser.newContext({ baseURL, storageState: ENGLISH_STORAGE_STATE });
     const page = await context.newPage();
     await page.goto('/login');
     await fillCredentials(page, CLIENT_EMAIL, DEMO_PASSWORD);

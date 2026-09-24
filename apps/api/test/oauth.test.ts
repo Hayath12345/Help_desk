@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, rand, testDomain, testEmail, type TestContext } from './helpers.ts';
+import { TEST_PASSWORD, createTestContext, mintToken, rand, testDomain, testEmail, type TestContext } from './helpers.ts';
 
 describe('POST /internal/auth/oauth', () => {
   let ctx: TestContext;
@@ -16,6 +16,15 @@ describe('POST /internal/auth/oauth', () => {
     resolve({ provider: 'GOOGLE', providerAccountId: `g-${rand()}`, email, emailVerified: true, name: 'Google User', ...extra });
   const entra = (email: string, extra: Record<string, unknown> = {}) =>
     resolve({ provider: 'MICROSOFT_ENTRA_ID', providerAccountId: `e-${rand()}`, email, emailVerified: true, name: 'Staff', ...extra });
+  const passwordLogin = (email: string) =>
+    ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/login',
+      headers: ctx.internalHeaders(),
+      payload: { email, password: TEST_PASSWORD },
+    });
+  const getMe = (token: string) =>
+    ctx.app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${token}` } });
 
   it('Google: new client on a known domain → created ACTIVE in that org, account linked', async () => {
     const domain = testDomain();
@@ -47,12 +56,58 @@ describe('POST /internal/auth/oauth', () => {
     expect(res.json().user).toMatchObject({ status: 'PENDING_APPROVAL', orgId: null });
   });
 
-  it('Google: existing password account is linked, not duplicated', async () => {
+  it('Google: existing verified password account is linked, not duplicated; password and sessions kept', async () => {
     const { user } = await ctx.fixtures.client();
     const res = await google(user.email.toUpperCase());
     expect(res.statusCode).toBe(200);
-    expect(res.json().user.id).toBe(user.id);
+    expect(res.json().user).toMatchObject({ id: user.id, emailVerified: true, sessionVersion: 0 });
     expect(await ctx.prisma.authAccount.count({ where: { userId: user.id, provider: 'GOOGLE' } })).toBe(1);
+    const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(row.passwordHash).not.toBeNull();
+    expect(row.sessionVersion).toBe(0);
+    expect((await passwordLogin(user.email)).statusCode).toBe(200);
+  });
+
+  it('Google on an address nobody verified: the pre-registered password and sessions are revoked (SEC-2)', async () => {
+    const domain = testDomain();
+    await ctx.fixtures.org({ domains: [domain] });
+    const email = ctx.fixtures.trackEmail(testEmail(domain));
+    // Someone else registers the victim's address first (they can't open the verification link).
+    const reg = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/register',
+      headers: ctx.internalHeaders(),
+      payload: { name: 'Squatter', email, password: TEST_PASSWORD },
+    });
+    expect(reg.statusCode).toBe(201);
+    const squatter = reg.json().user;
+    const squatterToken = await mintToken(ctx.config, { sub: squatter.id, sv: squatter.sessionVersion });
+    expect((await getMe(squatterToken)).statusCode).toBe(200); // warms the principal cache
+
+    // The owner of the mailbox later signs in with Google.
+    const res = await google(email);
+    expect(res.statusCode).toBe(200);
+    const owner = res.json().user;
+    expect(owner).toMatchObject({ id: squatter.id, emailVerified: true, sessionVersion: squatter.sessionVersion + 1 });
+
+    const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: squatter.id } });
+    expect(row.passwordHash).toBeNull();
+    expect(row.emailVerifiedAt).not.toBeNull();
+    expect(await ctx.prisma.emailVerificationToken.count({ where: { userId: squatter.id } })).toBe(0);
+
+    // The squatter's password and existing sessions / API tokens stop working at once…
+    const login = await passwordLogin(email);
+    expect(login.statusCode).toBe(401);
+    expect(login.json().error.code).toBe('INVALID_CREDENTIALS');
+    expect((await getMe(squatterToken)).statusCode).toBe(401);
+    // …while the owner's new session (issued with the returned version) works.
+    const ownerMe = await getMe(await mintToken(ctx.config, { sub: owner.id, sv: owner.sessionVersion }));
+    expect(ownerMe.statusCode).toBe(200);
+    expect(ownerMe.json().user.emailVerified).toBe(true);
+
+    // Signing in again later just signs in.
+    const again = await google(email);
+    expect(again.json().user.sessionVersion).toBe(owner.sessionVersion);
   });
 
   it('Google: staff-domain email → 403 STAFF_MUST_USE_SSO', async () => {
@@ -98,6 +153,16 @@ describe('POST /internal/auth/oauth', () => {
       where: { provider_providerAccountId: { provider: 'MICROSOFT_ENTRA_ID', providerAccountId } },
     });
     expect(account.userId).toBe(staff.id);
+  });
+
+  it('Entra: a successful staff sign-in marks the address verified (and revokes nothing)', async () => {
+    const staff = await ctx.fixtures.staff({ staffDomain: ctx.config.staffEmailDomain, emailVerified: false });
+    const res = await entra(staff.email);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user).toMatchObject({ id: staff.id, emailVerified: true, sessionVersion: 0 });
+    const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: staff.id } });
+    expect(row.emailVerifiedAt).not.toBeNull();
+    expect(row.passwordHash).not.toBeNull();
   });
 
   it('Entra: disabled staff → 403 ACCOUNT_DISABLED', async () => {

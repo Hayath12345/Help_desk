@@ -1,5 +1,6 @@
 // GET /api/token → { token, expiresAt } — a short-lived API access token for the browser.
-// Pending-approval users get one too: the API only lets them call /me.
+// Pending-approval users and clients with an unverified email get one too: the API only lets
+// them call GET/PATCH /me.
 import { NextResponse } from 'next/server';
 import { mintApiToken } from '@/lib/api/token';
 import { getCurrentUser } from '@/lib/session';

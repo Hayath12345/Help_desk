@@ -34,6 +34,38 @@ function lookup(vars: TemplateVariables, name: string): TemplateValue {
   return Object.hasOwn(vars, name) ? vars[name] : undefined;
 }
 
+/** A template split into its literal text and its `{{variable}}` placeholders, in order. */
+export type TemplatePart = { type: 'text'; text: string } | { type: 'variable'; name: string };
+
+export function parseTemplate(template: string): TemplatePart[] {
+  const parts: TemplatePart[] = [];
+  let last = 0;
+  for (const match of template.matchAll(PLACEHOLDER)) {
+    if (match.index > last) parts.push({ type: 'text', text: template.slice(last, match.index) });
+    parts.push({ type: 'variable', name: match[1] ?? '' });
+    last = match.index + match[0].length;
+  }
+  if (last < template.length) parts.push({ type: 'text', text: template.slice(last) });
+  return parts;
+}
+
+/**
+ * The text a placeholder is replaced with: the variable's value as a string, or an empty string
+ * when it has none (reported through `onMissing`).
+ */
+export function variableText(
+  vars: TemplateVariables,
+  name: string,
+  onMissing?: (name: string) => void,
+): string {
+  const value = lookup(vars, name);
+  if (value === undefined || value === null) {
+    onMissing?.(name);
+    return '';
+  }
+  return String(value);
+}
+
 /**
  * Replaces `{{variable}}` placeholders with values from `vars`.
  * Unknown placeholders become empty strings (and are reported through `onMissing`).
@@ -44,19 +76,11 @@ export function interpolate(
   options: InterpolateOptions = {},
 ): string {
   const esc = options.escapeHtml ? escapeHtml : (s: string) => s;
-  let out = '';
-  let last = 0;
-  for (const match of template.matchAll(PLACEHOLDER)) {
-    const index = match.index;
-    const name = match[1] ?? '';
-    out += esc(template.slice(last, index));
-    const value = lookup(vars, name);
-    if (value === undefined || value === null) options.onMissing?.(name);
-    out += esc(value === undefined || value === null ? '' : String(value));
-    last = index + match[0].length;
-  }
-  out += esc(template.slice(last));
-  return out;
+  return parseTemplate(template)
+    .map((part) =>
+      esc(part.type === 'text' ? part.text : variableText(vars, part.name, options.onMissing)),
+    )
+    .join('');
 }
 
 /** Distinct placeholder names used in a template, in order of first appearance. */

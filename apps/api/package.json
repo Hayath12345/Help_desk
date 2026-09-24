@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dotenv -e ../../.env -- tsx watch --clear-screen=false src/server.ts",
-    "dev:worker": "dotenv -e ../../.env -- tsx watch --clear-screen=false src/worker.ts",
+    "dev": "dotenv -e ../../.env -v NODE_ENV=development -- tsx watch --clear-screen=false src/server.ts",
+    "dev:worker": "dotenv -e ../../.env -v NODE_ENV=development -- tsx watch --clear-screen=false src/worker.ts",
     "start": "tsx src/server.ts",
     "start:worker": "tsx src/worker.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "dotenv -e ../../.env -- vitest run"
+    "test": "dotenv -e ../../.env -v NODE_ENV=test -- vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "catalog:",
@@ -21,6 +21,7 @@
     "@fastify/cookie": "catalog:",
     "@fastify/cors": "catalog:",
     "@fastify/helmet": "catalog:",
+    "@fastify/proxy-addr": "catalog:",
     "@fastify/rate-limit": "catalog:",
     "@fastify/swagger": "catalog:",
     "@fastify/swagger-ui": "catalog:",

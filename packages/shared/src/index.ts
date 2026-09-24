@@ -1,5 +1,6 @@
 export * from './enums.ts';
 export * from './auth.ts';
+export * from './env.ts';
 export * from './errors.ts';
 export * from './permissions.ts';
 export * from './routes.ts';

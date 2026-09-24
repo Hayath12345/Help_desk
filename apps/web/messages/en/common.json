@@ -13,6 +13,7 @@
   "newTicket": "New ticket",
   "newTicketSoon": "Creating tickets arrives in the next release.",
   "accountMenu": "Account menu",
+  "notifications": "Notifications",
   "status": {
     "NEW": "New",
     "OPEN": "Open",

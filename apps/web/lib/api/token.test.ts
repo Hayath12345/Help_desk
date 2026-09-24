@@ -81,17 +81,24 @@ describe('mintApiToken', () => {
     expect(decodeProtectedHeader(token).alg).toBe('HS256');
   });
 
-  it('falls back to 900 s for an out-of-range TTL', async () => {
-    vi.stubEnv('API_TOKEN_TTL_SECONDS', '999999');
+  it('uses the default TTL when unset and refuses an out-of-range TTL (same range as the API)', async () => {
+    vi.stubEnv('API_TOKEN_TTL_SECONDS', '');
     const { token } = await mintApiToken(USER);
     const { payload } = await jwtVerify(token, key);
     expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(900);
+
+    vi.stubEnv('API_TOKEN_TTL_SECONDS', '999999');
+    await expect(mintApiToken(USER)).rejects.toThrow(/API_TOKEN_TTL_SECONDS/);
+    vi.stubEnv('API_TOKEN_TTL_SECONDS', '45');
+    await expect(mintApiToken(USER)).rejects.toThrow(/API_TOKEN_TTL_SECONDS/);
   });
 
-  it('refuses to sign without a (long enough) secret', async () => {
+  it('refuses to sign without a real, long enough secret', async () => {
     vi.stubEnv('API_JWT_SECRET', '');
     await expect(mintApiToken(USER)).rejects.toThrow(/API_JWT_SECRET/);
     vi.stubEnv('API_JWT_SECRET', 'short');
     await expect(mintApiToken(USER)).rejects.toThrow(/at least/);
+    vi.stubEnv('API_JWT_SECRET', 'replace-me-with-32+-random-bytes');
+    await expect(mintApiToken(USER)).rejects.toThrow(/placeholder/);
   });
 });

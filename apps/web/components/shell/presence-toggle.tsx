@@ -13,6 +13,9 @@ const isPresence = (value: string): value is Presence => value === 'online' || v
 /**
  * Online / Away pill (design 692). Phase 1 persists the choice in this browser only; the server
  * side of agent availability arrives with assignment rules.
+ *
+ * A switch named "Online" (constant, as the switch pattern requires): Away is announced as
+ * "Online, off" rather than the contradictory "Away, off". The visible text shows the state.
  */
 export function PresenceToggle({ className }: { className?: string }) {
   const t = useTranslations('console.presence');
@@ -24,14 +27,15 @@ export function PresenceToggle({ className }: { className?: string }) {
       type="button"
       role="switch"
       aria-checked={online}
+      aria-label={t('online')}
       onClick={() => {
         const next: Presence = online ? 'away' : 'online';
         setPresence(next);
         toast(next === 'online' ? t('nowOnline') : t('nowAway'));
       }}
       className={cn(
-        'inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm font-medium whitespace-nowrap transition-colors duration-200 ease-out',
-        online ? 'bg-success-tint text-success' : 'bg-surface-sunken text-ink-muted',
+        'inline-flex min-h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-[5px] text-sm font-medium whitespace-nowrap transition-colors duration-200 ease-out',
+        online ? 'bg-success-tint text-success' : 'bg-surface-sunken text-ink-muted-on-sunken',
         className,
       )}
     >

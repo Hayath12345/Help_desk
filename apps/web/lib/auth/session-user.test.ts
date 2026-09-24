@@ -3,6 +3,7 @@ import type { JWT } from 'next-auth/jwt';
 import { describe, expect, it, vi } from 'vitest';
 import {
   USER_REFRESH_INTERVAL_MS,
+  USER_REFRESH_RETRY_MS,
   applyUserToToken,
   isRefreshDue,
   parseUserResponse,
@@ -23,6 +24,7 @@ const apiUser: AuthUser = {
   locale: 'en',
   teamIds: [],
   sessionVersion: 2,
+  emailVerified: true,
 };
 
 const NOW = 1_800_000_000_000;
@@ -59,6 +61,7 @@ describe('token <-> session user', () => {
       orgId: apiUser.orgId,
       locale: 'en',
       sv: 2,
+      emailVerified: true,
       refreshedAt: NOW,
     });
     expect(token.picture).toBeUndefined();
@@ -85,6 +88,21 @@ describe('token <-> session user', () => {
     expect(sessionUserFromAuthJsUser({ id: 'x', email: 'a@b.co' })).toBeNull();
     const { sessionVersion: _omit, ...withoutVersion } = toSessionUser(apiUser);
     expect(sessionUserFromAuthJsUser(withoutVersion)).toBeNull();
+    // The API always states verification; Auth.js' own Date-typed flag is not ours.
+    const { emailVerified: _flag, ...withoutFlag } = toSessionUser(apiUser);
+    expect(sessionUserFromAuthJsUser(withoutFlag)).toBeNull();
+    expect(sessionUserFromAuthJsUser({ ...withoutFlag, emailVerified: new Date() })).toBeNull();
+  });
+
+  it('carries the email verification flag both ways', () => {
+    const unverified = toSessionUser({ ...apiUser, emailVerified: false });
+    expect(sessionUserFromAuthJsUser(unverified)?.emailVerified).toBe(false);
+    const token = applyUserToToken({}, unverified, NOW);
+    expect(token.emailVerified).toBe(false);
+    expect(sessionUserFromToken(token)?.emailVerified).toBe(false);
+    // Tokens from before verification existed read as unverified (and are refreshed at once).
+    const { emailVerified: _omit, ...legacy } = signedInToken();
+    expect(sessionUserFromToken(legacy)?.emailVerified).toBe(false);
   });
 
   it('stores the sign-in user’s session version in the JWT (sv)', () => {
@@ -181,14 +199,70 @@ describe('refreshSessionToken', () => {
     expect(result).toMatchObject({ sv: 2, name: 'Aisha K.', refreshedAt: later });
   });
 
-  it('keeps the session when the API is unavailable', async () => {
+  it('keeps the session when the API is unavailable and backs off before retrying (F2)', async () => {
     const token = signedInToken();
-    const result = await refreshSessionToken(token, {
-      now: NOW + USER_REFRESH_INTERVAL_MS,
+    const lookup = vi.fn(async (): Promise<UserLookup> => ({ kind: 'unavailable' }));
+    const failedAt = NOW + USER_REFRESH_INTERVAL_MS;
+    const result = await refreshSessionToken(token, { now: failedAt, lookup });
+    expect(result).toBe(token);
+    expect(sessionUserFromToken(result!)).toEqual(toSessionUser(apiUser));
+    expect(lookup).toHaveBeenCalledTimes(1);
+
+    // Requests during the back-off reuse the session without asking the API again…
+    for (const offset of [1, 1_000, USER_REFRESH_RETRY_MS - 1]) {
+      await refreshSessionToken(token, { now: failedAt + offset, lookup });
+    }
+    expect(lookup).toHaveBeenCalledTimes(1);
+
+    // …then the next request tries again, and a success resumes the normal 5-minute cycle.
+    lookup.mockResolvedValueOnce(found(apiUser));
+    const later = failedAt + USER_REFRESH_RETRY_MS;
+    const refreshed = await refreshSessionToken(token, { now: later, lookup });
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(refreshed?.refreshedAt).toBe(later);
+    await refreshSessionToken(token, { now: later + USER_REFRESH_RETRY_MS, lookup });
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it('still refreshes on demand (session update) during the back-off', async () => {
+    const token = signedInToken({ emailVerified: false });
+    const failedAt = NOW + USER_REFRESH_INTERVAL_MS;
+    await refreshSessionToken(token, {
+      now: failedAt,
       lookup: async () => ({ kind: 'unavailable' }),
     });
-    expect(result).toBe(token);
-    expect(result?.refreshedAt).toBe(NOW);
+    const result = await refreshSessionToken(token, {
+      now: failedAt + 1,
+      force: true,
+      lookup: async () => found(apiUser),
+    });
+    expect(result?.emailVerified).toBe(true);
+  });
+
+  it('reloads a token that predates the verification flag straight away', async () => {
+    const { emailVerified: _omit, ...legacy } = signedInToken();
+    const lookup = vi.fn(async () => found(apiUser));
+    const result = await refreshSessionToken({ ...legacy }, { now: NOW + 1, lookup });
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(result?.emailVerified).toBe(true);
+
+    // With the API down it is kept (as unverified) and retried after the back-off, not per request.
+    const down = vi.fn(async (): Promise<UserLookup> => ({ kind: 'unavailable' }));
+    const kept = await refreshSessionToken({ ...legacy }, { now: NOW + 1, lookup: down });
+    expect(kept?.emailVerified).toBe(false);
+    await refreshSessionToken(kept!, { now: NOW + 2, lookup: down });
+    expect(down).toHaveBeenCalledTimes(1);
+  });
+
+  it('flips emailVerified on a forced refresh after the user confirmed their address', async () => {
+    const token = signedInToken({ emailVerified: false });
+    const result = await refreshSessionToken(token, {
+      now: NOW + 1,
+      force: true,
+      lookup: async () => found({ ...apiUser, emailVerified: true }),
+    });
+    expect(result?.emailVerified).toBe(true);
+    expect(sessionUserFromToken(result!)?.emailVerified).toBe(true);
   });
 
   it('rejects tokens without a user and a lookup returning someone else', async () => {

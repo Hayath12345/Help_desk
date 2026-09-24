@@ -51,14 +51,27 @@ export function internalKeyGuard(
   };
 }
 
+/** The IP in `x-client-ip`, normalised, or null when absent / not an IP. Trust it only after the key. */
+function forwardedClientIp(req: FastifyRequest): string | null {
+  const forwarded = headerValue(req, CLIENT_IP_HEADER)?.trim();
+  return forwarded && isIP(forwarded) !== 0 ? normalizeIP(forwarded) : null;
+}
+
 /**
  * The end user's IP for rate limiting. `x-client-ip` is trusted only on requests that already
  * proved the internal key; everything else uses the socket / proxy address.
  */
 export function clientIp(req: FastifyRequest): string {
-  if (req.internalCaller) {
-    const forwarded = headerValue(req, CLIENT_IP_HEADER)?.trim();
-    if (forwarded && isIP(forwarded) !== 0) return normalizeIP(forwarded);
-  }
-  return normalizeIP(req.ip);
+  return (req.internalCaller ? forwardedClientIp(req) : null) ?? normalizeIP(req.ip);
+}
+
+/**
+ * Key of the global per-IP limit. The web server's own Bearer calls made on a user's behalf
+ * (server components, server actions) carry the internal key and the end user's IP in
+ * `x-client-ip`, so each end user gets their own bucket instead of all of them sharing the web
+ * server's. Without a valid key (browsers, anyone else) the header is ignored.
+ */
+export function globalRateLimitKey(req: FastifyRequest, internalApiKey: string): string {
+  const forwarded = checkInternalKey(req, internalApiKey) === 'ok' ? forwardedClientIp(req) : null;
+  return forwarded ?? normalizeIP(req.ip);
 }

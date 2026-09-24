@@ -6,7 +6,7 @@ import { Fragment, type ReactNode } from 'react';
 import { Button, Heading, Link, Section, Text } from '@react-email/components';
 import { render } from '@react-email/render';
 import type { Locale } from '@loons/shared';
-import { interpolate, type TemplateVariables } from './interpolate.ts';
+import { interpolate, parseTemplate, variableText, type TemplateVariables } from './interpolate.ts';
 import { EmailLayout, textStyle } from './layout.tsx';
 import { directionFor, emailColors, emailRadii, layoutStrings, type TextDirection } from './theme.ts';
 
@@ -17,11 +17,31 @@ export interface EmailCta {
   url: string;
 }
 
+/**
+ * Variables that carry links the app builds itself (never user input). In the body, only these
+ * values and the template's own text are turned into clickable links; every other value (names,
+ * subjects, message text…) is shown as plain text on one line, so a URL typed into a name can't
+ * become a link in an official email.
+ */
+export const LINK_VARIABLES = [
+  'resetUrl',
+  'verifyUrl',
+  'portalUrl',
+  'ticketUrl',
+  'ackUrl',
+  'consoleUrl',
+  'queueUrl',
+] as const;
+const LINK_VARIABLE_NAMES: ReadonlySet<string> = new Set(LINK_VARIABLES);
+
 export interface RenderTemplateEmailInput {
   locale: Locale;
   /** Subject template (plain text with `{{variables}}`). */
   subject: string;
-  /** Body template: plain text, paragraphs separated by blank lines, `{{variables}}` allowed. */
+  /**
+   * Body template: plain text, paragraphs separated by blank lines, `{{variables}}` allowed.
+   * Bare URLs in the template text and in `LINK_VARIABLES` values become links.
+   */
   body: string;
   variables?: TemplateVariables;
   cta?: EmailCta;
@@ -53,14 +73,62 @@ function safeHttpUrl(value: string): string | null {
   }
 }
 
-/** Blank-line separated paragraphs, each split into lines. */
-function toParagraphs(text: string): string[][] {
-  return text
-    .replace(/\r\n?/g, '\n')
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .map((p) => p.split('\n').map((line) => line.trimEnd()));
+/** A piece of one body line: template text / link variables (linkified) or a plain value. */
+interface Run {
+  text: string;
+  linkify: boolean;
+}
+type Line = Run[];
+
+function lineText(line: Line): string {
+  return line.map((run) => run.text).join('');
+}
+
+function trimLine(line: Line, { start }: { start: boolean }): Line {
+  const runs = line.map((run) => ({ ...run }));
+  while (start && runs[0]) {
+    runs[0].text = runs[0].text.trimStart();
+    if (runs[0].text !== '') break;
+    runs.shift();
+  }
+  for (let last = runs.at(-1); last; last = runs.at(-1)) {
+    last.text = last.text.trimEnd();
+    if (last.text !== '') break;
+    runs.pop();
+  }
+  return runs;
+}
+
+/**
+ * The body as blank-line separated paragraphs of lines. Only the template's own text can break
+ * lines or paragraphs: substituted values are collapsed onto one line.
+ */
+function toParagraphs(body: string, vars: TemplateVariables): Line[][] {
+  const lines: Line[] = [[]];
+  for (const part of parseTemplate(body.replace(/\r\n?/g, '\n'))) {
+    if (part.type === 'variable') {
+      const text = oneLine(variableText(vars, part.name));
+      if (text) lines.at(-1)?.push({ text, linkify: LINK_VARIABLE_NAMES.has(part.name) });
+      continue;
+    }
+    part.text.split('\n').forEach((text, i) => {
+      if (i > 0) lines.push([]);
+      if (text) lines.at(-1)?.push({ text, linkify: true });
+    });
+  }
+
+  // Whitespace-only lines separate paragraphs; each paragraph is trimmed, each line right-trimmed.
+  const paragraphs: Line[][] = [];
+  let current: Line[] = [];
+  for (const line of [...lines, []]) {
+    if (lineText(line).trim() !== '') {
+      current.push(trimLine(line, { start: current.length === 0 }));
+    } else if (current.length > 0) {
+      paragraphs.push(current);
+      current = [];
+    }
+  }
+  return paragraphs;
 }
 
 /** Text with bare URLs turned into links. React escapes every text node. */
@@ -87,13 +155,19 @@ function linkify(line: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function Paragraph({ lines, dir, index }: { lines: string[]; dir: TextDirection; index: number }) {
+function Paragraph({ lines, dir, index }: { lines: Line[]; dir: TextDirection; index: number }) {
   return (
     <Text style={textStyle(dir)}>
       {lines.map((line, li) => (
         <Fragment key={li}>
           {li > 0 ? <br /> : null}
-          {linkify(line, `p${index}-l${li}`)}
+          {line.map((run, ri) =>
+            run.linkify ? (
+              <Fragment key={ri}>{linkify(run.text, `p${index}-l${li}-r${ri}`)}</Fragment>
+            ) : (
+              run.text
+            ),
+          )}
         </Fragment>
       ))}
     </Text>
@@ -109,7 +183,7 @@ function TemplateEmail({
 }: {
   locale: Locale;
   subject: string;
-  paragraphs: string[][];
+  paragraphs: Line[][];
   cta: ResolvedCta | null;
   preview: string;
 }) {
@@ -178,14 +252,15 @@ function oneLine(value: string): string {
 /**
  * Renders an admin-editable template (subject + plain-text body with `{{variables}}`) inside the
  * branded layout. Returns the final subject, the HTML part and a plain-text alternative.
- * Variable values are HTML-escaped in the HTML part (React escapes every text node) and
- * newlines are stripped from the subject.
+ * Variable values are HTML-escaped in the HTML part (React escapes every text node), kept on one
+ * line, and only linkified for `LINK_VARIABLES`; newlines are stripped from the subject.
  */
 export async function renderTemplateEmail(input: RenderTemplateEmailInput): Promise<RenderedEmail> {
   const vars = input.variables ?? {};
   const subject = oneLine(interpolate(input.subject, vars));
-  const bodyText = interpolate(input.body, vars);
-  const paragraphs = toParagraphs(bodyText);
+  const paragraphs = toParagraphs(input.body, vars);
+  const paragraphTexts = paragraphs.map((lines) => lines.map(lineText).join('\n'));
+  const bodyText = paragraphTexts.join('\n\n');
 
   let cta: ResolvedCta | null = null;
   if (input.cta) {
@@ -198,7 +273,7 @@ export async function renderTemplateEmail(input: RenderTemplateEmailInput): Prom
   }
 
   const preview = oneLine(
-    input.preview !== undefined ? interpolate(input.preview, vars) : (paragraphs[0]?.join(' ') ?? ''),
+    input.preview !== undefined ? interpolate(input.preview, vars) : (paragraphTexts[0] ?? ''),
   ).slice(0, 140);
 
   const html = await render(
@@ -214,7 +289,7 @@ export async function renderTemplateEmail(input: RenderTemplateEmailInput): Prom
   const strings = layoutStrings[input.locale];
   const textParts = [
     subject,
-    ...paragraphs.map((lines) => lines.join('\n')),
+    ...paragraphTexts,
     ...(cta?.showLinkFallback ? [`${cta.label}: ${cta.url}`] : []),
     '—',
     `${strings.automated}\n${strings.footer}`,

@@ -15,6 +15,8 @@ export interface Actor {
   teamIds: readonly string[];
   /** Teams where the user is a LEAD member. Only meaningful for TEAM_LEAD. */
   leadTeamIds: readonly string[];
+  /** Mailbox ownership proven. Unverified clients are treated like pending ones (no data access). */
+  emailVerified: boolean;
 }
 
 /** The subset of a ticket needed to decide access. */
@@ -42,8 +44,14 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 /** Sections a TEAM_LEAD may open (scoped to their own teams inside each section). */
 export const TEAM_LEAD_ADMIN_SECTIONS: readonly AdminSection[] = ['teams', 'macros'];
 
+/**
+ * The account may use the app: status ACTIVE and, for clients, a verified email address. A client
+ * who signed up with an address on an organisation's domain must prove they own it before they can
+ * see that organisation's data (tenant isolation, spec §5).
+ */
 export function isActive(actor: Actor): boolean {
-  return actor.status === 'ACTIVE';
+  if (actor.status !== 'ACTIVE') return false;
+  return actor.role !== 'CLIENT' || actor.emailVerified;
 }
 
 export function isStaff(actor: Actor): boolean {

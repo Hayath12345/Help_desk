@@ -55,6 +55,7 @@ describe('internal API key', () => {
       locale: 'en',
       teamIds: [team.id],
       sessionVersion: 0,
+      emailVerified: true,
     });
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { palette } from '@loons/ui';
 import { DEFAULT_EMAIL_TEMPLATES, defaultCtaLabel, pickTemplateText } from './defaults.ts';
-import { renderTemplateEmail } from './render.tsx';
+import { LINK_VARIABLES, renderTemplateEmail } from './render.tsx';
 
 const reset = DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET;
 const vars = {
@@ -116,5 +116,121 @@ describe('renderTemplateEmail with a template that already contains the link', (
     expect(out.html).not.toContain("If the button doesn't work");
     expect(out.html).not.toContain('If the button doesn&#x27;t work');
     expect(out.text.split(url)).toHaveLength(2); // the URL appears once in the text part
+  });
+});
+
+describe('renderTemplateEmail links (only template text and app-generated URL variables)', () => {
+  const evil = 'https://loons-support.evil.example/verify';
+
+  it('never turns a URL inside a name into a link (password-reset phishing)', async () => {
+    const text = pickTemplateText(reset, 'en');
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: text.subject,
+      body: text.body,
+      variables: { ...vars, name: `there. URGENT: verify at ${evil}` },
+      cta: { label: 'Reset password', url: vars.resetUrl },
+    });
+    expect(out.html).not.toContain(`href="${evil}`);
+    expect(out.html).toContain(`Hi there. URGENT: verify at ${evil},`); // still shown, as plain text
+    expect(out.html).toContain(`href="${vars.resetUrl}"`); // the real link still works
+  });
+
+  it('links URLs written in the template itself and in link variables only', async () => {
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: 's',
+      body: [
+        'Help: https://help.example.com/faq',
+        'Reset: {{resetUrl}}',
+        'Verify: {{verifyUrl}}',
+        'Links: {{ticketUrl}} / {{portalUrl}} / {{consoleUrl}} / {{queueUrl}} / {{ackUrl}}',
+        'From: {{requesterName}}: {{description}}',
+      ].join('\n'),
+      variables: {
+        resetUrl: 'https://help.example.com/r',
+        verifyUrl: 'https://help.example.com/v',
+        ticketUrl: 'https://help.example.com/t',
+        portalUrl: 'https://help.example.com/p',
+        consoleUrl: 'https://help.example.com/c',
+        queueUrl: 'https://help.example.com/q',
+        ackUrl: 'https://help.example.com/a',
+        requesterName: 'https://attacker.example/name',
+        description: 'see http://attacker.example/desc',
+      },
+    });
+    for (const path of ['faq', 'r', 'v', 't', 'p', 'c', 'q', 'a']) {
+      expect(out.html, path).toContain(`href="https://help.example.com/${path}"`);
+    }
+    expect(out.html).not.toContain('href="https://attacker.example');
+    expect(out.html).not.toContain('href="http://attacker.example');
+    expect(out.html).toContain('https://attacker.example/name');
+    expect(LINK_VARIABLES).toEqual([
+      'resetUrl',
+      'verifyUrl',
+      'portalUrl',
+      'ticketUrl',
+      'ackUrl',
+      'consoleUrl',
+      'queueUrl',
+    ]);
+  });
+
+  it('keeps substituted values on one line: they cannot add lines or paragraphs', async () => {
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: 's',
+      body: 'Hi {{name}},\n\nBody text.',
+      variables: { name: 'Ada\n\nYour account is locked.\r\nCall us' },
+    });
+    expect(out.html).toContain('Hi <!-- -->Ada Your account is locked. Call us<!-- -->,');
+    expect(out.html).not.toMatch(/Ada(<!-- -->)?<br/);
+    expect(out.text).toContain('Hi Ada Your account is locked. Call us,\n\nBody text.');
+  });
+
+  it('template line breaks and paragraphs still work around empty values', async () => {
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: 's',
+      body: '  Line {{a}}\nnext {{missing}}  \n   \n\n  Second {{b}}.  ',
+      variables: { a: 'one', b: 'two' },
+    });
+    expect(out.text.split('\n\n').slice(1, 3)).toEqual(['Line one\nnext', 'Second two.']);
+    expect(out.html).toMatch(/Line (<!-- -->)?one(<!-- -->)?<br\/?>(<!-- -->)?next/);
+  });
+});
+
+describe('EMAIL_VERIFICATION default template', () => {
+  const verify = DEFAULT_EMAIL_TEMPLATES.EMAIL_VERIFICATION;
+  const verifyUrl = 'https://help.example.com/verify-email/confirm?token=abc123';
+
+  it('declares its variables and renders English with the confirm button', async () => {
+    expect(verify.variables).toEqual(['name', 'verifyUrl', 'expiresHours']);
+    const out = await renderTemplateEmail({
+      locale: 'en',
+      subject: verify.subjectEn,
+      body: verify.bodyEn,
+      variables: { name: 'Ada', verifyUrl, expiresHours: 24 },
+      cta: { label: defaultCtaLabel('EMAIL_VERIFICATION', 'en') ?? '', url: '{{verifyUrl}}' },
+    });
+    expect(out.subject).toBe('Confirm your email address for Loons Help Desk');
+    expect(out.text).toContain('Hi Ada,');
+    expect(out.text).toContain('24 hours');
+    expect(out.html).toContain(`href="${verifyUrl}"`);
+    expect(out.text).toContain(`Confirm email address: ${verifyUrl}`);
+  });
+
+  it('renders Arabic right-to-left', async () => {
+    const text = pickTemplateText(verify, 'ar');
+    const out = await renderTemplateEmail({
+      locale: text.locale,
+      subject: text.subject,
+      body: text.body,
+      variables: { name: 'ليلى', verifyUrl, expiresHours: 24 },
+      cta: { label: defaultCtaLabel('EMAIL_VERIFICATION', 'ar') ?? '', url: verifyUrl },
+    });
+    expect(out.html).toMatch(/<html[^>]*dir="rtl"/);
+    expect(out.text).toContain('مرحباً ليلى');
+    expect(out.text).toContain(`تأكيد البريد الإلكتروني: ${verifyUrl}`);
   });
 });

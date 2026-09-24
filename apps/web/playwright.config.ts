@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import { ENGLISH_STORAGE_STATE } from './e2e/fixtures';
 
 const CI = Boolean(process.env.CI);
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -17,6 +18,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     locale: 'en-US',
+    storageState: ENGLISH_STORAGE_STATE,
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
@@ -27,6 +29,17 @@ export default defineConfig({
       url: 'http://localhost:4000/health/live',
       cwd: repoRoot,
       reuseExistingServer: true,
+      timeout: 120_000,
+      stdout: 'pipe',
+    },
+    {
+      // Sends the emails (BullMQ `email` queue) the verification test reads from Mailpit. It has
+      // no port to probe, so one is always started; an extra worker next to a running
+      // `pnpm dev` is harmless (both consume the same queues).
+      name: 'worker',
+      command: 'pnpm --filter @loons/api dev:worker',
+      wait: { stdout: /worker ready/ },
+      cwd: repoRoot,
       timeout: 120_000,
       stdout: 'pipe',
     },

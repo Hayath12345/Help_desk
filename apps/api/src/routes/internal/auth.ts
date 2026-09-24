@@ -2,6 +2,7 @@ import { normalizeIP } from '@fastify/rate-limit';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  LOCALES,
   authUserSchema,
   forgotPasswordSchema,
   loginSchema,
@@ -14,7 +15,13 @@ import { CLIENT_IP_HEADER, clientIp, internalKeyGuard } from '../../lib/internal
 import { HOUR, MINUTE, hashKeyPart, limitGuard } from '../../lib/rate-limit.ts';
 
 const userResponse = z.object({ user: authUserSchema });
+const acceptedResponse = z.object({ ok: z.literal(true) });
 const security = [{ internalApiKey: [] }];
+
+/** Body of POST /internal/auth/email/verify (the token from the emailed link). */
+export const verifyEmailSchema = z.object({ token: z.string().min(32).max(256) });
+/** Body of POST /internal/auth/email/resend (the signed-in user's id, from the web session). */
+export const resendVerificationSchema = z.object({ userId: z.uuid(), locale: z.enum(LOCALES).optional() });
 
 /**
  * Server-to-server sign-in support for the web app (`/internal/auth/*`).
@@ -46,9 +53,23 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   const ip = (req: Parameters<typeof clientIp>[0]) => `ip:${clientIp(req)}`;
-  const ipAndEmail = (req: Parameters<typeof clientIp>[0]) => {
+  const bodyEmail = (req: Parameters<typeof clientIp>[0]) => {
+    // Already normalised (trimmed, lower-cased) by the body schema.
     const email = (req.body as { email?: unknown } | undefined)?.email;
-    return typeof email === 'string' ? `ip:${clientIp(req)}:email:${hashKeyPart(email)}` : null;
+    return typeof email === 'string' ? email : null;
+  };
+  const ipAndEmail = (req: Parameters<typeof clientIp>[0]) => {
+    const email = bodyEmail(req);
+    return email === null ? null : `ip:${clientIp(req)}:email:${hashKeyPart(email)}`;
+  };
+  // Independent of the IP (which the caller may be able to vary): caps guessing per account.
+  const emailOnly = (req: Parameters<typeof clientIp>[0]) => {
+    const email = bodyEmail(req);
+    return email === null ? null : `email:${hashKeyPart(email)}`;
+  };
+  const bodyUserId = (req: Parameters<typeof clientIp>[0]) => {
+    const userId = (req.body as { userId?: unknown } | undefined)?.userId;
+    return typeof userId === 'string' ? `user:${userId}` : null;
   };
 
   // Fail CLOSED: if the limiter store (Redis) is unreachable these routes answer 503
@@ -59,6 +80,7 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     [
       { name: 'login:ip-email', max: 10, windowMs: 15 * MINUTE, key: ipAndEmail },
       { name: 'login:ip', max: 50, windowMs: 15 * MINUTE, key: ip },
+      { name: 'login:email', max: 30, windowMs: HOUR, key: emailOnly },
     ],
     failClosed,
   );
@@ -66,10 +88,22 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   const registerLimit = limitGuard(app, [{ name: 'register:ip', max: 5, windowMs: HOUR, key: ip }], failClosed);
   const forgotLimit = limitGuard(
     app,
-    [{ name: 'forgot:ip-email', max: 5, windowMs: 15 * MINUTE, key: ipAndEmail }],
+    [
+      { name: 'forgot:ip-email', max: 5, windowMs: 15 * MINUTE, key: ipAndEmail },
+      { name: 'forgot:email', max: 5, windowMs: HOUR, key: emailOnly },
+    ],
     failClosed,
   );
   const resetLimit = limitGuard(app, [{ name: 'reset:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const verifyLimit = limitGuard(app, [{ name: 'verify:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const resendLimit = limitGuard(
+    app,
+    [
+      { name: 'resend:user', max: 3, windowMs: 15 * MINUTE, key: bodyUserId },
+      { name: 'resend:ip', max: 10, windowMs: 15 * MINUTE, key: ip },
+    ],
+    failClosed,
+  );
 
   const noGlobalLimit = { rateLimit: false } as const;
 
@@ -127,7 +161,8 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
       preHandler: registerLimit,
       schema: {
         tags: ['internal-auth'],
-        summary: 'Client self-signup (joins the organisation matching the email domain, else pending approval)',
+        summary:
+          'Client self-signup (joins the organisation matching the email domain, else pending approval); emails a verification link',
         security,
         body: registerSchema,
         response: { 201: userResponse, ...errorResponses(400, 401, 403, 409, 429, 503) },
@@ -146,7 +181,7 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Email a password reset link (always 202, whether or not the account exists)',
         security,
         body: forgotPasswordSchema,
-        response: { 202: z.object({ ok: z.literal(true) }), ...errorResponses(400, 401, 403, 429, 503) },
+        response: { 202: acceptedResponse, ...errorResponses(400, 401, 403, 429, 503) },
       },
     },
     async (req, reply) => {
@@ -173,6 +208,43 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       await app.services.passwordReset.resetPassword(req.body);
       return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    '/email/verify',
+    {
+      config: noGlobalLimit,
+      preHandler: verifyLimit,
+      schema: {
+        tags: ['internal-auth'],
+        summary: 'Confirm a client’s email address with the emailed token (single use, 24 h)',
+        security,
+        body: verifyEmailSchema,
+        response: { 200: userResponse, ...errorResponses(400, 401, 403, 429, 503) },
+      },
+    },
+    async (req) => ({ user: await app.services.emailVerification.verify(req.body.token) }),
+  );
+
+  app.post(
+    '/email/resend',
+    {
+      config: noGlobalLimit,
+      preHandler: resendLimit,
+      schema: {
+        tags: ['internal-auth'],
+        summary: 'Email a new verification link to an unverified client (always 202)',
+        security,
+        body: resendVerificationSchema,
+        response: { 202: acceptedResponse, ...errorResponses(400, 401, 403, 429, 503) },
+      },
+    },
+    async (req, reply) => {
+      const input = req.body;
+      // Finished after the response, like the password reset request.
+      app.background.run('email-verification-resend', () => app.services.emailVerification.requestResend(input));
+      return reply.code(202).send({ ok: true });
     },
   );
 };

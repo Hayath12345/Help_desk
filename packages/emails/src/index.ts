@@ -1,8 +1,11 @@
 export {
   escapeHtml,
   interpolate,
+  parseTemplate,
   templateVariables,
+  variableText,
   type InterpolateOptions,
+  type TemplatePart,
   type TemplateValue,
   type TemplateVariables,
 } from './interpolate.ts';
@@ -15,6 +18,7 @@ export {
 } from './theme.ts';
 export { EmailLayout, type EmailLayoutProps } from './layout.tsx';
 export {
+  LINK_VARIABLES,
   renderTemplateEmail,
   type EmailCta,
   type RenderTemplateEmailInput,

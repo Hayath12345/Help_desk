@@ -5,7 +5,11 @@ import type { DefaultSession } from 'next-auth';
 import 'next-auth/jwt';
 
 declare module 'next-auth' {
-  /** Returned by Credentials `authorize()` and filled in by the OAuth `signIn` callback. */
+  /**
+   * Returned by Credentials `authorize()` and filled in by the OAuth `signIn` callback.
+   * (Our boolean `emailVerified` is not declared here: Auth.js' AdapterUser already uses that name
+   * for a Date. sessionUserFromAuthJsUser() reads it defensively.)
+   */
   interface User {
     role?: Role;
     status?: UserStatus;
@@ -25,6 +29,8 @@ declare module 'next-auth' {
       orgId: string | null;
       locale: Locale;
       sessionVersion: number;
+      /** Mailbox ownership proven (API `emailVerified`). Unverified clients see /verify-email only. */
+      emailVerified: boolean;
     } & Omit<DefaultSession['user'], 'name' | 'email'>;
   }
 }
@@ -43,7 +49,12 @@ declare module 'next-auth/jwt' {
      * (password reset, and later admin disable / role change).
      */
     sv?: number;
-    /** Epoch ms of the last reload from the API (GET /internal/auth/users/:id). */
+    /** API `emailVerified`; missing on sessions from before verification existed (refreshed at once). */
+    emailVerified?: boolean;
+    /**
+     * Epoch ms of the last reload from the API (GET /internal/auth/users/:id). After a failed
+     * reload it is set so that the next attempt happens USER_REFRESH_RETRY_MS later.
+     */
     refreshedAt?: number;
   }
 }

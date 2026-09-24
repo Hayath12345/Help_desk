@@ -24,7 +24,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   const t = await getTranslations('auth');
   const callbackUrl = safeCallbackUrl(firstParam(params.callbackUrl));
   const initialError = resolveAuthErrorKey(firstParam(params.error), firstParam(params.code));
-  const notice = firstParam(params.reset) === '1' ? t('login.resetSuccess') : null;
+  const notice =
+    firstParam(params.reset) === '1'
+      ? t('login.resetSuccess')
+      : firstParam(params.verified) === '1'
+        ? t('login.verifiedSuccess')
+        : null;
   const googleEnabled = isGoogleConfigured();
 
   return (

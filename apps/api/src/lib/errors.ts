@@ -42,6 +42,8 @@ export const errors = {
   emailNotVerified: () => new AppError(403, 'EMAIL_NOT_VERIFIED', 'This email address is not verified.'),
   resetTokenInvalid: () =>
     new AppError(400, 'RESET_TOKEN_INVALID', 'This reset link is invalid or has expired. Request a new one.'),
+  verifyTokenInvalid: () =>
+    new AppError(400, 'VERIFY_TOKEN_INVALID', 'This verification link is invalid or has expired. Request a new one.'),
 };
 
 /** Response schema for every non-2xx reply (documentation + serialization). */

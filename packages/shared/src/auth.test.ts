@@ -36,6 +36,7 @@ describe('session version', () => {
     locale: 'en',
     teamIds: [],
     sessionVersion: 0,
+    emailVerified: true,
   };
   const claims = {
     sub: user.id,
@@ -84,6 +85,14 @@ describe('auth schemas', () => {
     expect(registerSchema.safeParse({ ...base, password: 'short1' }).success).toBe(false);
     expect(registerSchema.safeParse({ ...base, password: 'onlyletterslong' }).success).toBe(false);
     expect(registerSchema.safeParse({ ...base, password: 'letters-and-123' }).success).toBe(true);
+  });
+
+  it('accepts Arabic letters with Arabic-Indic or Latin digits', () => {
+    const base = { name: 'سارة أحمد', email: 'sara@qnb.com' };
+    expect(registerSchema.safeParse({ ...base, password: 'كلمةالسر٢٠٢٦' }).success).toBe(true);
+    expect(registerSchema.safeParse({ ...base, password: 'كلمةالسر2026' }).success).toBe(true);
+    expect(registerSchema.safeParse({ ...base, password: 'كلمةالسرفقط' }).success).toBe(false);
+    expect(registerSchema.safeParse({ ...base, password: '٢٠٢٦٢٠٢٦٢٠' }).success).toBe(false);
   });
 });
 

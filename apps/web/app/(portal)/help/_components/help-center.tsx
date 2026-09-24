@@ -45,7 +45,8 @@ export function HelpCenter({ articles }: HelpCenterProps) {
         onChange={(event) => setQuery(event.target.value)}
         placeholder={t('searchPlaceholder')}
         aria-label={t('searchLabel')}
-        className="h-11 rounded-lg px-3.5 md:text-[15px]"
+        // Design 615: 11px 14px padding, 10px radius, 14px text → 42px.
+        className="h-auto rounded-lg px-3.5 py-[11px]"
       />
 
       <Card className="gap-0 py-0">

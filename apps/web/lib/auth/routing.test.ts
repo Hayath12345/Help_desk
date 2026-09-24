@@ -6,15 +6,25 @@ import {
   loginRedirectFor,
   postSignInRedirect,
   resolveRedirect,
+  staffAuthErrorLocation,
+  toRoutingUser,
   type RoutingUser,
 } from './routing';
 
-const client: RoutingUser = { role: 'CLIENT', status: 'ACTIVE' };
-const agent: RoutingUser = { role: 'AGENT', status: 'ACTIVE' };
-const lead: RoutingUser = { role: 'TEAM_LEAD', status: 'ACTIVE' };
-const admin: RoutingUser = { role: 'SUPER_ADMIN', status: 'ACTIVE' };
-const pending: RoutingUser = { role: 'CLIENT', status: 'PENDING_APPROVAL' };
-const disabled: RoutingUser = { role: 'AGENT', status: 'DISABLED' };
+const client: RoutingUser = { role: 'CLIENT', status: 'ACTIVE', emailVerified: true };
+const agent: RoutingUser = { role: 'AGENT', status: 'ACTIVE', emailVerified: true };
+const lead: RoutingUser = { role: 'TEAM_LEAD', status: 'ACTIVE', emailVerified: true };
+const admin: RoutingUser = { role: 'SUPER_ADMIN', status: 'ACTIVE', emailVerified: true };
+const pending: RoutingUser = { role: 'CLIENT', status: 'PENDING_APPROVAL', emailVerified: true };
+const disabled: RoutingUser = { role: 'AGENT', status: 'DISABLED', emailVerified: true };
+const unverified: RoutingUser = { role: 'CLIENT', status: 'ACTIVE', emailVerified: false };
+const unverifiedPending: RoutingUser = {
+  role: 'CLIENT',
+  status: 'PENDING_APPROVAL',
+  emailVerified: false,
+};
+/** SSO-gated staff are never sent to /verify-email, whatever the flag says. */
+const unverifiedAgent: RoutingUser = { role: 'AGENT', status: 'ACTIVE', emailVerified: false };
 
 const go = (path: string, user: RoutingUser | null) => {
   const url = new URL(path, 'http://localhost:3000');
@@ -57,8 +67,14 @@ describe('resolveRedirect — signed out', () => {
     expect(go('/administrator', null)).toBe('/login?callbackUrl=%2Fadministrator');
   });
 
-  it('sends /pending to the login page', () => {
+  it('sends /pending and /verify-email to the login page', () => {
     expect(go('/pending', null)).toBe('/login');
+    expect(go('/verify-email', null)).toBe('/login');
+    expect(go('/verify-email?checked=1', null)).toBe('/login');
+  });
+
+  it('lets the emailed confirmation link through (public page)', () => {
+    expect(go('/verify-email/confirm?token=abc', null)).toBeNull();
   });
 
   it('never redirects API routes (they answer 401 themselves)', () => {
@@ -93,6 +109,55 @@ describe('resolveRedirect — clients', () => {
     expect(go('/signup', client)).toBe('/tickets');
     expect(go('/staff/login', client)).toBe('/tickets');
     expect(go('/pending', client)).toBe('/tickets');
+  });
+
+  it('sends verified clients away from /verify-email but lets email links through', () => {
+    expect(go('/verify-email', client)).toBe('/tickets');
+    expect(go('/verify-email/confirm?token=abc', client)).toBeNull();
+    // F4: a reset link works for a signed-in user too (the reset then signs the browser out).
+    expect(go('/reset-password?token=abc', client)).toBeNull();
+  });
+});
+
+describe('resolveRedirect — unverified clients (SEC-1)', () => {
+  it('sends every app page to /verify-email', () => {
+    for (const path of [
+      '/',
+      '/tickets',
+      '/tickets/42',
+      '/help',
+      '/pending',
+      '/console/inbox',
+      '/admin',
+      '/login',
+      '/signup',
+      '/forgot-password',
+      '/staff/login',
+      '/something-else',
+    ]) {
+      expect(go(path, unverified), path).toBe('/verify-email');
+    }
+  });
+
+  it('allows the verification screens, email links and API routes', () => {
+    expect(go('/verify-email', unverified)).toBeNull();
+    expect(go('/verify-email?checked=1', unverified)).toBeNull();
+    expect(go('/verify-email/confirm?token=abc', unverified)).toBeNull();
+    expect(go('/reset-password?token=abc', unverified)).toBeNull();
+    expect(go('/api/token', unverified)).toBeNull();
+    expect(go('/api/auth/signout', unverified)).toBeNull();
+  });
+
+  it('checks verification before approval', () => {
+    expect(go('/pending', unverifiedPending)).toBe('/verify-email');
+    expect(go('/tickets', unverifiedPending)).toBe('/verify-email');
+    expect(go('/verify-email', unverifiedPending)).toBeNull();
+    expect(go('/verify-email', pending)).toBe('/pending');
+  });
+
+  it('never gates staff on the flag (they sign in with SSO)', () => {
+    expect(go('/console/inbox', unverifiedAgent)).toBeNull();
+    expect(go('/verify-email', unverifiedAgent)).toBe('/console/inbox');
   });
 });
 
@@ -154,11 +219,28 @@ describe('landingPathFor / canAccess', () => {
     expect(landingPathFor(lead)).toBe('/console/inbox');
     expect(landingPathFor(admin)).toBe('/admin');
     expect(landingPathFor(pending)).toBe('/pending');
+    expect(landingPathFor(unverified)).toBe('/verify-email');
+    expect(landingPathFor(unverifiedPending)).toBe('/verify-email');
+    expect(landingPathFor(unverifiedAgent)).toBe('/console/inbox');
   });
 
   it('denies everything protected to inactive users', () => {
     expect(canAccess('/tickets', pending)).toBe(false);
     expect(canAccess('/console', disabled)).toBe(false);
+    expect(canAccess('/tickets', unverified)).toBe(false);
+    expect(canAccess('/help', unverified)).toBe(false);
+  });
+
+  it('reads the routing fields of a session user', () => {
+    expect(
+      toRoutingUser({ id: 'u1', role: 'CLIENT', status: 'ACTIVE', emailVerified: false }),
+    ).toEqual(unverified);
+    expect(toRoutingUser({ id: 'u1', role: 'CLIENT', status: 'ACTIVE' })).toEqual(unverified);
+    expect(
+      toRoutingUser({ id: 'u1', role: 'AGENT', status: 'ACTIVE', emailVerified: true }),
+    ).toEqual(agent);
+    expect(toRoutingUser({ role: 'CLIENT', status: 'ACTIVE' })).toBeNull();
+    expect(toRoutingUser(null)).toBeNull();
   });
 });
 
@@ -193,6 +275,12 @@ describe('destinationAfterSignIn', () => {
   it('always sends pending users to /pending', () => {
     expect(destinationAfterSignIn(pending, '/tickets')).toBe('/pending');
   });
+
+  it('sends unverified clients (e.g. right after sign-up) to /verify-email', () => {
+    expect(destinationAfterSignIn(unverified, null)).toBe('/verify-email');
+    expect(destinationAfterSignIn(unverified, '/tickets/42')).toBe('/verify-email');
+    expect(destinationAfterSignIn(unverifiedPending, undefined)).toBe('/verify-email');
+  });
 });
 
 describe('postSignInRedirect', () => {
@@ -209,6 +297,41 @@ describe('postSignInRedirect', () => {
     expect(postSignInRedirect('/login')).toBe('/');
     expect(postSignInRedirect('/staff/login?callbackUrl=/admin')).toBe('/');
     expect(postSignInRedirect('/pending')).toBe('/');
+    expect(postSignInRedirect('/verify-email')).toBe('/');
+    expect(postSignInRedirect('/verify-email/confirm?token=abc')).toBe('/');
     expect(postSignInRedirect('/api/auth/signout')).toBe('/');
+  });
+});
+
+describe('staffAuthErrorLocation (F5)', () => {
+  const entraCallback = '/api/auth/callback/microsoft-entra-id';
+
+  it('sends Auth.js errors of the Entra flow to /staff/login, keeping the error', () => {
+    expect(
+      staffAuthErrorLocation(entraCallback, 'http://localhost:3000/login?error=OAuthCallbackError'),
+    ).toBe('http://localhost:3000/staff/login?error=OAuthCallbackError');
+    expect(staffAuthErrorLocation(entraCallback, '/login?error=AccessDenied')).toBe(
+      '/staff/login?error=AccessDenied',
+    );
+    expect(
+      staffAuthErrorLocation(
+        '/api/auth/signin/microsoft-entra-id',
+        'https://support.example/login?error=Configuration',
+      ),
+    ).toBe('https://support.example/staff/login?error=Configuration');
+  });
+
+  it('leaves other providers, successes and non-error redirects alone', () => {
+    expect(
+      staffAuthErrorLocation('/api/auth/callback/google', 'http://localhost:3000/login?error=X'),
+    ).toBeNull();
+    expect(staffAuthErrorLocation(entraCallback, 'http://localhost:3000/console/inbox')).toBeNull();
+    expect(staffAuthErrorLocation(entraCallback, 'http://localhost:3000/login')).toBeNull();
+    // The signIn callback already chose the staff page for API rejections.
+    expect(
+      staffAuthErrorLocation(entraCallback, 'http://localhost:3000/staff/login?error=FORBIDDEN'),
+    ).toBeNull();
+    expect(staffAuthErrorLocation(entraCallback, null)).toBeNull();
+    expect(staffAuthErrorLocation('/api/auth/session', '/login?error=X')).toBeNull();
   });
 });

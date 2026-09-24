@@ -59,6 +59,16 @@ export interface AuthFormState<Field extends string = string> {
 
 export const initialAuthFormState: AuthFormState = { status: 'idle' };
 
+/**
+ * Shape of the single-use tokens in emailed links (password reset, email confirmation): 32 random
+ * bytes as base64url, within the bounds the API accepts. Anything else is rejected before any call.
+ */
+const EMAIL_LINK_TOKEN = /^[A-Za-z0-9_-]{32,256}$/;
+
+export function isEmailLinkToken(value: string): boolean {
+  return EMAIL_LINK_TOKEN.test(value);
+}
+
 /** First issue per top-level field, as `validation.*` keys. */
 export function fieldErrorsFrom(
   issues: readonly { path: readonly PropertyKey[]; message: string }[],

@@ -191,6 +191,9 @@ catalogs:
     '@fastify/helmet':
       specifier: 13.1.1
       version: 13.1.1
+    '@fastify/proxy-addr':
+      specifier: 5.1.1
+      version: 5.1.1
     '@fastify/rate-limit':
       specifier: 11.2.0
       version: 11.2.0
@@ -415,6 +418,9 @@ importers:
       '@fastify/helmet':
         specifier: 'catalog:'
         version: 13.1.1
+      '@fastify/proxy-addr':
+        specifier: 'catalog:'
+        version: 5.1.1
       '@fastify/rate-limit':
         specifier: 'catalog:'
         version: 11.2.0

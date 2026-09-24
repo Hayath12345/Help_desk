@@ -1,21 +1,15 @@
 import { hashPassword, type PrismaClient } from '@loons/db';
-import {
-  DEFAULT_EMAIL_TEMPLATES,
-  defaultCtaLabel,
-  pickTemplateText,
-  renderTemplateEmail,
-  type RenderedEmail,
-} from '@loons/emails';
+import type { EmailTemplateKey, RenderedEmail } from '@loons/emails';
 import { normalizeEmail, type ForgotPasswordInput, type Locale, type ResetPasswordInput } from '@loons/shared';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import type { AppConfig } from '../config.ts';
-import type { PrincipalStore } from '../lib/actor.ts';
 import { errors } from '../lib/errors.ts';
 import type { AppQueues } from '../lib/queues.ts';
-import { RESET_TOKEN_TTL_MINUTES, generateResetToken, hashToken } from '../lib/tokens.ts';
-import { REVOKE_SESSIONS_DATA } from './sessions.service.ts';
+import { RESET_TOKEN_TTL_MINUTES, generateOneTimeToken, hashToken } from '../lib/tokens.ts';
+import { renderStoredTemplate } from './email-templates.ts';
+import { REVOKE_SESSIONS_DATA, type SessionsService } from './sessions.service.ts';
 
-export const PASSWORD_RESET_TEMPLATE_KEY = 'PASSWORD_RESET';
+export const PASSWORD_RESET_TEMPLATE_KEY = 'PASSWORD_RESET' satisfies EmailTemplateKey;
 
 export interface PasswordResetService {
   /**
@@ -24,8 +18,9 @@ export interface PasswordResetService {
    */
   requestReset(input: ForgotPasswordInput): Promise<void>;
   /**
-   * Consumes a token (single use), sets the new password and revokes every existing session and
-   * API token of the user (sessionVersion + 1, same transaction).
+   * Consumes a token (single use), sets the new password, marks the email verified and revokes
+   * every existing session, API token and live socket of the user (sessionVersion + 1, same
+   * transaction).
    */
   resetPassword(input: ResetPasswordInput): Promise<void>;
   /** Renders the reset email from the EmailTemplate row (or the built-in default). */
@@ -35,26 +30,18 @@ export interface PasswordResetService {
 export function createPasswordResetService(deps: {
   prisma: PrismaClient;
   queues: AppQueues;
-  principals: PrincipalStore;
+  sessions: Pick<SessionsService, 'sessionsRevoked'>;
   config: Pick<AppConfig, 'appUrl'>;
   logger: Logger;
 }): PasswordResetService {
-  const { prisma, queues, principals, config, logger } = deps;
+  const { prisma, queues, sessions, config, logger } = deps;
 
   async function renderResetEmail({ name, locale, resetUrl }: { name: string; locale: Locale; resetUrl: string }) {
-    const row = await prisma.emailTemplate.findUnique({
-      where: { key: PASSWORD_RESET_TEMPLATE_KEY },
-      select: { subjectEn: true, bodyEn: true, subjectAr: true, bodyAr: true, isActive: true },
-    });
-    const usable = row && row.isActive && row.subjectEn.trim() !== '' && row.bodyEn.trim() !== '';
-    const text = pickTemplateText(usable ? row : DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET, locale);
-    return renderTemplateEmail({
-      locale: text.locale,
-      subject: text.subject,
-      body: text.body,
+    return renderStoredTemplate(prisma, PASSWORD_RESET_TEMPLATE_KEY, {
+      locale,
       // Same names as the seeded PASSWORD_RESET row's `variables`.
       variables: { name, resetUrl, expiresMinutes: RESET_TOKEN_TTL_MINUTES },
-      cta: { label: defaultCtaLabel('PASSWORD_RESET', text.locale) ?? 'Reset password', url: resetUrl },
+      ctaUrl: resetUrl,
     });
   }
 
@@ -69,7 +56,7 @@ export function createPasswordResetService(deps: {
       return;
     }
 
-    const { token, tokenHash } = generateResetToken();
+    const { token, tokenHash } = generateOneTimeToken();
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60_000);
     const record = await prisma.$transaction(async (tx) => {
       // A new request invalidates every older unused token.
@@ -135,8 +122,8 @@ export function createPasswordResetService(deps: {
       });
       await tx.passwordResetToken.deleteMany({ where: { userId: record.userId, usedAt: null } });
     });
-    // After the commit, so no request can re-cache the old sessionVersion.
-    await principals.invalidate(record.userId);
+    // After the commit, so no request can re-cache the old sessionVersion; also closes their sockets.
+    await sessions.sessionsRevoked(record.userId);
     logger.info({ userId: record.userId }, 'password reset completed; existing sessions revoked');
   }
 

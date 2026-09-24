@@ -37,6 +37,11 @@ export const authUserSchema = z.object({
    * every older session and token stops working.
    */
   sessionVersion: z.number().int().nonnegative(),
+  /**
+   * Whether the user has proved ownership of their mailbox (email link, password reset, or a
+   * verified Google / Entra identity). Unverified clients can sign in but see nothing until verified.
+   */
+  emailVerified: z.boolean(),
 });
 export type AuthUser = z.infer<typeof authUserSchema>;
 

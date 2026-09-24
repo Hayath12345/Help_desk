@@ -29,6 +29,7 @@ const actor = (over: Partial<Actor>): Actor => ({
   orgId: null,
   teamIds: [],
   leadTeamIds: [],
+  emailVerified: true,
   ...over,
 });
 
@@ -72,6 +73,32 @@ describe('ticket visibility', () => {
   it('super admins see everything unless disabled', () => {
     expect(canViewTicket(admin, nocTicketOrgB)).toBe(true);
     expect(canViewTicket(disabledAdmin, nocTicketOrgB)).toBe(false);
+  });
+});
+
+describe('email verification', () => {
+  const unverifiedClient = actor({
+    id: 'client-u',
+    role: 'CLIENT',
+    orgId: ORG_A,
+    emailVerified: false,
+  });
+  const unverifiedAgent = actor({
+    id: 'agent-u',
+    role: 'AGENT',
+    teamIds: [SOC],
+    emailVerified: false,
+  });
+
+  it('an unverified client sees nothing of the organisation their email domain matched', () => {
+    expect(canViewTicket(unverifiedClient, socTicketOrgA)).toBe(false);
+    expect(canCreateTicketForOrg(unverifiedClient, ORG_A)).toBe(false);
+    expect(canJoinTicketRoom(unverifiedClient, socTicketOrgA)).toBe(false);
+    expect(canJoinUserRoom(unverifiedClient, unverifiedClient.id)).toBe(false);
+  });
+
+  it('does not apply to staff (their identity comes from SSO)', () => {
+    expect(canViewTicket(unverifiedAgent, socTicketOrgA)).toBe(true);
   });
 });
 

@@ -47,6 +47,8 @@ catalog:
   '@fastify/swagger': 9.9.0
   '@fastify/swagger-ui': 6.1.1
   '@fastify/helmet': 13.1.1
+  # same version Fastify uses internally (TRUST_PROXY validation matches runtime)
+  '@fastify/proxy-addr': 5.1.1
   '@fastify/cors': 11.3.0
   '@fastify/rate-limit': 11.2.0
   '@fastify/cookie': 11.1.2

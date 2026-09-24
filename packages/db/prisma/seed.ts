@@ -11,17 +11,11 @@
 //   hours, holidays, app settings, P1 escalation chain, macros, email templates, help articles, tags.
 //   Optional production bootstrap: SEED_ADMIN_EMAIL (+ SEED_ADMIN_NAME) creates the first
 //   SSO-only SUPER_ADMIN so someone can sign in with Entra ID and configure the rest.
-// Part 2 — DEMO (NODE_ENV !== 'production' and SEED_DEMO_DATA !== 'false'): organisations, sites,
-//   staff and client users (password SEED_DEMO_PASSWORD), team memberships, on-call users, and the
-//   design's tickets with messages and history.
+// Part 2 — DEMO (opt-in: SEED_DEMO_DATA=true, and never when NODE_ENV=production): organisations,
+//   sites, staff and client users (password SEED_DEMO_PASSWORD, email already verified), team
+//   memberships, on-call users, and the design's tickets with messages and history.
 
-import {
-  DEFAULT_STAFF_EMAIL_DOMAIN,
-  formatTicketNumber,
-  isStaffEmail,
-  newPasswordSchema,
-  normalizeEmail,
-} from '@loons/shared';
+import { formatTicketNumber, isStaffEmail, newPasswordSchema, normalizeEmail } from '@loons/shared';
 import { createPrismaClient, hashPassword, type Prisma, type PrismaClient } from '../src/index.ts';
 import { CATEGORIES } from './seed-data/categories.ts';
 import { CUSTOM_FIELDS } from './seed-data/custom-fields.ts';
@@ -40,6 +34,7 @@ import { EMAIL_TEMPLATES } from './seed-data/email-templates.ts';
 import { HELP_ARTICLES } from './seed-data/help-articles.ts';
 import { HOLIDAY_YEARS, HOLIDAYS } from './seed-data/holidays.ts';
 import { MACROS } from './seed-data/macros.ts';
+import { seedOptions, type SeedOptions } from './seed-data/options.ts';
 import {
   APP_SETTINGS,
   BUSINESS_HOURS,
@@ -60,10 +55,6 @@ const TX_OPTIONS = { maxWait: 15_000, timeout: 120_000 } as const;
 
 function log(line: string): void {
   process.stdout.write(`[seed] ${line}\n`);
-}
-
-function demoEnabled(): boolean {
-  return process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== 'false';
 }
 
 /** Create-only primitive that also reports whether the row was created in this run. */
@@ -215,9 +206,9 @@ async function seedSlaAndCalendar(tx: Tx): Promise<void> {
   for (const h of BUSINESS_HOURS) {
     await tx.businessHours.upsert({ where: { weekday: h.weekday }, update: {}, create: { ...h } });
   }
-  // Holidays are seeded per calendar year, and only into a year that has none yet: admins move the
-  // estimated Eid dates once the moon is sighted, and a date-keyed re-seed would bring back the
-  // estimate next to the corrected day.
+  // Holidays are seeded per calendar year, and only into a year that has none yet (archived rows
+  // count): admins move the estimated Eid dates once the moon is sighted, and a date-keyed re-seed
+  // would bring back the estimate next to the corrected day.
   for (const year of HOLIDAY_YEARS) {
     const inYear = HOLIDAYS.filter((h) => h.date.getUTCFullYear() === year);
     const existing = await tx.holiday.count({
@@ -310,12 +301,11 @@ async function seedContent(tx: Tx): Promise<void> {
 }
 
 /** Optional first SUPER_ADMIN for a fresh (production) install; SSO-only, no password. */
-async function seedBootstrapAdmin(tx: Tx): Promise<void> {
+async function seedBootstrapAdmin(tx: Tx, options: SeedOptions): Promise<void> {
   const raw = process.env.SEED_ADMIN_EMAIL?.trim();
   if (!raw) return;
   const email = normalizeEmail(raw);
-  const staffDomain = process.env.STAFF_EMAIL_DOMAIN || DEFAULT_STAFF_EMAIL_DOMAIN;
-  if (!isStaffEmail(email, staffDomain)) {
+  if (!isStaffEmail(email, options.staffEmailDomain)) {
     throw new Error('SEED_ADMIN_EMAIL must be an address on STAFF_EMAIL_DOMAIN');
   }
   await tx.user.upsert({
@@ -332,7 +322,7 @@ async function seedBootstrapAdmin(tx: Tx): Promise<void> {
   });
 }
 
-async function seedConfig(db: PrismaClient): Promise<void> {
+async function seedConfig(db: PrismaClient, options: SeedOptions): Promise<void> {
   await db.$transaction(async (tx) => {
     await seedTeams(tx);
     await seedCategories(tx);
@@ -340,7 +330,7 @@ async function seedConfig(db: PrismaClient): Promise<void> {
     await seedSlaAndCalendar(tx);
     await seedEscalationRules(tx);
     await seedContent(tx);
-    await seedBootstrapAdmin(tx);
+    await seedBootstrapAdmin(tx, options);
   }, TX_OPTIONS);
 }
 
@@ -683,13 +673,14 @@ async function seedManagerEscalationSteps(db: PrismaClient, demo: boolean): Prom
 
 async function main(): Promise<void> {
   const startedAt = Date.now();
+  const options = seedOptions();
+  const demo = options.demo;
   const db = createPrismaClient({ poolSize: 4 });
   try {
-    const demo = demoEnabled();
     const configBefore = await countRows(db, 'config');
     const demoBefore = await countRows(db, 'demo');
 
-    await seedConfig(db);
+    await seedConfig(db, options);
     const nextTicket = demo ? await seedDemo(db, startedAt) : null;
     await seedManagerEscalationSteps(db, demo);
 
@@ -700,7 +691,7 @@ async function main(): Promise<void> {
       log(`demo: ${formatCounts(demoBefore, demoAfter)}`);
       log(`next ticket number: ${formatTicketNumber(must(nextTicket, 'next ticket'))}`);
     } else {
-      log('demo: skipped (NODE_ENV=production or SEED_DEMO_DATA=false)');
+      log('demo: skipped (set SEED_DEMO_DATA=true outside production to add it)');
     }
     log(`done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
   } finally {

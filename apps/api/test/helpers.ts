@@ -74,6 +74,8 @@ export class Fixtures {
       locale?: Locale;
       /** null = SSO-only account (no password). */
       password?: string | null;
+      /** Mailbox ownership proven (default true); unverified clients only reach /me. */
+      emailVerified?: boolean;
     } = {},
   ) {
     const email = (options.email ?? testEmail()).toLowerCase();
@@ -87,6 +89,7 @@ export class Fixtures {
         orgId: options.orgId ?? null,
         locale: options.locale ?? 'en',
         passwordHash: password === null ? null : await hashPassword(password),
+        emailVerifiedAt: options.emailVerified === false ? null : new Date(),
       },
     });
     this.userIds.add(user.id);

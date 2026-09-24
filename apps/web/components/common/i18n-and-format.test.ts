@@ -65,6 +65,17 @@ describe('web-shells message catalogues', () => {
     }
   });
 
+  it('names the product "مكتب دعم لونز" in Arabic, as the design does (the logo stays Latin)', () => {
+    expect(arCommon.appName).toBe('مكتب دعم لونز');
+    expect(arCommon.brand).toBe(enCommon.brand);
+    for (const [ns, [, ar]] of Object.entries(namespaces)) {
+      for (const value of leafValues(ar)) {
+        // Any "… desk of Loons" phrase must be the one product name (no مكتب مساعدة لونز etc.).
+        if (/مكتب\s+\S+\s+لونز/.test(value)) expect(value, ns).toContain('مكتب دعم لونز');
+      }
+    }
+  });
+
   it('keeps the language toggle labels pointing at the other language', () => {
     expect(enCommon.languageLabel).toBe('العربية');
     expect(arCommon.languageLabel).toBe('English');

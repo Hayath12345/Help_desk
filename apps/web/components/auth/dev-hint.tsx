@@ -6,7 +6,7 @@ export async function DevHint() {
   if (!isDevelopmentBuild()) return null;
   const t = await getTranslations('auth');
   return (
-    <p className="max-w-[400px] text-center text-xs leading-normal text-ink-subtle">
+    <p className="max-w-[400px] text-center text-xs leading-normal text-ink-muted">
       {t('devHint')}
     </p>
   );

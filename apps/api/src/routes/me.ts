@@ -19,8 +19,9 @@ export const meResponseSchema = z.object({
 });
 
 export const meRoutes: FastifyPluginAsyncZod = async (app) => {
-  // Pending-approval users may read their profile and change their language, nothing else.
-  const auth = requireAuth({ allowPending: true });
+  // Pending-approval users and clients who haven't verified their email yet may read their
+  // profile and change their language, nothing else.
+  const auth = requireAuth({ allowRestricted: true });
 
   app.get(
     '/me',

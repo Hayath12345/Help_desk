@@ -1,7 +1,15 @@
 /*
  * Loons Help Desk design tokens (Tailwind v4 theme).
- * Values mirror src/tokens.ts — keep both in sync. Components must use these tokens
- * (bg-page, text-ink-muted, bg-status-open-bg, …) and never hard-coded hex values.
+ * Values mirror src/tokens.ts — keep both in sync (apps/web/components/common/design-tokens.test.ts
+ * checks it). Components must use these tokens (bg-page, text-ink-muted, bg-status-open-bg, …) and
+ * never hard-coded hex values.
+ *
+ * Contrast: every foreground/background pair used for text reaches 4.5:1 (WCAG AA). A few
+ * foregrounds are therefore a shade darker than the design file: success / Solved #1a7f4b → #1a7d4a,
+ * Closed / Away #71717a → #6e6e77, P2 #b45f14 → #a95913, note / Pending #8a6a0a → #87670a.
+ * ink-subtle is 2.4–2.6:1 on the light surfaces, so there it is decoration only: icons beside a
+ * text label, dots, dividers, disabled states — never text or a control's only cue (it is fine as
+ * text on the dark ink toast, 6.9:1).
  */
 
 @theme {
@@ -14,6 +22,8 @@
   --color-ink-secondary: #52525b;
   --color-ink-muted: #71717a;
   --color-ink-subtle: #a1a1aa;
+  /* Muted text on surface-sunken (Away pill, Closed status): ink-muted is 4.4:1 there. */
+  --color-ink-muted-on-sunken: #6e6e77;
   --color-ink-inverse-muted: #3f3f46;
   --color-line: #e7e7ea;
   --color-line-input: #e0e0e4;
@@ -39,7 +49,7 @@
   --color-danger-alert: #c42b2b;
   --color-danger-alert-ink: #a11d1d;
   --color-overdue: #d93b3b;
-  --color-success: #1a7f4b;
+  --color-success: #1a7d4a;
   --color-success-tint: #e6f6ec;
   --color-success-strong: #1f9d5c;
   --color-warning: #d9722b;
@@ -49,7 +59,7 @@
   --color-note-bg: #fdf6dc;
   --color-note-border: #f1dc9b;
   --color-note-tag: #fcefc2;
-  --color-note-ink: #8a6a0a;
+  --color-note-ink: #87670a;
   --color-note-ink-strong: #6b5206;
   --color-note-composer: #fffbeb;
 
@@ -59,18 +69,18 @@
   --color-status-open-bg: #eaf0ff;
   --color-status-open-fg: #2f4fb8;
   --color-status-pending-bg: #fdf3d1;
-  --color-status-pending-fg: #8a6a0a;
+  --color-status-pending-fg: #87670a;
   --color-status-solved-bg: #e6f6ec;
-  --color-status-solved-fg: #1a7f4b;
+  --color-status-solved-fg: #1a7d4a;
   --color-status-closed-bg: #f4f4f5;
-  --color-status-closed-fg: #71717a;
+  --color-status-closed-fg: #6e6e77;
 
   /* ── Priorities P1–P4 (pill bg / text / dot) ── */
   --color-p1-bg: #fdecec;
   --color-p1-fg: #c43232;
   --color-p1-dot: #e04444;
   --color-p2-bg: #fdf1e3;
-  --color-p2-fg: #b45f14;
+  --color-p2-fg: #a95913;
   --color-p2-dot: #e0892b;
   --color-p3-bg: #eaf0ff;
   --color-p3-fg: #2f4fb8;
@@ -92,16 +102,6 @@
 
   /* ── Motion (spec: 150–250 ms, ease-out) ── */
   --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
-  --animate-toast-in: toast-in 200ms var(--ease-out-soft);
-
-  @keyframes toast-in {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
+  /* Toast enter / exit / restack (design: toastIn .2s ease-out); applied to sonner in globals.css. */
+  --duration-toast: 200ms;
 }

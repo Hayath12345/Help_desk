@@ -8,6 +8,8 @@ export const WEB_ROUTES = {
   resetPassword: '/reset-password',
   staffLogin: '/staff/login',
   pendingApproval: '/pending',
+  /** Unverified clients land here until they click the link in the verification email. */
+  verifyEmail: '/verify-email',
   clientHome: '/tickets',
   help: '/help',
   console: '/console',

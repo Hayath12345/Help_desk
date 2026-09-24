@@ -66,7 +66,7 @@ export function MyTickets({ firstName, initialTab, tickets, isLoading = false }:
             {TICKET_TABS.map((key) => (
               <TabsTrigger key={key} value={key}>
                 {t(`tabs.${key}`)}
-                <span className="text-xs font-normal text-ink-subtle tabular-nums">
+                <span className="text-xs font-normal text-ink-muted tabular-nums">
                   {isLoading ? '–' : counts[key]}
                 </span>
               </TabsTrigger>
@@ -75,7 +75,7 @@ export function MyTickets({ firstName, initialTab, tickets, isLoading = false }:
         }
       />
       {/* One panel whose value follows the active tab, so rows animate between filters. */}
-      <TabsContent value={tab} className="mt-0">
+      <TabsContent value={tab} className="mt-0 rounded-xl">
         <Card className="gap-0 py-0">
           {isLoading ? (
             <LoadingRegion label={t('loading')}>

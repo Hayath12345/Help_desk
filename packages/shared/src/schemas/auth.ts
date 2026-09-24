@@ -17,7 +17,9 @@ export const newPasswordSchema = z
   .string()
   .min(PASSWORD_MIN, { error: 'validation.passwordMin' })
   .max(PASSWORD_MAX, { error: 'validation.passwordMax' })
-  .refine((v) => /[A-Za-z\u0600-\u06FF]/.test(v) && /\d/.test(v), {
+  // Unicode-aware: letters of any script (\p{L}) and decimal digits of any script (\p{Nd}), so
+  // Arabic-Indic digits typed on an Arabic keyboard count as numbers.
+  .refine((v) => /\p{L}/u.test(v) && /\p{Nd}/u.test(v), {
     error: 'validation.passwordComplexity',
   });
 

@@ -28,7 +28,7 @@ export default function ErrorPage({
         <h1 className="text-[22px] font-semibold text-ink">{t('title')}</h1>
         <p className="text-balance text-ink-muted">{t('description')}</p>
         {error.digest ? (
-          <p className="font-mono text-xs text-ink-subtle">
+          <p className="font-mono text-xs text-ink-muted">
             {t('reference', { digest: error.digest })}
           </p>
         ) : null}

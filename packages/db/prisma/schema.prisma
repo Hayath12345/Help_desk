@@ -227,6 +227,8 @@ model User {
   /// disable / role change later. Web sessions and API tokens carry the value they were issued
   /// with (`sv`) and are rejected once it differs.
   sessionVersion  Int        @default(0)
+  /// Set once the user proved they own the mailbox (verification link, password reset, or a
+  /// verified Google / Entra identity). Unverified clients can sign in but see nothing.
   emailVerifiedAt DateTime?
   /// MFA-ready: staff sign in through Entra ID (MFA enforced there). These fields allow a
   /// local TOTP factor to be added later without a schema change.
@@ -238,23 +240,24 @@ model User {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  org                 Organization?        @relation("OrgUsers", fields: [orgId], references: [id], onDelete: Restrict)
-  accounts            AuthAccount[]
-  passwordResetTokens PasswordResetToken[]
-  teamMemberships     TeamMember[]
-  onCallForTeams      Team[]               @relation("TeamOnCall")
-  managedOrgs         Organization[]       @relation("AccountManager")
-  requestedTickets    Ticket[]             @relation("TicketRequester")
-  assignedTickets     Ticket[]             @relation("TicketAssignee")
-  p1AckedTickets      Ticket[]             @relation("TicketP1Ack")
-  messages            Message[]
-  attachments         Attachment[]
-  ticketEvents        TicketEvent[]
-  notifications       Notification[]
-  macrosCreated       Macro[]
-  escalationTargets   EscalationRule[]
-  auditLogs           AdminAuditLog[]
-  emailTemplateEdits  EmailTemplate[]
+  org                     Organization?            @relation("OrgUsers", fields: [orgId], references: [id], onDelete: Restrict)
+  accounts                AuthAccount[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  teamMemberships         TeamMember[]
+  onCallForTeams          Team[]                   @relation("TeamOnCall")
+  managedOrgs             Organization[]           @relation("AccountManager")
+  requestedTickets        Ticket[]                 @relation("TicketRequester")
+  assignedTickets         Ticket[]                 @relation("TicketAssignee")
+  p1AckedTickets          Ticket[]                 @relation("TicketP1Ack")
+  messages                Message[]
+  attachments             Attachment[]
+  ticketEvents            TicketEvent[]
+  notifications           Notification[]
+  macrosCreated           Macro[]
+  escalationTargets       EscalationRule[]
+  auditLogs               AdminAuditLog[]
+  emailTemplateEdits      EmailTemplate[]
 
   @@index([orgId])
   @@index([role])
@@ -276,6 +279,22 @@ model AuthAccount {
 }
 
 model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  /// SHA-256 of the token sent by email; the raw token is never stored.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Email-address verification links for client self-signup (single use, 24 h). A new link
+/// deletes the user's older unused ones.
+model EmailVerificationToken {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @db.Uuid
   /// SHA-256 of the token sent by email; the raw token is never stored.
@@ -571,11 +590,15 @@ model BusinessHours {
   close   String  @default("16:30")
 }
 
+/// Archived with `isActive = false` like every config record (the SLA calendar must ignore
+/// archived days). `date` stays unique across archived rows too: re-adding an archived date means
+/// restoring that row (isActive = true, new name), not inserting a second one.
 model Holiday {
   id        String   @id @default(uuid()) @db.Uuid
   date      DateTime @unique @db.Date
   name      String
   nameAr    String?
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 }
 

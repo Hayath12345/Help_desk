@@ -55,8 +55,13 @@ loons-helpdesk/
 - **pnpm 12** — `npm i -g pnpm@12` (or `corepack enable pnpm`)
 - **Docker Desktop** (with Docker Compose)
 
-> Windows: if `docker` is not found in Git Bash after installing Docker Desktop, open a new terminal or add
-> `%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin` to your PATH.
+> **Windows**
+> - Clone to a **short path** (for example `C:\src\loons-helpdesk`). pnpm writes files with ~130-character names under
+>   `node_modules`, so a deep folder (OneDrive, long user paths) exceeds the 260-character limit and every `pnpm`
+>   script fails with `os error 3`. Alternatively enable long paths (`LongPathsEnabled=1`) and run
+>   `git config --system core.longpaths true`.
+> - If `docker` is not found in Git Bash after installing Docker Desktop, open a new terminal or add
+>   `%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin` to your PATH.
 
 ### 1. Configure environment
 
@@ -64,7 +69,8 @@ loons-helpdesk/
 cp .env.example .env
 ```
 
-Replace the three `replace-me…` secrets (`AUTH_SECRET`, `API_JWT_SECRET`, `INTERNAL_API_KEY`) with random values:
+Replace the three `replace-me…` secrets (`AUTH_SECRET`, `API_JWT_SECRET`, `INTERNAL_API_KEY`) with random values —
+the apps refuse to start while they are placeholders:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
@@ -90,7 +96,7 @@ docker compose up -d
 ```bash
 pnpm install        # also generates the Prisma client
 pnpm db:migrate     # applies migrations (prisma migrate dev)
-pnpm db:seed        # configuration + demo data (idempotent: safe to re-run)
+pnpm db:seed        # configuration + demo data (idempotent; demo data needs SEED_DEMO_DATA=true, set in .env.example)
 ```
 
 ### 4. Run everything
@@ -132,6 +138,7 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 | `pnpm dev` | web + API + worker in watch mode |
 | `pnpm build` | production build of every package |
 | `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint across the repo |
+| `pnpm format` / `pnpm format:check` | Prettier (write / verify) across the repo |
 | `pnpm test` | unit + integration tests (needs `docker compose up`) |
 | `pnpm test:e2e` | Playwright E2E (first time: `pnpm --filter @loons/web exec playwright install chromium`) |
 | `pnpm db:migrate` | create/apply migrations in development |
@@ -145,13 +152,22 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 ## Authentication
 
 - **Clients** sign in with email + password (argon2id) or Google. Self-sign-up is matched to an organisation by
-  email domain (`Organization.emailDomains`); an unmatched domain creates a *pending approval* account that sees
-  nothing until an admin links it to an organisation.
-- **Staff** (`@loonsgroup.com`, `STAFF_EMAIL_DOMAIN`) sign in with Microsoft Entra ID; the staff account must exist in the database.
+  email domain (`Organization.emailDomains`), but the account sees **nothing until the email address is verified**
+  through the emailed link (24 h, single use) — otherwise anyone could type an address on a client's domain and read
+  that organisation's tickets. An unmatched domain creates a *pending approval* account that also sees nothing until
+  an admin links it to an organisation. Linking Google to an unverified password account wipes that password and
+  signs out every existing session.
+- **Staff** (`@loonsgroup.com`, `STAFF_EMAIL_DOMAIN`) sign in with Microsoft Entra ID (tenant-specific issuer only);
+  the staff account must exist in the database.
 - The web app (Auth.js) keeps an encrypted session cookie and mints a **15-minute HS256 access token** for API and
-  Socket.IO calls. The API re-loads the user from the database on every request, so role changes and
-  disabled accounts take effect immediately. Authorisation is enforced by the API — the UI only hides controls.
+  Socket.IO calls. The API re-loads the user from the database (cached ≤ 30 s), so role changes and disabled accounts
+  take effect quickly. Every user has a *session version*: a password reset bumps it, which immediately invalidates
+  all API tokens and open sockets and ends the web session at its next refresh (≤ 5 min).
+  Authorisation is enforced by the API — the UI only hides controls.
 - Password reset links are emailed through the BullMQ worker (see Mailpit locally), expire after 30 minutes and are single-use.
+- Sign-in, sign-up and reset are rate-limited per IP and per email (they fail closed if Redis is down). The web app
+  sends security headers (CSP `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, HSTS in production),
+  and the API uses Helmet and strict CORS. The apps refuse to start with the placeholder secrets from `.env.example`.
 
 ### Enabling Google (clients)
 
@@ -184,3 +200,7 @@ Enforce MFA with Entra Conditional Access.
   `pnpm approve-builds <package>` (the allow-list lives in `pnpm-workspace.yaml` → `allowBuilds`).
 - **Port already in use** — stop other processes on 3000/4000/5432/6379/9000/8025, or change the ports in `.env` / `docker-compose.yml`.
 - **Do not set `NODE_ENV` in `.env`** — `next build` breaks with a development `NODE_ENV`.
+- **`Too many attempts` during `pnpm test:e2e`** — the API rate-limits sign-in (10 per 15 min per IP + email, 50 per IP),
+  and locally every request comes from the same address, so ~5 E2E runs within 15 minutes hit the limit. Wait 15 minutes or clear the counters:
+  `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
+- **`os error 3` from every pnpm script on Windows** — the repository path is too long; see the Windows note under Prerequisites.

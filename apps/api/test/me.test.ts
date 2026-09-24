@@ -32,6 +32,7 @@ describe('/me', () => {
         locale: 'en',
         teamIds: [],
         sessionVersion: 0,
+        emailVerified: true,
       },
       org: { id: org.id, name: org.name },
       teams: [],

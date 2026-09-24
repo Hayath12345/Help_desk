@@ -14,8 +14,9 @@
   "STAFF_MUST_USE_SSO": "Loons staff sign in with Microsoft from the Support login page.",
   "STAFF_DOMAIN_REQUIRED": "Support login requires a @loonsgroup.com staff email.",
   "CLIENT_PORTAL_ONLY": "Client accounts sign in from the client portal.",
-  "EMAIL_NOT_VERIFIED": "Verify your Google email address, then try again.",
+  "EMAIL_NOT_VERIFIED": "Verify your email address, then try again.",
   "RESET_TOKEN_INVALID": "This reset link is invalid or has expired. Request a new one.",
+  "VERIFY_TOKEN_INVALID": "This verification link is invalid or has expired. Request a new one.",
   "SIGNIN_FAILED": "We couldn't sign you in. Try again.",
   "CONFIGURATION": "Sign-in is temporarily unavailable. Try again later."
 }

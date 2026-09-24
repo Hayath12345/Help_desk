@@ -4,7 +4,7 @@ import Fastify, { LogController, type FastifyRequest } from 'fastify';
 import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { Redis } from 'ioredis';
 import { getDummyPasswordHash, type PrismaClient } from '@loons/db';
-import type { AppConfig } from './config.ts';
+import { fastifyTrustProxy, type AppConfig } from './config.ts';
 import { createPrincipalStore, type PrincipalStore } from './lib/actor.ts';
 import { BackgroundTasks } from './lib/background.ts';
 import type { EmailProvider } from './lib/email/index.ts';
@@ -63,7 +63,7 @@ export async function buildApp(deps: AppDeps) {
     logController: new ApiLogController(),
     genReqId: requestIdFor,
     requestIdHeader: false,
-    trustProxy: config.trustProxy,
+    trustProxy: fastifyTrustProxy(config.trustProxy),
     bodyLimit: BODY_LIMIT_BYTES,
     routerOptions: { ignoreTrailingSlash: true },
   }).withTypeProvider<ZodTypeProvider>();
@@ -86,7 +86,15 @@ export async function buildApp(deps: AppDeps) {
   app.decorate('background', background);
   app.decorate(
     'services',
-    createServices({ prisma: deps.prisma, queues: deps.queues, principals, config, logger: app.log }),
+    createServices({
+      prisma: deps.prisma,
+      queues: deps.queues,
+      principals,
+      // `realtime` is attached below; revocations only happen once requests are served.
+      sockets: { disconnectUser: (userId) => app.realtime.disconnectUser(userId) },
+      config,
+      logger: app.log,
+    }),
   );
   app.decorateRequest('actor', null);
   app.decorateRequest('internalCaller', false);

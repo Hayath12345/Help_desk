@@ -18,8 +18,10 @@ export const ERROR_CODES = [
   'STAFF_MUST_USE_SSO',
   'STAFF_DOMAIN_REQUIRED',
   'CLIENT_PORTAL_ONLY',
+  /** The client has not verified their email address yet (403 on everything except /me). */
   'EMAIL_NOT_VERIFIED',
   'RESET_TOKEN_INVALID',
+  'VERIFY_TOKEN_INVALID',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

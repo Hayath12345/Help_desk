@@ -73,7 +73,7 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
     expect(res.headers['retry-after']).toBe(String(STORE_DOWN_RETRY_AFTER_SECONDS));
   }
 
-  it('login, oauth, register, password/forgot and password/reset answer 503 SERVICE_UNAVAILABLE', async () => {
+  it('login, oauth, register, password and email-verification routes answer 503 SERVICE_UNAVAILABLE', async () => {
     const email = testEmail();
     expectServiceUnavailable(await post('/login', { email, password: 'Whatever-123' }));
     expectServiceUnavailable(
@@ -91,6 +91,8 @@ describe('auth rate limits fail closed when Redis is unreachable', () => {
     );
     expectServiceUnavailable(await post('/password/forgot', { email, locale: 'en' }));
     expectServiceUnavailable(await post('/password/reset', { token: 'x'.repeat(43), password: 'Valid-pass-123' }));
+    expectServiceUnavailable(await post('/email/verify', { token: 'x'.repeat(43) }));
+    expectServiceUnavailable(await post('/email/resend', { userId: crypto.randomUUID(), locale: 'en' }));
   });
 
   it('the route handlers never run (no sign-in recorded, no account created)', async () => {

@@ -91,6 +91,24 @@
   --radius-4xl: 24px;
 }
 
+/*
+ * Line height: the design sets none, so text uses the fonts' own `normal` metrics (Geist 14px →
+ * an 18px line box; Arabic lines take IBM Plex Sans Arabic's taller box, as in the design) and
+ * padded controls come out at the design's heights: 7px + 18px + 7px = 32px nav pills, 40px auth
+ * inputs, 37px view rows. Tailwind's size scale would force 1.43–1.5 (20px at 14px) instead.
+ * Multi-line reading text opts in explicitly where the design does (leading-normal / relaxed).
+ */
+@theme {
+  --text-xs--line-height: normal;
+  --text-sm--line-height: normal;
+  --text-base--line-height: normal;
+  --text-lg--line-height: normal;
+  --text-xl--line-height: normal;
+  --text-2xl--line-height: normal;
+  --text-3xl--line-height: normal;
+  --text-4xl--line-height: normal;
+}
+
 /* Mono uppercase section label used across the console ("VIEWS", "STATUS", "REQUESTER"). */
 @utility kicker {
   font-family: var(--font-mono);
@@ -125,6 +143,21 @@
   }
   ::selection {
     @apply bg-selection;
+  }
+}
+
+/*
+ * Toasts (sonner): the design's 200 ms ease-out (spec: 150–250 ms) instead of sonner's built-in
+ * 400–500 ms `ease` for entering, leaving and restacking. Only when motion is allowed: with reduced
+ * motion, sonner's own rule and the one below switch the transitions off. `!important` is needed to
+ * beat sonner's high-specificity state selectors (e.g. its collapsed-stack removal rule).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  [data-sonner-toaster],
+  [data-sonner-toast],
+  [data-sonner-toast] > * {
+    transition-duration: var(--duration-toast) !important;
+    transition-timing-function: var(--ease-out-soft) !important;
   }
 }
 

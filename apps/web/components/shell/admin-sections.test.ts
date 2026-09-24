@@ -20,6 +20,7 @@ const actor = (role: Role): Actor => ({
   orgId: role === 'CLIENT' ? 'o' : null,
   teamIds: [],
   leadTeamIds: [],
+  emailVerified: true,
 });
 
 describe('admin sections (UI mirror of the server rules)', () => {
@@ -41,6 +42,17 @@ describe('admin sections (UI mirror of the server rules)', () => {
       for (const section of ADMIN_SECTIONS) {
         expect(canOpenAdminSection(role, section), `${role} → ${section}`).toBe(
           canAccessAdminSection(actor(role), section),
+        );
+      }
+    }
+  });
+
+  it('matches for staff whatever their email verification (staff are gated by SSO, not a link)', () => {
+    for (const role of ['SUPER_ADMIN', 'TEAM_LEAD', 'AGENT'] as const) {
+      for (const section of ADMIN_SECTIONS) {
+        const unverified = { ...actor(role), emailVerified: false };
+        expect(canAccessAdminSection(unverified, section), `${role} → ${section}`).toBe(
+          canOpenAdminSection(role, section),
         );
       }
     }

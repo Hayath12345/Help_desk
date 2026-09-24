@@ -28,7 +28,11 @@ export function useConsoleSearch(): ConsoleSearchState {
   return ctx ?? { query: '', setQuery: () => {} };
 }
 
-/** Design 684–690: muted rounded box with a search glyph, the input and a clear button. */
+/**
+ * Design 684–690: muted rounded box with a search glyph, the input and a clear button. The
+ * placeholder is the box's only visible label and × is a control, so both use ink-muted (4.6:1 on
+ * surface-muted) rather than the design's ink-subtle (2.5:1); the glyph matches them.
+ */
 export function ConsoleSearchBox({ className }: { className?: string }) {
   const t = useTranslations('console.search');
   const { query, setQuery } = useConsoleSearch();
@@ -42,7 +46,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
         className,
       )}
     >
-      <Search aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
+      <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
       <input
         ref={input}
         type="search"
@@ -58,7 +62,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
         aria-label={t('label')}
         autoComplete="off"
         spellCheck={false}
-        className="min-w-0 flex-1 bg-transparent py-2 text-sm text-ink outline-none placeholder:text-ink-subtle [&::-webkit-search-cancel-button]:appearance-none"
+        className="min-w-0 flex-1 bg-transparent py-2 text-sm text-ink outline-none placeholder:text-ink-muted [&::-webkit-search-cancel-button]:appearance-none"
       />
       {query ? (
         <button
@@ -68,7 +72,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
             input.current?.focus();
           }}
           aria-label={t('clear')}
-          className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-ink-subtle transition-colors hover:text-ink"
+          className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-ink-muted transition-colors hover:text-ink"
         >
           <X aria-hidden="true" className="size-3.5" />
         </button>

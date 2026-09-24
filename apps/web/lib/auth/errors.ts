@@ -88,6 +88,23 @@ export function loginErrorCode(apiCode: ErrorCode): ErrorCode {
   return 'INTERNAL';
 }
 
+/** API codes confirming an email address (POST /internal/auth/email/verify) may show as-is. */
+const VERIFY_EMAIL_CODES = new Set<ErrorCode>([
+  'VERIFY_TOKEN_INVALID',
+  'RATE_LIMITED',
+  'SERVICE_UNAVAILABLE',
+]);
+
+/**
+ * Error for a failed email confirmation. A token the API rejects as malformed is just as dead as
+ * an unknown / used / expired one, so both read "invalid or expired, request a new link".
+ */
+export function verifyEmailErrorCode(apiCode: ErrorCode): ErrorCode {
+  if (VERIFY_EMAIL_CODES.has(apiCode)) return apiCode;
+  if (apiCode === 'VALIDATION_FAILED' || apiCode === 'BAD_REQUEST') return 'VERIFY_TOKEN_INVALID';
+  return 'INTERNAL';
+}
+
 /** API codes an OAuth (Google / Entra ID) sign-in may show as-is. */
 const OAUTH_CODES = new Set<ErrorCode>([
   'STAFF_DOMAIN_REQUIRED',

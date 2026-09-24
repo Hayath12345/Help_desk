@@ -138,7 +138,7 @@ export default async function TeamQueuePage() {
           </div>
         </div>
         {QUEUE_TABS.map((key) => (
-          <TabsContent key={key} value={key}>
+          <TabsContent key={key} value={key} className="rounded-xl">
             {table}
           </TabsContent>
         ))}

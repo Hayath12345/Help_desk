@@ -1,14 +1,19 @@
 "use client"
 
+import { useTranslations } from "next-intl"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 // Design toast: inverse ink surface, white 14px text, 10px radius, soft drop shadow.
+// Motion (200 ms ease-out, off under reduced motion) is set in app/globals.css.
 const Toaster = ({ ...props }: ToasterProps) => {
+  const t = useTranslations("common")
   return (
     <Sonner
       theme="light"
       className="toaster group"
+      // The landmark is announced as "<label> alt+T"; sonner's default label is English-only.
+      containerAriaLabel={t("notifications")}
       icons={{
         success: (
           <CircleCheckIcon className="size-4 text-success-strong" />

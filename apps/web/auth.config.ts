@@ -6,18 +6,14 @@ import type { Provider } from 'next-auth/providers';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 import { WEB_ROUTES } from '@loons/shared';
-import { isEntraConfigured, isGoogleConfigured } from '@/lib/auth/env';
+import { entraConfig, isGoogleConfigured } from '@/lib/auth/env';
+import { PROVIDER_IDS } from '@/lib/auth/provider-ids';
 import { sessionUserFromToken } from '@/lib/auth/session-user';
+
+export { PROVIDER_IDS };
 
 const TWELVE_HOURS_SECONDS = 12 * 60 * 60;
 const ONE_HOUR_SECONDS = 60 * 60;
-
-/** Provider ids as Auth.js knows them. */
-export const PROVIDER_IDS = {
-  credentials: 'credentials',
-  google: 'google',
-  microsoftEntraId: 'microsoft-entra-id',
-} as const;
 
 // Env is read when this module loads (Auth.js reads provider env at NextAuth() time too), and
 // the auth pages are dynamic, so what they render always matches the configured providers.
@@ -32,12 +28,14 @@ if (isGoogleConfigured()) {
   );
 }
 
-if (isEntraConfigured()) {
-  const issuer = process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER?.trim();
+// Only with a tenant-specific issuer (validated in lib/auth/env.ts; `common`, `organizations` and
+// `consumers` leave the provider disabled). The signIn callback also checks the token's `tid`.
+const entra = entraConfig();
+if (entra) {
   oauthProviders.push(
     MicrosoftEntraID({
-      // Tenant-restricted issuer (https://login.microsoftonline.com/<tenant-id>/v2.0/).
-      ...(issuer ? { issuer } : {}),
+      // Canonical form: must equal the `issuer` of the tenant's OpenID discovery document.
+      issuer: entra.issuer,
       // Drop the Graph profile photo (it would bloat the JWT cookie). Entra may omit `email`
       // for users in the home tenant, so fall back to the UPN.
       profile(profile) {
@@ -55,13 +53,14 @@ if (isEntraConfigured()) {
 export default {
   providers: oauthProviders,
   session: { strategy: 'jwt', maxAge: TWELVE_HOURS_SECONDS, updateAge: ONE_HOUR_SECONDS },
+  // Errors of the staff (Entra) flow are re-pointed at /staff/login by app/api/auth/[...nextauth].
   pages: { signIn: WEB_ROUTES.clientLogin, error: WEB_ROUTES.clientLogin },
   callbacks: {
     session({ session, token }) {
       const user = sessionUserFromToken(token);
-      if (user) {
-        session.user = { ...session.user, ...user, image: null };
-      }
+      // Assigned in place: this parameter's type also includes Auth.js' AdapterUser, whose
+      // `emailVerified` is a Date; ours (a boolean) is what Session['user'] declares.
+      if (user) Object.assign(session.user, user, { image: null });
       return session;
     },
   },

@@ -12,6 +12,7 @@ import {
   loginErrorCode,
   oauthErrorKey,
   resolveAuthErrorKey,
+  verifyEmailErrorCode,
 } from './errors';
 import {
   forgotPasswordFormSchema,
@@ -110,6 +111,21 @@ describe('oauthErrorKey', () => {
   });
 });
 
+describe('verifyEmailErrorCode', () => {
+  it('shows an invalid / expired link for any token the API refuses', () => {
+    expect(verifyEmailErrorCode('VERIFY_TOKEN_INVALID')).toBe('VERIFY_TOKEN_INVALID');
+    expect(verifyEmailErrorCode('VALIDATION_FAILED')).toBe('VERIFY_TOKEN_INVALID');
+    expect(verifyEmailErrorCode('BAD_REQUEST')).toBe('VERIFY_TOKEN_INVALID');
+  });
+
+  it('keeps throttling codes and hides everything else', () => {
+    expect(verifyEmailErrorCode('RATE_LIMITED')).toBe('RATE_LIMITED');
+    expect(verifyEmailErrorCode('SERVICE_UNAVAILABLE')).toBe('SERVICE_UNAVAILABLE');
+    expect(verifyEmailErrorCode('NOT_FOUND')).toBe('INTERNAL');
+    expect(verifyEmailErrorCode('INTERNAL')).toBe('INTERNAL');
+  });
+});
+
 describe('error messages', () => {
   const keys = [...ERROR_CODES, ...AUTH_ONLY_ERROR_KEYS];
 
@@ -126,6 +142,12 @@ describe('error messages', () => {
   });
 });
 
+function flatValues(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (typeof value !== 'object' || value === null) return [];
+  return Object.values(value).flatMap(flatValues);
+}
+
 function flatKeys(value: unknown, prefix = ''): string[] {
   if (typeof value !== 'object' || value === null) return [prefix];
   return Object.entries(value).flatMap(([k, v]) => flatKeys(v, prefix ? `${prefix}.${k}` : k));
@@ -140,11 +162,30 @@ describe('EN/AR parity', () => {
     expect(flatKeys(ar).sort()).toEqual(flatKeys(en).sort());
   });
 
+  it('isolates LTR emails and domains inside Arabic text (RTL-1)', () => {
+    // LRI … PDI; without them "@loonsgroup.com" renders as "loonsgroup.com@".
+    const LRI = String.fromCharCode(0x2066);
+    const PDI = String.fromCharCode(0x2069);
+    const isolated = new RegExp(`${LRI}[^\\s${PDI}]*@[^\\s${PDI}]*${PDI}`);
+    const arabic = [arAuth, arErrors, arValidation].flatMap((ns) => flatValues(ns));
+    const withAt = arabic.filter((value) => value.includes('@'));
+    expect(withAt.length).toBeGreaterThan(0);
+    for (const value of withAt) {
+      expect(value, value).toMatch(isolated);
+    }
+    expect(arErrors.STAFF_DOMAIN_REQUIRED).toContain(`${LRI}@loonsgroup.com${PDI}`);
+    // Emails interpolated at runtime sit in <strong>, which the pages render with dir="ltr".
+    expect(arAuth.verifyEmail.body).toContain('<strong>{email}</strong>');
+    expect(arAuth.verifyEmail.resent).toContain('<strong>{email}</strong>');
+  });
+
   it('keeps the design arrows mirrored for RTL', () => {
     expect(enAuth.login.switchAction.endsWith('→')).toBe(true);
     expect(arAuth.login.switchAction.endsWith('←')).toBe(true);
     expect(enAuth.forgot.back.startsWith('←')).toBe(true);
     expect(arAuth.forgot.back.startsWith('→')).toBe(true);
+    expect(enAuth.confirmEmail.back.startsWith('←')).toBe(true);
+    expect(arAuth.confirmEmail.back.startsWith('→')).toBe(true);
   });
 });
 

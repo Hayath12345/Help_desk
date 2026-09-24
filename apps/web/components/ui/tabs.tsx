@@ -79,6 +79,8 @@ function TabsTrigger({
   )
 }
 
+// Radix always makes the panel a tab stop (tabIndex 0), so it keeps the visible focus outline
+// (the global 2px brand ring). Round it (e.g. `rounded-xl`) when the panel wraps a card.
 function TabsContent({
   className,
   ...props
@@ -86,7 +88,10 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      className={cn(
+        "flex-1 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        className
+      )}
       {...props}
     />
   )

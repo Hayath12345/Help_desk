@@ -27,7 +27,14 @@ export function NewTicketButton({ className, size = 'default', compact = false }
       type="button"
       size={size}
       onClick={() => toast(t('newTicketSoon'))}
-      className={cn(compact && 'max-sm:size-9 max-sm:px-0', className)}
+      className={cn(
+        // Sized by padding like the design's button (8px 14px → 34px; lg: 10px 16px → 39px at 15px),
+        // so an Arabic label gets the same taller line box as in the design.
+        size === 'default' && 'h-auto border-0 py-2',
+        size === 'lg' && 'h-auto border-0 py-2.5',
+        compact && 'max-sm:size-9 max-sm:px-0',
+        className,
+      )}
     >
       <Plus aria-hidden="true" strokeWidth={2.5} />
       <span className={cn(compact && 'max-sm:sr-only')}>{label}</span>

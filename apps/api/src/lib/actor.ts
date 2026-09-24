@@ -38,6 +38,8 @@ const principalSchema = z.object({
   locale: z.enum(LOCALES),
   /** API tokens carry the version they were minted for (`sv`); a mismatch means revoked. */
   sessionVersion: z.number().int().nonnegative(),
+  /** Mailbox ownership proven (User.emailVerifiedAt set). */
+  emailVerified: z.boolean(),
   teams: z.array(z.object({ teamId: z.string(), role: z.enum(TEAM_MEMBER_ROLES) })),
 });
 
@@ -52,6 +54,7 @@ export function toActor(p: Principal): Actor {
     orgId: p.orgId,
     teamIds: p.teams.map((t) => t.teamId),
     leadTeamIds: p.teams.filter((t) => t.role === 'LEAD').map((t) => t.teamId),
+    emailVerified: p.emailVerified,
   };
 }
 
@@ -65,6 +68,7 @@ export const authUserSelect = {
   orgId: true,
   locale: true,
   sessionVersion: true,
+  emailVerifiedAt: true,
   teamMemberships: { select: { teamId: true, role: true } },
 } as const;
 
@@ -77,6 +81,7 @@ export interface AuthUserRow {
   orgId: string | null;
   locale: AuthUser['locale'];
   sessionVersion: number;
+  emailVerifiedAt: Date | null;
   teamMemberships: Array<{ teamId: string; role: 'MEMBER' | 'LEAD' }>;
 }
 
@@ -91,6 +96,7 @@ export function toAuthUser(row: AuthUserRow): AuthUser {
     locale: row.locale,
     teamIds: row.teamMemberships.map((m) => m.teamId),
     sessionVersion: row.sessionVersion,
+    emailVerified: row.emailVerifiedAt !== null,
   };
 }
 
@@ -127,6 +133,7 @@ export function createPrincipalStore(deps: {
         orgId: true,
         locale: true,
         sessionVersion: true,
+        emailVerifiedAt: true,
         teamMemberships: { select: { teamId: true, role: true } },
       },
     });
@@ -138,6 +145,7 @@ export function createPrincipalStore(deps: {
       orgId: user.orgId,
       locale: user.locale,
       sessionVersion: user.sessionVersion,
+      emailVerified: user.emailVerifiedAt !== null,
       teams: user.teamMemberships.map((m) => ({ teamId: m.teamId, role: m.role })),
     };
   }
