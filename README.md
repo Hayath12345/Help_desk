@@ -96,7 +96,8 @@ docker compose up -d
 ```bash
 pnpm install        # also generates the Prisma client
 pnpm db:migrate     # applies migrations (prisma migrate dev)
-pnpm db:seed        # configuration + demo data (idempotent; demo data needs SEED_DEMO_DATA=true, set in .env.example)
+pnpm db:seed        # configuration + demo data (idempotent; demo data needs SEED_DEMO_DATA=true, set in .env.example —
+                    # the script sets NODE_ENV=development; an unset/other NODE_ENV never seeds demo data)
 ```
 
 ### 4. Run everything
@@ -140,12 +141,23 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 | `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint across the repo |
 | `pnpm format` / `pnpm format:check` | Prettier (write / verify) across the repo |
 | `pnpm test` | unit + integration tests (needs `docker compose up`) |
-| `pnpm test:e2e` | Playwright E2E (first time: `pnpm --filter @loons/web exec playwright install chromium`) |
+| `pnpm test:e2e` | Playwright E2E (see [End-to-end tests](#end-to-end-tests)) |
 | `pnpm db:migrate` | create/apply migrations in development |
 | `pnpm db:deploy` | apply committed migrations (CI / production) |
 | `pnpm db:seed` | seed configuration + demo data (idempotent) |
 | `pnpm db:reset` | drop the database, re-apply migrations and re-seed |
 | `pnpm db:studio` | Prisma Studio |
+| `pnpm --filter @loons/db db:cleanup-e2e` | delete the accounts E2E runs create (runs automatically after `pnpm test:e2e`) |
+
+### End-to-end tests
+
+- First time: `pnpm --filter @loons/web exec playwright install --with-deps chromium`.
+- Needs Postgres, Redis and **Mailpit** (`docker compose up -d`), migrated and seeded with demo data. The sign-up test
+  reads the verification and reset emails from Mailpit's API (`MAILPIT_API_URL`, default
+  `http://localhost:8025/api/v1`); the emails are sent by the **API worker**.
+- Playwright reuses a running API (:4000) and web app (:3000) — e.g. from `pnpm dev` — or starts them, and always starts
+  its own worker next to them (harmless: workers share the queues).
+- Each run signs up one `e2e-<timestamp>@hamad.qa` client; a global teardown deletes it (`db:cleanup-e2e`).
 
 ---
 
@@ -168,7 +180,8 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - The web app (Auth.js) keeps an encrypted session cookie and mints a **15-minute HS256 access token** for API and
   Socket.IO calls. The API re-loads the user from the database (cached ≤ 30 s), so role changes and disabled accounts
   take effect quickly. Every user has a *session version*: a password reset bumps it, which immediately invalidates
-  all API tokens and open sockets and ends the web session at its next refresh (≤ 5 min).
+  all API tokens and open sockets and ends the web session at its next refresh (≤ 5 min). A socket also closes when
+  the access token it connected with expires (clients fetch a new token and reconnect).
   Authorisation is enforced by the API — the UI only hides controls.
 - Password reset links are emailed through the BullMQ worker (see Mailpit locally), expire after 30 minutes and are single-use.
 - Sign-in, sign-up and reset are rate-limited per IP and per email (they fail closed if Redis is down). The web app
@@ -206,7 +219,31 @@ Enforce MFA with Entra Conditional Access.
   `pnpm approve-builds <package>` (the allow-list lives in `pnpm-workspace.yaml` → `allowBuilds`).
 - **Port already in use** — stop other processes on 3000/4000/5432/6379/9000/8025, or change the ports in `.env` / `docker-compose.yml`.
 - **Do not set `NODE_ENV` in `.env`** — `next build` breaks with a development `NODE_ENV`.
-- **`Too many attempts` during `pnpm test:e2e`** — the API rate-limits sign-in (10 per 15 min per IP + email, 50 per IP),
-  and locally every request comes from the same address, so ~5 E2E runs within 15 minutes hit the limit. Wait 15 minutes or clear the counters:
-  `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
+- **`Too many attempts`** (often during repeated `pnpm test:e2e` runs) — locally every request comes from the same
+  address, so the per-IP auth limits fill up quickly. The current limits:
+
+  | Action | Limits |
+  |---|---|
+  | Sign-in | 10 per 15 min per IP + email · 50 per 15 min per IP · 30 per hour per email (successful sign-ins count too) |
+  | Forgot password | 5 per 15 min per IP + email · 5 per hour per email |
+  | Sign-up | 5 per hour per IP · 100 per hour overall |
+  | Resend verification email | 3 per 15 min per user · 10 per 15 min per IP · 100 per 15 min overall |
+  | Open / confirm a verification link | 30 / 10 per 15 min per IP · 600 / 300 per 15 min overall |
+  | Reset password (with a link) | 10 per 15 min per IP |
+
+  Per-IP limits only apply when the web app knows the client IP (`TRUSTED_PROXY_HOPS` ≥ 1); with `0` (development
+  only) they are skipped and the per-email, per-user and overall limits remain. Wait for the window to pass or clear
+  the counters: `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
 - **`os error 3` from every pnpm script on Windows** — the repository path is too long; see the Windows note under Prerequisites.
+
+---
+
+## Deployment notes (prepared in Phase 6)
+
+- The web app builds as a Next.js **standalone** server: after `pnpm build`, run
+  `node .next/standalone/apps/web/server.js` (with `.next/static` copied next to it, as the Phase 6
+  Dockerfile will do).
+- The web server prints `Ready` **before** its configuration check has finished: a bad configuration (placeholder
+  secrets, `TRUSTED_PROXY_HOPS=0` in production, …) then exits the process with a `[config] …` line. Health checks
+  should therefore probe a page, not just wait for the log line.
+- Seed production with `prisma db seed` and `NODE_ENV=production` (never `pnpm db:seed`, which sets development).
