@@ -151,6 +151,17 @@ describe('trustedProxyHops (SEC-6)', () => {
     expect(trustedProxyHops()).toBe(2);
   });
 
+  it('refuses 0 in production, where per-IP sign-in limits must apply (RR-SEC-2)', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
+    expect(() => trustedProxyHops()).toThrow(/TRUSTED_PROXY_HOPS=0 is not allowed in production/);
+    expect(() => assertWebEnv()).toThrow(/TRUSTED_PROXY_HOPS=0 is not allowed in production/);
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '1');
+    expect(trustedProxyHops()).toBe(1);
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '');
+    expect(trustedProxyHops()).toBe(1);
+  });
+
   it('fails loudly on anything else', () => {
     for (const bad of ['-1', '11', '1.5', 'one']) {
       vi.stubEnv('TRUSTED_PROXY_HOPS', bad);

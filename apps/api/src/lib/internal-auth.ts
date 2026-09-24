@@ -58,11 +58,14 @@ function forwardedClientIp(req: FastifyRequest): string | null {
 }
 
 /**
- * The end user's IP for rate limiting. `x-client-ip` is trusted only on requests that already
- * proved the internal key; everything else uses the socket / proxy address.
+ * The end user's IP forwarded by the web server in `x-client-ip` (trusted only on requests that
+ * already proved the internal key), or null when it sent none — e.g. TRUSTED_PROXY_HOPS=0, where
+ * the web server can't know the address. Per-IP limits on /internal/* key on this and are skipped
+ * when it is null: falling back to the caller's address would put every end user in the web
+ * server's single bucket, so anyone could exhaust a limit for everyone (RR-SEC-2).
  */
-export function clientIp(req: FastifyRequest): string {
-  return (req.internalCaller ? forwardedClientIp(req) : null) ?? normalizeIP(req.ip);
+export function endUserIp(req: FastifyRequest): string | null {
+  return req.internalCaller ? forwardedClientIp(req) : null;
 }
 
 /**

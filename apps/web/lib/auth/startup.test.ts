@@ -34,6 +34,20 @@ describe('checkWebEnvAtStartup (SEC-9)', () => {
     expect(exit).not.toHaveBeenCalled();
   });
 
+  it('stops a production server with TRUSTED_PROXY_HOPS=0 (RR-SEC-2)', () => {
+    vi.stubEnv('AUTH_SECRET', 'auth-secret-for-tests-0123456789-abcdef');
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit called');
+    }) as never);
+    expect(() => checkWebEnvAtStartup()).toThrow('exit called');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringMatching(/TRUSTED_PROXY_HOPS=0 is not allowed in production/),
+    );
+  });
+
   it('passes with real secrets', () => {
     vi.stubEnv('AUTH_SECRET', 'auth-secret-for-tests-0123456789-abcdef');
     expect(() => checkWebEnvAtStartup()).not.toThrow();

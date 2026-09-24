@@ -168,9 +168,10 @@ const MAX_PROXY_HOPS = 10;
  * Number of reverse proxies in front of the web app that APPEND to X-Forwarded-For (1 = one AWS
  * ALB, the default). The client IP is read that many entries from the right.
  *
- * 0 = nothing in front of Next.js. Next.js only fills X-Forwarded-For in when the request has none,
- * so a client could then choose its own "IP": the web app treats the address as unknown and sends
- * no `x-client-ip` (the API falls back to its own view of the caller plus its per-email limits).
+ * 0 = nothing in front of Next.js (development only). Next.js only fills X-Forwarded-For in when
+ * the request has none, so a client could then choose its own "IP": the web app treats the address
+ * as unknown and sends no `x-client-ip`, and the API skips its per-IP sign-in limits (per-email,
+ * per-account and global limits still apply). Refused when NODE_ENV=production (RR-SEC-2).
  */
 export function trustedProxyHops(): number {
   const raw = process.env.TRUSTED_PROXY_HOPS?.trim();
@@ -178,6 +179,11 @@ export function trustedProxyHops(): number {
   const hops = Number(raw);
   if (!Number.isInteger(hops) || hops < 0 || hops > MAX_PROXY_HOPS) {
     throw new Error(`TRUSTED_PROXY_HOPS must be an integer from 0 to ${MAX_PROXY_HOPS}`);
+  }
+  if (hops === 0 && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'TRUSTED_PROXY_HOPS=0 is not allowed in production: without a proxy that appends the client address to X-Forwarded-For, per-IP sign-in limits cannot apply (set the number of proxies in front of the web app, e.g. 1 for one AWS ALB)',
+    );
   }
   return hops;
 }

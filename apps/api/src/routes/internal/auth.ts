@@ -14,18 +14,32 @@ import {
   verifyEmailSchema,
 } from '@loons/shared';
 import { errorResponses, errors } from '../../lib/errors.ts';
-import { CLIENT_IP_HEADER, clientIp, internalKeyGuard } from '../../lib/internal-auth.ts';
-import { HOUR, MINUTE, hashKeyPart, limitGuard } from '../../lib/rate-limit.ts';
+import { CLIENT_IP_HEADER, endUserIp, internalKeyGuard } from '../../lib/internal-auth.ts';
+import { HOUR, MINUTE, hashKeyPart, limitGuard, type LimitRule } from '../../lib/rate-limit.ts';
 
 const userResponse = z.object({ user: authUserSchema });
 const acceptedResponse = z.object({ ok: z.literal(true) });
 const security = [{ internalApiKey: [] }];
 
 /**
+ * Caps shared by everyone, whatever the IP: they still hold when the web server can't forward the
+ * end user's IP (then only the per-email / per-user rules and these apply). Generous, so normal
+ * use never meets them; they bound what one caller rotating addresses or emails can do.
+ */
+export const GLOBAL_AUTH_LIMITS = {
+  register: { max: 100, windowMs: HOUR },
+  link: { max: 600, windowMs: 15 * MINUTE },
+  verify: { max: 300, windowMs: 15 * MINUTE },
+  resend: { max: 100, windowMs: 15 * MINUTE },
+} as const;
+
+/**
  * Server-to-server sign-in support for the web app (`/internal/auth/*`).
  * Every route requires `x-internal-api-key`. The global per-IP limit is off here (all calls
  * come from the web server); instead each route is limited per end-user IP taken from
- * `x-client-ip` (+ email where relevant), trusted only after the key is verified.
+ * `x-client-ip` (+ email where relevant), trusted only after the key is verified. Without that
+ * header the per-IP rules are skipped (never keyed on the web server's own address), and the
+ * per-email, per-user and global rules still apply.
  */
 export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   // Wrong / missing keys: 20 per 15 min per source address, then 429.
@@ -46,29 +60,41 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', async (req) => {
     if (!req.headers[CLIENT_IP_HEADER] && !warnedMissingClientIp) {
       warnedMissingClientIp = true;
-      req.log.warn('internal call without x-client-ip; rate limits fall back to the caller address');
+      req.log.warn('internal call without x-client-ip; per-IP rate limits are skipped (per-email, per-user and global limits still apply)');
     }
   });
 
-  const ip = (req: Parameters<typeof clientIp>[0]) => `ip:${clientIp(req)}`;
-  const bodyEmail = (req: Parameters<typeof clientIp>[0]) => {
+  type Key = LimitRule['key'];
+  // null (rule skipped) when the web server did not forward the end user's IP.
+  const ip: Key = (req) => {
+    const address = endUserIp(req);
+    return address === null ? null : `ip:${address}`;
+  };
+  const bodyEmail = (req: Parameters<Key>[0]) => {
     // Already normalised (trimmed, lower-cased) by the body schema.
     const email = (req.body as { email?: unknown } | undefined)?.email;
     return typeof email === 'string' ? email : null;
   };
-  const ipAndEmail = (req: Parameters<typeof clientIp>[0]) => {
+  const ipAndEmail: Key = (req) => {
     const email = bodyEmail(req);
-    return email === null ? null : `ip:${clientIp(req)}:email:${hashKeyPart(email)}`;
+    const address = endUserIp(req);
+    return email === null || address === null ? null : `ip:${address}:email:${hashKeyPart(email)}`;
   };
   // Independent of the IP (which the caller may be able to vary): caps guessing per account.
-  const emailOnly = (req: Parameters<typeof clientIp>[0]) => {
+  const emailOnly: Key = (req) => {
     const email = bodyEmail(req);
     return email === null ? null : `email:${hashKeyPart(email)}`;
   };
-  const bodyUserId = (req: Parameters<typeof clientIp>[0]) => {
+  const bodyUserId: Key = (req) => {
     const userId = (req.body as { userId?: unknown } | undefined)?.userId;
     return typeof userId === 'string' ? `user:${userId}` : null;
   };
+  const everyone: Key = () => 'all';
+  const globalRule = (name: keyof typeof GLOBAL_AUTH_LIMITS): LimitRule => ({
+    name: `${name}:global`,
+    ...GLOBAL_AUTH_LIMITS[name],
+    key: everyone,
+  });
 
   // Fail CLOSED: if the limiter store (Redis) is unreachable these routes answer 503
   // SERVICE_UNAVAILABLE rather than accept unthrottled password / sign-up / reset attempts.
@@ -83,7 +109,11 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     failClosed,
   );
   const oauthLimit = limitGuard(app, [{ name: 'oauth:ip', max: 60, windowMs: 15 * MINUTE, key: ip }], failClosed);
-  const registerLimit = limitGuard(app, [{ name: 'register:ip', max: 5, windowMs: HOUR, key: ip }], failClosed);
+  const registerLimit = limitGuard(
+    app,
+    [{ name: 'register:ip', max: 5, windowMs: HOUR, key: ip }, globalRule('register')],
+    failClosed,
+  );
   const forgotLimit = limitGuard(
     app,
     [
@@ -93,13 +123,22 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     failClosed,
   );
   const resetLimit = limitGuard(app, [{ name: 'reset:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
-  const linkLimit = limitGuard(app, [{ name: 'link:ip', max: 30, windowMs: 15 * MINUTE, key: ip }], failClosed);
-  const verifyLimit = limitGuard(app, [{ name: 'verify:ip', max: 10, windowMs: 15 * MINUTE, key: ip }], failClosed);
+  const linkLimit = limitGuard(
+    app,
+    [{ name: 'link:ip', max: 30, windowMs: 15 * MINUTE, key: ip }, globalRule('link')],
+    failClosed,
+  );
+  const verifyLimit = limitGuard(
+    app,
+    [{ name: 'verify:ip', max: 10, windowMs: 15 * MINUTE, key: ip }, globalRule('verify')],
+    failClosed,
+  );
   const resendLimit = limitGuard(
     app,
     [
       { name: 'resend:user', max: 3, windowMs: 15 * MINUTE, key: bodyUserId },
       { name: 'resend:ip', max: 10, windowMs: 15 * MINUTE, key: ip },
+      globalRule('resend'),
     ],
     failClosed,
   );

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiErrorSchema } from '@loons/shared';
-import { createTestContext, mintToken, randomIp, testEmail, type TestContext } from './helpers.ts';
+import { HOUR, MINUTE } from '../src/lib/rate-limit.ts';
+import { GLOBAL_AUTH_LIMITS } from '../src/routes/internal/auth.ts';
+import { TEST_PASSWORD, createTestContext, mintToken, randomIp, testEmail, type TestContext } from './helpers.ts';
 
 describe('rate limits', () => {
   let ctx: TestContext;
@@ -188,5 +190,102 @@ describe('TRUST_PROXY hop count (one load balancer in front of the API)', () => 
       remaining.push(Number(res.headers['x-ratelimit-remaining']));
     }
     expect(remaining).toEqual([299, 298, 297]);
+  });
+});
+
+describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP rules are skipped, never pooled (RR-SEC-2)', () => {
+  let ctx: TestContext;
+  beforeAll(async () => {
+    ctx = await createTestContext();
+  });
+  afterAll(async () => {
+    await ctx.close();
+  });
+
+  const webServer = '192.0.2.250';
+  /** The internal key but no x-client-ip, always from the web server's one address. */
+  const post = (url: string, payload: Record<string, unknown>) =>
+    ctx.app.inject({
+      method: 'POST',
+      url: `/internal/auth${url}`,
+      remoteAddress: webServer,
+      headers: { 'x-internal-api-key': ctx.config.internalApiKey },
+      payload,
+    });
+  const limitKeys = (rule: string) => ctx.redis.keys(`${ctx.config.redisPrefix}rl:*${rule}:*`);
+
+  it('login: many users behind one web server are not one bucket; the per-email limit still holds', async () => {
+    // 60 wrong passwords over many emails: a shared login:ip bucket (50) would have tripped.
+    const statuses: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      statuses.push((await post('/login', { email: testEmail(), password: 'Wrong-password-1' })).statusCode);
+    }
+    expect(new Set(statuses)).toEqual(new Set([401]));
+    expect(await limitKeys('login:ip')).toEqual([]);
+
+    // One email: login:ip-email (10) is skipped too, but login:email (30 per hour) holds.
+    const email = testEmail();
+    const same: number[] = [];
+    for (let i = 0; i < 31; i++) same.push((await post('/login', { email, password: 'Wrong-password-1' })).statusCode);
+    expect(same.slice(0, 30).every((s) => s === 401)).toBe(true);
+    expect(same[30]).toBe(429);
+  });
+
+  it('forgot password: the per-email limit still holds', async () => {
+    const email = testEmail();
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) statuses.push((await post('/password/forgot', { email })).statusCode);
+    await ctx.app.background.drain();
+    expect(statuses).toEqual([202, 202, 202, 202, 202, 429]);
+    expect((await post('/password/forgot', { email: testEmail() })).statusCode).toBe(202);
+    await ctx.app.background.drain();
+  });
+
+  it('register and verify: the per-IP limits do not pool everyone; the global caps count instead', async () => {
+    const registered: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const email = ctx.fixtures.trackEmail(testEmail());
+      registered.push((await post('/register', { name: 'No Ip', email, password: TEST_PASSWORD })).statusCode);
+    }
+    expect(registered).toEqual([201, 201, 201, 201, 201, 201]); // register:ip is 5 per hour
+    const verified: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      verified.push((await post('/email/verify', { token: `guess-${i}`.padEnd(43, 'g'), userId: crypto.randomUUID() })).statusCode);
+    }
+    expect(new Set(verified)).toEqual(new Set([400])); // verify:ip is 10 per 15 min
+    expect((await post('/email/link', { token: 'peek'.padEnd(43, 'p') })).statusCode).toBe(400);
+
+    expect(await limitKeys('register:ip')).toEqual([]);
+    expect(await limitKeys('verify:ip')).toEqual([]);
+    for (const rule of ['register:global', 'verify:global', 'link:global']) {
+      expect(await limitKeys(rule), rule).toHaveLength(1);
+    }
+    expect(GLOBAL_AUTH_LIMITS).toEqual({
+      register: { max: 100, windowMs: HOUR },
+      link: { max: 600, windowMs: 15 * MINUTE },
+      verify: { max: 300, windowMs: 15 * MINUTE },
+      resend: { max: 100, windowMs: 15 * MINUTE },
+    });
+  });
+
+  it('resend: the global cap holds whatever the IP, with or without one', async () => {
+    const { max } = GLOBAL_AUTH_LIMITS.resend;
+    const statuses: number[] = [];
+    for (let i = 0; i <= max; i++) {
+      // A different user each time (resend:user never trips) and alternating with / without an IP.
+      const res =
+        i % 2 === 0
+          ? await post('/email/resend', { userId: crypto.randomUUID() })
+          : await ctx.app.inject({
+              method: 'POST',
+              url: '/internal/auth/email/resend',
+              headers: ctx.internalHeaders(randomIp()),
+              payload: { userId: crypto.randomUUID() },
+            });
+      statuses.push(res.statusCode);
+    }
+    await ctx.app.background.drain();
+    expect(statuses.slice(0, max).every((s) => s === 202)).toBe(true);
+    expect(statuses[max]).toBe(429);
   });
 });
