@@ -4,19 +4,28 @@ import { seedOptions } from './options.ts';
 
 describe('seedOptions', () => {
   it('demo data is opt-in: off unless SEED_DEMO_DATA is true', () => {
-    expect(seedOptions({}).demo).toBe(false);
-    expect(seedOptions({ SEED_DEMO_DATA: '' }).demo).toBe(false);
-    expect(seedOptions({ SEED_DEMO_DATA: 'false' }).demo).toBe(false);
-    expect(seedOptions({ SEED_DEMO_DATA: 'true' }).demo).toBe(true);
-    expect(seedOptions({ SEED_DEMO_DATA: ' YES ', NODE_ENV: 'development' }).demo).toBe(true);
+    const dev = { NODE_ENV: 'development' };
+    expect(seedOptions(dev).demo).toBe(false);
+    expect(seedOptions({ ...dev, SEED_DEMO_DATA: '' }).demo).toBe(false);
+    expect(seedOptions({ ...dev, SEED_DEMO_DATA: 'false' }).demo).toBe(false);
+    expect(seedOptions({ ...dev, SEED_DEMO_DATA: 'true' }).demo).toBe(true);
+    expect(seedOptions({ SEED_DEMO_DATA: ' YES ', NODE_ENV: ' Development ' }).demo).toBe(true);
+    expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: 'test' }).demo).toBe(true);
   });
 
-  it('never seeds demo data in production', () => {
+  it('seeds demo data only when NODE_ENV is explicitly development or test (RR-SEC-3)', () => {
     expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: 'production' }).demo).toBe(false);
     expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: ' Production ' }).demo).toBe(false);
+    // Unset, blank or unknown counts as production.
+    expect(seedOptions({ SEED_DEMO_DATA: 'true' }).demo).toBe(false);
+    expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: '' }).demo).toBe(false);
+    expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: 'staging' }).demo).toBe(false);
   });
 
   it('rejects a SEED_DEMO_DATA typo instead of guessing', () => {
+    expect(() => seedOptions({ SEED_DEMO_DATA: 'maybe', NODE_ENV: 'production' })).toThrow(
+      'SEED_DEMO_DATA must be true or false',
+    );
     expect(() => seedOptions({ SEED_DEMO_DATA: 'maybe' })).toThrow(
       'SEED_DEMO_DATA must be true or false',
     );

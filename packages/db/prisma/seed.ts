@@ -11,7 +11,7 @@
 //   hours, holidays, app settings, P1 escalation chain, macros, email templates, help articles, tags.
 //   Optional production bootstrap: SEED_ADMIN_EMAIL (+ SEED_ADMIN_NAME) creates the first
 //   SSO-only SUPER_ADMIN so someone can sign in with Entra ID and configure the rest.
-// Part 2 — DEMO (opt-in: SEED_DEMO_DATA=true, and never when NODE_ENV=production): organisations,
+// Part 2 — DEMO (opt-in: SEED_DEMO_DATA=true and NODE_ENV explicitly development/test): organisations,
 //   sites, staff and client users (password SEED_DEMO_PASSWORD, email already verified), team
 //   memberships, on-call users, and the design's tickets with messages and history.
 
@@ -34,7 +34,7 @@ import { EMAIL_TEMPLATES } from './seed-data/email-templates.ts';
 import { HELP_ARTICLES } from './seed-data/help-articles.ts';
 import { HOLIDAY_YEARS, HOLIDAYS } from './seed-data/holidays.ts';
 import { MACROS } from './seed-data/macros.ts';
-import { seedOptions, type SeedOptions } from './seed-data/options.ts';
+import { DEMO_NODE_ENVS, seedOptions, type SeedOptions } from './seed-data/options.ts';
 import {
   APP_SETTINGS,
   BUSINESS_HOURS,
@@ -691,7 +691,7 @@ async function main(): Promise<void> {
       log(`demo: ${formatCounts(demoBefore, demoAfter)}`);
       log(`next ticket number: ${formatTicketNumber(must(nextTicket, 'next ticket'))}`);
     } else {
-      log('demo: skipped (set SEED_DEMO_DATA=true outside production to add it)');
+      log('demo: skipped (needs SEED_DEMO_DATA=true and NODE_ENV=development or test; `pnpm db:seed` sets development)');
     }
     log(`done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
   } finally {
@@ -707,7 +707,8 @@ function describeError(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown error';
   const rawCode = (error as { code?: unknown }).code;
   const code = typeof rawCode === 'string' ? `[${rawCode}] ` : '';
-  if (process.env.NODE_ENV !== 'production') return `${code}${error.stack ?? error.message}`;
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase() ?? '';
+  if ((DEMO_NODE_ENVS as readonly string[]).includes(nodeEnv)) return `${code}${error.stack ?? error.message}`;
   const lastLine = error.message
     .split('\n')
     .map((line) => line.trim())
