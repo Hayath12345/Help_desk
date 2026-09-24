@@ -98,7 +98,7 @@ docker compose up -d
 pnpm install        # also generates the Prisma client
 pnpm db:migrate     # applies migrations (prisma migrate dev)
 pnpm db:seed        # configuration + demo data (idempotent; demo data needs SEED_DEMO_DATA=true, set in .env.example —
-                    # the script sets NODE_ENV=development; an unset/other NODE_ENV never seeds demo data)
+                    # the script defaults NODE_ENV to development; any other NODE_ENV never seeds demo data)
 ```
 
 ### 4. Run everything
@@ -158,7 +158,8 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
   `http://localhost:8025/api/v1`); the emails are sent by the **API worker**.
 - Playwright reuses a running API (:4000) and web app (:3000) — e.g. from `pnpm dev` — or starts them, and always starts
   its own worker next to them (harmless: workers share the queues).
-- Each run signs up one `e2e-<timestamp>@hamad.qa` client; a global teardown deletes it (`db:cleanup-e2e`).
+- Each run signs up one `e2e-<timestamp>@hamad.qa` client; a global teardown deletes every such test client
+  (`db:cleanup-e2e`), so don't run two E2E suites against the same database at once. A failed cleanup fails the run.
 
 ---
 
@@ -223,17 +224,19 @@ Enforce MFA with Entra Conditional Access.
 - **`Too many attempts`** (often during repeated `pnpm test:e2e` runs) — locally every request comes from the same
   address, so the per-IP auth limits fill up quickly. The current limits:
 
-  | Action                             | Limits                                                                                                      |
-  | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-  | Sign-in                            | 10 per 15 min per IP + email · 50 per 15 min per IP · 30 per hour per email (successful sign-ins count too) |
-  | Forgot password                    | 5 per 15 min per IP + email · 5 per hour per email                                                          |
-  | Sign-up                            | 5 per hour per IP · 100 per hour overall                                                                    |
-  | Resend verification email          | 3 per 15 min per user · 10 per 15 min per IP · 100 per 15 min overall                                       |
-  | Open / confirm a verification link | 30 / 10 per 15 min per IP · 600 / 300 per 15 min overall                                                    |
-  | Reset password (with a link)       | 10 per 15 min per IP                                                                                        |
+  | Action                                          | Limits                                                                                                      |
+  | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+  | Sign-in                                         | 10 per 15 min per IP + email · 50 per 15 min per IP · 30 per hour per email (successful sign-ins count too) |
+  | Forgot password                                 | 5 per 15 min per IP + email · 5 per hour per email                                                          |
+  | Sign-up                                         | 5 per hour per IP · 100 per hour for callers with an unknown IP                                             |
+  | Resend verification email                       | 3 per 15 min per user · 10 per 15 min per IP · 100 per 15 min for unknown IPs                               |
+  | Open / confirm a verification link              | 30 / 10 per 15 min per IP · 600 / 300 per 15 min for unknown IPs                                            |
+  | Reset password (with a link)                    | 10 per 15 min per IP                                                                                        |
+  | Google / Microsoft sign-in (after the provider) | 60 per 15 min per IP                                                                                        |
 
-  Per-IP limits only apply when the web app knows the client IP (`TRUSTED_PROXY_HOPS` ≥ 1); with `0` (development
-  only) they are skipped and the per-email, per-user and overall limits remain. Wait for the window to pass or clear
+  Per-IP limits only apply when the web app knows the client IP (`TRUSTED_PROXY_HOPS` ≥ 1). With `0` (development
+  only) they are skipped: the per-email and per-user limits and the shared unknown-IP caps apply, and resetting a password with a link or
+  finishing a Google / Microsoft sign-in is then not rate limited. Wait for the window to pass or clear
   the counters: `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
 
 - **`os error 3` from every pnpm script on Windows** — the repository path is too long; see the Windows note under Prerequisites.
@@ -248,4 +251,5 @@ Enforce MFA with Entra Conditional Access.
 - The web server prints `Ready` **before** its configuration check has finished: a bad configuration (placeholder
   secrets, `TRUSTED_PROXY_HOPS=0` in production, …) then exits the process with a `[config] …` line. Health checks
   should therefore probe a page, not just wait for the log line.
-- Seed production with `prisma db seed` and `NODE_ENV=production` (never `pnpm db:seed`, which sets development).
+- Seed production with `NODE_ENV=production` set (`pnpm db:seed` only defaults `NODE_ENV` to development when it is
+  unset, so an explicit production value never gets demo data).

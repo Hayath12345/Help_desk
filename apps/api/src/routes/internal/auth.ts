@@ -22,9 +22,10 @@ const acceptedResponse = z.object({ ok: z.literal(true) });
 const security = [{ internalApiKey: [] }];
 
 /**
- * Caps shared by everyone, whatever the IP: they still hold when the web server can't forward the
- * end user's IP (then only the per-email / per-user rules and these apply). Generous, so normal
- * use never meets them; they bound what one caller rotating addresses or emails can do.
+ * Caps shared by every caller whose IP is unknown (the web server sent no `x-client-ip`, e.g.
+ * TRUSTED_PROXY_HOPS=0): there the per-IP rules can't apply, so these bound what one caller
+ * rotating emails or accounts can do. With a known IP they don't apply — otherwise a handful of
+ * addresses could fill them and lock every real user out.
  */
 export const GLOBAL_AUTH_LIMITS = {
   register: { max: 100, windowMs: HOUR },
@@ -39,7 +40,7 @@ export const GLOBAL_AUTH_LIMITS = {
  * come from the web server); instead each route is limited per end-user IP taken from
  * `x-client-ip` (+ email where relevant), trusted only after the key is verified. Without that
  * header the per-IP rules are skipped (never keyed on the web server's own address), and the
- * per-email, per-user and global rules still apply.
+ * per-email and per-user rules plus the unknown-IP caps (GLOBAL_AUTH_LIMITS) apply instead.
  */
 export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
   // Wrong / missing keys: 20 per 15 min per source address, then 429.
@@ -92,11 +93,12 @@ export const internalAuthRoutes: FastifyPluginAsyncZod = async (app) => {
     const userId = (req.body as { userId?: unknown } | undefined)?.userId;
     return typeof userId === 'string' ? `user:${userId}` : null;
   };
-  const everyone: Key = () => 'all';
+  // One shared bucket, only for callers without a known IP (see GLOBAL_AUTH_LIMITS).
+  const unknownIp: Key = (req) => (endUserIp(req) === null ? 'unknown-ip' : null);
   const globalRule = (name: keyof typeof GLOBAL_AUTH_LIMITS): LimitRule => ({
-    name: `${name}:global`,
+    name: `${name}:no-ip`,
     ...GLOBAL_AUTH_LIMITS[name],
-    key: everyone,
+    key: unknownIp,
   });
 
   // Fail CLOSED: if the limiter store (Redis) is unreachable these routes answer 503

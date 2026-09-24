@@ -1,12 +1,13 @@
 // Deletes the accounts the Playwright suite created (and the rows that depend on them), so repeated
 // `pnpm test:e2e` runs don't pile up clients in the seeded organisations. Run by the Playwright
-// global teardown: `pnpm --filter @loons/db db:cleanup-e2e`. Local / CI databases only.
+// global teardown: `pnpm --filter @loons/db db:cleanup-e2e`. Development / test databases only.
+import { isNonProductionEnv } from '../prisma/seed-data/options.ts';
 import { createPrismaClient } from '../src/index.ts';
 import { e2eUserWhere } from './e2e-users.ts';
 
 async function main(): Promise<void> {
-  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase();
-  if (nodeEnv === 'production') throw new Error('refusing to run with NODE_ENV=production');
+  // Allow-list, like the seed: only development / test databases (the script defaults to test).
+  if (!isNonProductionEnv()) throw new Error('only runs with NODE_ENV=development or test');
 
   const db = createPrismaClient({ poolSize: 2 });
   try {

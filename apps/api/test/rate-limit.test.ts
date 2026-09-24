@@ -260,7 +260,7 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
     await ctx.app.background.drain();
   });
 
-  it('register and verify: the per-IP limits do not pool everyone; the global caps count instead', async () => {
+  it('register and verify: the per-IP limits do not pool everyone; the unknown-IP caps count instead', async () => {
     const registered: number[] = [];
     for (let i = 0; i < 6; i++) {
       const email = ctx.fixtures.trackEmail(testEmail());
@@ -285,7 +285,7 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
 
     expect(await limitKeys('register:ip')).toEqual([]);
     expect(await limitKeys('verify:ip')).toEqual([]);
-    for (const rule of ['register:global', 'verify:global', 'link:global']) {
+    for (const rule of ['register:no-ip', 'verify:no-ip', 'link:no-ip']) {
       expect(await limitKeys(rule), rule).toHaveLength(1);
     }
     expect(GLOBAL_AUTH_LIMITS).toEqual({
@@ -296,24 +296,41 @@ describe('internal calls without x-client-ip (web TRUSTED_PROXY_HOPS=0): per-IP 
     });
   });
 
-  it('resend: the global cap holds whatever the IP, with or without one', async () => {
+  it('resend: the unknown-IP cap holds without an IP, and never limits callers with a known IP', async () => {
     const { max } = GLOBAL_AUTH_LIMITS.resend;
     const statuses: number[] = [];
+    // A different user each time, so resend:user never trips.
     for (let i = 0; i <= max; i++) {
-      // A different user each time (resend:user never trips) and alternating with / without an IP.
-      const res =
-        i % 2 === 0
-          ? await post('/email/resend', { userId: crypto.randomUUID() })
-          : await ctx.app.inject({
-              method: 'POST',
-              url: '/internal/auth/email/resend',
-              headers: ctx.internalHeaders(randomIp()),
-              payload: { userId: crypto.randomUUID() },
-            });
-      statuses.push(res.statusCode);
+      statuses.push((await post('/email/resend', { userId: crypto.randomUUID() })).statusCode);
     }
-    await ctx.app.background.drain();
     expect(statuses.slice(0, max).every((s) => s === 202)).toBe(true);
     expect(statuses[max]).toBe(429);
+
+    // Filling the unknown-IP bucket doesn't lock out end users whose IP is known.
+    const withIp = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/email/resend',
+      headers: ctx.internalHeaders(randomIp()),
+      payload: { userId: crypto.randomUUID() },
+    });
+    expect(withIp.statusCode).toBe(202);
+    await ctx.app.background.drain();
+  });
+
+  it('callers with a known IP never touch the unknown-IP caps (no shared bucket to fill)', async () => {
+    const keys = await limitKeys('link:no-ip');
+    const read = () => Promise.all(keys.map((key) => ctx.redis.get(key)));
+    const before = await read();
+    for (let i = 0; i < 3; i++) {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/internal/auth/email/link',
+        headers: ctx.internalHeaders(randomIp()),
+        payload: { token: `known-ip-${i}`.padEnd(43, 'k') },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(await limitKeys('link:no-ip')).toEqual(keys);
+    expect(await read()).toEqual(before);
   });
 });

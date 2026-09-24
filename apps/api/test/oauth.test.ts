@@ -120,7 +120,15 @@ describe('POST /internal/auth/oauth', () => {
     expect(job, 'queued "Google sign-in added" email').toBeDefined();
     expect(job!.data).toMatchObject({ to: user.email, tag: 'google-linked' });
     expect(job!.data.html).toContain(`href="${ctx.config.appUrl}/login"`);
-    expect(job!.data.html).toMatch(/<html[^>]*dir="(rtl|ltr)"/);
+    // The owner's language (ar), unless an admin left the Arabic text of the template empty.
+    const template = await ctx.prisma.emailTemplate.findUnique({ where: { key: 'GOOGLE_LINKED' } });
+    const arabic =
+      !template ||
+      !template.isActive ||
+      !template.bodyEn.trim() ||
+      (template.subjectAr.trim() !== '' && template.bodyAr.trim() !== '');
+    expect(job!.data.html).toMatch(new RegExp(`<html[^>]*dir="${arabic ? 'rtl' : 'ltr'}"`));
+    if (arabic) expect(job!.data.subject).toContain('مكتب دعم لونز');
 
     // Later sign-ins with the same Google account just sign in: nothing more is revoked.
     const again = await google(user.email, { providerAccountId });
@@ -269,6 +277,10 @@ describe('POST /internal/auth/oauth', () => {
     const row = await ctx.prisma.user.findUniqueOrThrow({ where: { id: squatter.id } });
     expect(row.passwordHash).toBeNull();
     expect(row.emailVerifiedAt).not.toBeNull();
+    // The registrant's name and company are replaced by the owner's Google profile.
+    expect(row.name).toBe('Google User');
+    expect(row.signupCompany).toBeNull();
+    expect((await googleLinkedEmail(squatter.id))?.data.text).toContain('Google User');
     expect(await ctx.prisma.emailVerificationToken.count({ where: { userId: squatter.id } })).toBe(
       0,
     );
@@ -288,6 +300,38 @@ describe('POST /internal/auth/oauth', () => {
     // Signing in again later just signs in.
     const again = await google(email);
     expect(again.json().user.sessionVersion).toBe(owner.sessionVersion);
+  });
+
+  it('Google claiming an unverified pending sign-up drops the registrant’s name and company', async () => {
+    const email = ctx.fixtures.trackEmail(testEmail());
+    const reg = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/register',
+      headers: ctx.internalHeaders(),
+      payload: {
+        name: 'Visit evil.example',
+        company: 'Totally Legit Co',
+        email,
+        password: TEST_PASSWORD,
+      },
+    });
+    expect(reg.statusCode).toBe(201);
+    expect((await ctx.prisma.user.findUniqueOrThrow({ where: { email } })).signupCompany).toBe(
+      'Totally Legit Co',
+    );
+
+    const res = await google(email, { name: 'Real Owner' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user).toMatchObject({
+      name: 'Real Owner',
+      status: 'PENDING_APPROVAL',
+      emailVerified: true,
+    });
+    const row = await ctx.prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(row).toMatchObject({ name: 'Real Owner', signupCompany: null, passwordHash: null });
+    const job = await googleLinkedEmail(row.id);
+    expect(job?.data.text).toContain('Real Owner');
+    expect(job?.data.text).not.toContain('evil.example');
   });
 
   it('Google: staff-domain email → 403 STAFF_MUST_USE_SSO', async () => {

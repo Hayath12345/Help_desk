@@ -1,6 +1,6 @@
 import { DEFAULT_STAFF_EMAIL_DOMAIN } from '@loons/shared';
 import { describe, expect, it } from 'vitest';
-import { seedOptions } from './options.ts';
+import { effectiveNodeEnv, seedOptions } from './options.ts';
 
 describe('seedOptions', () => {
   it('demo data is opt-in: off unless SEED_DEMO_DATA is true', () => {
@@ -20,6 +20,18 @@ describe('seedOptions', () => {
     expect(seedOptions({ SEED_DEMO_DATA: 'true' }).demo).toBe(false);
     expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: '' }).demo).toBe(false);
     expect(seedOptions({ SEED_DEMO_DATA: 'true', NODE_ENV: 'staging' }).demo).toBe(false);
+  });
+
+  it('the scripts’ default (LOONS_DEFAULT_NODE_ENV) never overrides an explicit NODE_ENV', () => {
+    const scriptDefault = { LOONS_DEFAULT_NODE_ENV: 'development', SEED_DEMO_DATA: 'true' };
+    // `pnpm db:seed` with nothing set: development.
+    expect(seedOptions(scriptDefault).demo).toBe(true);
+    expect(effectiveNodeEnv(scriptDefault)).toBe('development');
+    // `NODE_ENV=production pnpm db:seed`: production wins, no demo data.
+    expect(seedOptions({ ...scriptDefault, NODE_ENV: 'production' }).demo).toBe(false);
+    expect(effectiveNodeEnv({ ...scriptDefault, NODE_ENV: 'Production' })).toBe('production');
+    expect(seedOptions({ ...scriptDefault, NODE_ENV: 'staging' }).demo).toBe(false);
+    expect(effectiveNodeEnv({})).toBe('');
   });
 
   it('rejects a SEED_DEMO_DATA typo instead of guessing', () => {

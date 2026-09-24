@@ -34,7 +34,7 @@ import { EMAIL_TEMPLATES } from './seed-data/email-templates.ts';
 import { HELP_ARTICLES } from './seed-data/help-articles.ts';
 import { HOLIDAY_YEARS, HOLIDAYS } from './seed-data/holidays.ts';
 import { MACROS } from './seed-data/macros.ts';
-import { DEMO_NODE_ENVS, seedOptions, type SeedOptions } from './seed-data/options.ts';
+import { isNonProductionEnv, seedOptions, type SeedOptions } from './seed-data/options.ts';
 import {
   APP_SETTINGS,
   BUSINESS_HOURS,
@@ -692,7 +692,7 @@ async function main(): Promise<void> {
       log(`next ticket number: ${formatTicketNumber(must(nextTicket, 'next ticket'))}`);
     } else {
       log(
-        'demo: skipped (needs SEED_DEMO_DATA=true and NODE_ENV=development or test; `pnpm db:seed` sets development)',
+        'demo: skipped (needs SEED_DEMO_DATA=true and NODE_ENV=development or test; `pnpm db:seed` defaults to development)',
       );
     }
     log(`done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
@@ -709,9 +709,7 @@ function describeError(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown error';
   const rawCode = (error as { code?: unknown }).code;
   const code = typeof rawCode === 'string' ? `[${rawCode}] ` : '';
-  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase() ?? '';
-  if ((DEMO_NODE_ENVS as readonly string[]).includes(nodeEnv))
-    return `${code}${error.stack ?? error.message}`;
+  if (isNonProductionEnv()) return `${code}${error.stack ?? error.message}`;
   const lastLine = error.message
     .split('\n')
     .map((line) => line.trim())

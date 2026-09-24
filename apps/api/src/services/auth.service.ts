@@ -179,7 +179,15 @@ export function createAuthService(deps: {
       if (input.provider === 'GOOGLE') {
         const claimed = await tx.user.updateMany({
           where: { id: user.id, emailVerifiedAt: null },
-          data: { passwordHash: null, emailVerifiedAt: now, ...REVOKE_SESSIONS_DATA },
+          data: {
+            passwordHash: null,
+            emailVerifiedAt: now,
+            ...REVOKE_SESSIONS_DATA,
+            // The registrant typed these; the mailbox owner's Google profile replaces them (the
+            // "Google sign-in added" email and the admin review must not show attacker text).
+            ...(input.name.trim() ? { name: input.name.trim() } : {}),
+            signupCompany: null,
+          },
         });
         if (claimed.count === 1) {
           passwordRemoved = true;
