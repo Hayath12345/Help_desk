@@ -382,6 +382,11 @@ describe('macros, email templates, help articles, tags', () => {
       'verifyUrl',
       'expiresHours',
     ]);
+    // UI-RR-2: Arabic text uses the Arabic product name (مكتب دعم لونز), never the Latin one.
+    for (const t of EMAIL_TEMPLATES) {
+      expect(t.subjectAr, t.key).not.toContain('Loons Help Desk');
+      expect(t.bodyAr, t.key).not.toContain('Loons Help Desk');
+    }
     expect(EMAIL_TEMPLATES.find((t) => t.key === 'GOOGLE_LINKED')?.variables).toEqual([
       'name',
       'signInUrl',

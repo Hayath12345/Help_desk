@@ -1,6 +1,7 @@
 import type { Locale } from '@loons/shared';
 
-// Built-in text for each transactional email. The admin panel edits the `EmailTemplate` rows
+// Built-in text for each transactional email. Arabic text names the product مكتب دعم لونز (as the
+// seed and the app do); the Latin wordmark only appears in the layout (theme.ts brand/footer). The admin panel edits the `EmailTemplate` rows
 // (subject/body, EN + AR); these defaults are used when a row is missing or inactive.
 // CTA labels are part of the layout and stay in code. Variable names match the seeded rows
 // (packages/db/prisma/seed-data/email-templates.ts).
@@ -33,10 +34,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Readonly<Record<EmailTemplateKey, DefaultE
       'We received a request to reset the password for your Loons Help Desk account. Use the button below to choose a new password. The link expires in {{expiresMinutes}} minutes and can only be used once.',
       "If you didn't ask for this, you can safely ignore this email — your password won't change.",
     ].join('\n\n'),
-    subjectAr: 'إعادة تعيين كلمة المرور لحسابك في Loons Help Desk',
+    subjectAr: 'إعادة تعيين كلمة المرور لحسابك في مكتب دعم لونز',
     bodyAr: [
       'مرحباً {{name}}،',
-      'تلقّينا طلباً لإعادة تعيين كلمة المرور لحسابك في Loons Help Desk. استخدم الزر أدناه لاختيار كلمة مرور جديدة. تنتهي صلاحية الرابط خلال {{expiresMinutes}} دقيقة ويمكن استخدامه مرة واحدة فقط.',
+      'تلقّينا طلباً لإعادة تعيين كلمة المرور لحسابك في مكتب دعم لونز. استخدم الزر أدناه لاختيار كلمة مرور جديدة. تنتهي صلاحية الرابط خلال {{expiresMinutes}} دقيقة ويمكن استخدامه مرة واحدة فقط.',
       'إذا لم تطلب ذلك، يمكنك تجاهل هذه الرسالة بأمان ولن تتغير كلمة المرور.',
     ].join('\n\n'),
     ctaEn: 'Reset password',
@@ -51,10 +52,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Readonly<Record<EmailTemplateKey, DefaultE
       'Thanks for signing up for Loons Help Desk. Use the button below to confirm your email address and finish setting up your account. The link expires in {{expiresHours}} hours and can only be used once.',
       "If you didn't create an account, you can safely ignore this email.",
     ].join('\n\n'),
-    subjectAr: 'تأكيد بريدك الإلكتروني في Loons Help Desk',
+    subjectAr: 'تأكيد بريدك الإلكتروني في مكتب دعم لونز',
     bodyAr: [
       'مرحباً {{name}}،',
-      'شكراً لتسجيلك في Loons Help Desk. استخدم الزر أدناه لتأكيد بريدك الإلكتروني وإكمال إعداد حسابك. تنتهي صلاحية الرابط خلال {{expiresHours}} ساعة ويمكن استخدامه مرة واحدة فقط.',
+      'شكراً لتسجيلك في مكتب دعم لونز. استخدم الزر أدناه لتأكيد بريدك الإلكتروني وإكمال إعداد حسابك. تنتهي صلاحية الرابط خلال {{expiresHours}} ساعة ويمكن استخدامه مرة واحدة فقط.',
       'إذا لم تنشئ حساباً، يمكنك تجاهل هذه الرسالة بأمان.',
     ].join('\n\n'),
     ctaEn: 'Confirm email address',

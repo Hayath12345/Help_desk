@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { palette } from '@loons/ui';
-import { DEFAULT_EMAIL_TEMPLATES, defaultCtaLabel, pickTemplateText } from './defaults.ts';
+import { DEFAULT_EMAIL_TEMPLATES, EMAIL_TEMPLATE_KEYS, defaultCtaLabel, pickTemplateText } from './defaults.ts';
 import { LINK_VARIABLES, renderTemplateEmail } from './render.tsx';
 
 const reset = DEFAULT_EMAIL_TEMPLATES.PASSWORD_RESET;
@@ -47,7 +47,7 @@ describe('renderTemplateEmail', () => {
     expect(out.html).toContain('IBM Plex Sans Arabic');
     expect(out.html).toContain('text-align:right');
     expect(out.html).toContain('مرحباً ليلى');
-    expect(out.subject).toBe('إعادة تعيين كلمة المرور لحسابك في Loons Help Desk');
+    expect(out.subject).toBe('إعادة تعيين كلمة المرور لحسابك في مكتب دعم لونز');
     expect(out.text).toContain('إعادة تعيين كلمة المرور: https://help.example.com/');
   });
 
@@ -270,5 +270,17 @@ describe('GOOGLE_LINKED default template', () => {
     expect(out.subject).toContain('مكتب دعم لونز');
     expect(out.text).toContain('مرحباً ليلى');
     expect(out.text).toContain(`تسجيل الدخول: ${signInUrl}`);
+  });
+});
+
+describe('Arabic product name (UI-RR-2)', () => {
+  it('no Arabic subject or body of a built-in template says "Loons Help Desk"', () => {
+    for (const key of EMAIL_TEMPLATE_KEYS) {
+      const template = DEFAULT_EMAIL_TEMPLATES[key];
+      expect(template.subjectAr, key).not.toContain('Loons Help Desk');
+      expect(template.bodyAr, key).not.toContain('Loons Help Desk');
+      // Every Arabic text that names the product uses the Arabic name.
+      expect(`${template.subjectAr}\n${template.bodyAr}`, key).toContain('مكتب دعم لونز');
+    }
   });
 });
