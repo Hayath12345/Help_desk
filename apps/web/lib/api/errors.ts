@@ -82,6 +82,8 @@ export async function toApiRequestError(response: Response): Promise<ApiRequestE
 export interface ValidationIssue {
   path: (string | number)[];
   message: string;
+  /** The API's rule name when it sends one (a zod code, or e.g. "security_category"). */
+  code?: string;
 }
 
 /** Extracts `details` issues from a VALIDATION_FAILED error, tolerating unexpected shapes. */
@@ -97,13 +99,14 @@ export function validationIssues(error: ApiRequestError): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const item of list) {
     if (!item || typeof item !== 'object') continue;
-    const { path, message } = item as { path?: unknown; message?: unknown };
+    const { path, message, code } = item as { path?: unknown; message?: unknown; code?: unknown };
     if (!Array.isArray(path) || typeof message !== 'string') continue;
     issues.push({
       path: path.filter(
         (p): p is string | number => typeof p === 'string' || typeof p === 'number',
       ),
       message,
+      ...(typeof code === 'string' ? { code } : {}),
     });
   }
   return issues;

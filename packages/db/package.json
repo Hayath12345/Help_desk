@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
     "@loons/shared": "workspace:*",
     "@node-rs/argon2": "catalog:",
     "@prisma/adapter-pg": "catalog:",

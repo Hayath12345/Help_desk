@@ -13,9 +13,47 @@
       "active": "Active",
       "solved": "Solved"
     },
+    "listLabel": "Your tickets",
     "emptyTitle": "No tickets here",
     "emptyDescription": "Need help with something? We usually reply within an hour.",
-    "loading": "Loading your tickets…"
+    "loading": "Loading your tickets…",
+    "loadFailed": "Your tickets couldn't be loaded.",
+    "retry": "Try again",
+    "loadMore": "Show more tickets",
+    "loadingMore": "Loading more tickets…"
+  },
+  "ticket": {
+    "back": "All tickets",
+    "loading": "Loading the ticket…",
+    "loadFailed": "This ticket couldn't be loaded.",
+    "retry": "Try again",
+    "notFoundTitle": "Ticket not found",
+    "notFoundDescription": "This ticket doesn't exist, or it isn't shared with your account.",
+    "handledBy": "Handled by {assignee} ({team})",
+    "handledByTeam": "Handled by {team}",
+    "opened": "Opened {date}",
+    "markSolved": "Mark as solved",
+    "reopen": "Reopen ticket",
+    "solvedToast": "Ticket marked as solved",
+    "reopenedToast": "Ticket reopened",
+    "closedTitle": "This ticket is closed",
+    "closedDescription": "Closed tickets can't receive replies. Raise a new ticket if you still need help.",
+    "live": {
+      "reconnecting": "Reconnecting… new replies will appear as soon as you're back online.",
+      "offline": "Live updates are paused. Reload the page to see new replies."
+    }
+  },
+  "reply": {
+    "label": "Your reply",
+    "placeholder": "Write a reply…",
+    "send": "Send reply",
+    "hint": "We’ll email you when an engineer responds.",
+    "reopenHint": "Replying will reopen this ticket.",
+    "shortcut": "Press Ctrl+Enter to send.",
+    "attach": "Attach files",
+    "hideAttachments": "Hide attachments",
+    "uploadsPending": "Wait for the attachments to finish uploading.",
+    "uploadsFailed": "Remove or retry the attachments that failed."
   },
   "help": {
     "title": "Help center",

@@ -10,7 +10,7 @@
     "start:worker": "tsx src/worker.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "dotenv -e ../../.env -v NODE_ENV=test -- vitest run"
+    "test": "dotenv -e ../../.env -v NODE_ENV=test -- tsx test/run-vitest.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "catalog:",

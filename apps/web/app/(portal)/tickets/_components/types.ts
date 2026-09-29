@@ -1,34 +1,67 @@
-import type { TicketStatus } from '@loons/shared';
+import {
+  CLIENT_TABS,
+  formatTicketNumber,
+  isActiveStatus,
+  parseTicketNumber,
+  type ClientTab,
+  type TicketStatus,
+} from '@loons/shared';
+import type { TicketListFilters } from '@/lib/tickets/keys';
 
-export const TICKET_TABS = ['all', 'active', 'solved'] as const;
-export type TicketTab = (typeof TICKET_TABS)[number];
+/** "My tickets" tabs (design: All / Active / Solved). */
+export const TICKET_TABS = CLIENT_TABS;
+export type TicketTab = ClientTab;
 
 export function isTicketTab(value: unknown): value is TicketTab {
   return typeof value === 'string' && (TICKET_TABS as readonly string[]).includes(value);
 }
 
-/** A row in the client's "My tickets" list (shape the Phase 2 API list endpoint maps into). */
-export interface PortalTicketSummary {
-  id: string;
-  /** Sequence number; rendered as "LG-4817". */
-  number: number;
-  subject: string;
-  /** Category label already localised (Arabic falls back to English when empty). */
-  category: string;
-  /** Excerpt of the latest public message. */
-  preview: string;
-  status: TicketStatus;
-  /** ISO timestamp of the last update. */
-  updatedAt: string;
-}
-
-const SOLVED_STATUSES: readonly TicketStatus[] = ['SOLVED', 'CLOSED'];
-
-export function isSolvedStatus(status: TicketStatus): boolean {
-  return SOLVED_STATUSES.includes(status);
-}
-
-export function matchesTab(ticket: PortalTicketSummary, tab: TicketTab): boolean {
+/** Solved tab = SOLVED and CLOSED; Active = NEW, OPEN, PENDING (the API's tab predicates). */
+export function matchesTab(ticket: { status: TicketStatus }, tab: TicketTab): boolean {
   if (tab === 'all') return true;
-  return tab === 'solved' ? isSolvedStatus(ticket.status) : !isSolvedStatus(ticket.status);
+  return tab === 'active' ? isActiveStatus(ticket.status) : !isActiveStatus(ticket.status);
+}
+
+/**
+ * GET /tickets filters of one tab: the tickets the client requested (`scope=mine`), newest
+ * activity first. Each tab is its own cached list, so a switch back is instant.
+ */
+export function portalListFilters(tab: TicketTab): TicketListFilters {
+  return { tab, scope: 'mine', sort: 'recent' };
+}
+
+const time = (iso: string) => {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? 0 : ms;
+};
+
+/**
+ * Newest activity first (`sort=recent` is `updatedAt` desc). Re-sorting on the client lets a row
+ * that a realtime push or an optimistic change just touched move to the top with its `layout`
+ * animation instead of waiting for the next refetch. Stable for ties (keeps the API order).
+ */
+export function sortByRecent<T extends { updatedAt: string }>(tickets: readonly T[]): T[] {
+  return tickets
+    .map((ticket, index) => ({ ticket, index }))
+    .sort((a, b) => time(b.ticket.updatedAt) - time(a.ticket.updatedAt) || a.index - b.index)
+    .map(({ ticket }) => ticket);
+}
+
+/** Link to a ticket's thread page: `/tickets/LG-4771`. */
+export function portalTicketHref(ticket: { ref: string; number: number }): string {
+  const ref = /^LG-\d+$/.test(ticket.ref) ? ticket.ref : formatTicketNumber(ticket.number);
+  return `/tickets/${encodeURIComponent(ref)}`;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The (already decoded) `[ref]` segment in canonical form ("lg-4771" / "4771" → "LG-4771"; uuids
+ * lower-cased), or null when it can't be a ticket reference (the page 404s without calling the API).
+ */
+export function canonicalTicketRef(segment: string): string | null {
+  const value = segment.trim();
+  if (UUID.test(value)) return value.toLowerCase();
+  const n = parseTicketNumber(value);
+  return n === null ? null : formatTicketNumber(n);
 }

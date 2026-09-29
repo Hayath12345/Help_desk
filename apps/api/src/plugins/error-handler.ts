@@ -4,16 +4,14 @@ import {
   hasZodFastifySchemaValidationErrors,
 } from 'fastify-type-provider-zod';
 import type { ErrorCode } from '@loons/shared';
-import { AppError, codeForStatus, type ErrorResponse } from '../lib/errors.ts';
+import {
+  AppError,
+  codeForStatus,
+  type ErrorResponse,
+  type ValidationIssue,
+} from '../lib/errors.ts';
 
-export interface ValidationIssue {
-  /** Where the invalid value was: body, querystring, params or headers. */
-  location: string;
-  path: Array<string | number>;
-  /** i18n key (e.g. "validation.email") or a zod default message. */
-  message: string;
-  code: string;
-}
+export type { ValidationIssue } from '../lib/errors.ts';
 
 function body(
   code: ErrorCode,

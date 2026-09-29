@@ -7,6 +7,8 @@ import {
   formatRelativeTime,
   formatTicketNumber,
   initialsFrom,
+  isolate,
+  isolateDirection,
 } from '@/lib/format';
 import arAdmin from '@/messages/ar/admin.json';
 import arCommon from '@/messages/ar/common.json';
@@ -121,5 +123,11 @@ describe('lib/format', () => {
     expect(initialsFrom('Maya Ruiz')).toBe('MR');
     expect(initialsFrom('Capt. Omar Haddad')).toBe('OH');
     expect(initialsFrom('  ')).toBe('');
+  });
+
+  it('isolates text by its first strong character or in a fixed direction', () => {
+    expect(isolate('2026-09-24 firewall.log')).toBe('⁨2026-09-24 firewall.log⁩');
+    expect(isolateDirection('مثال: FW-01', 'rtl')).toBe('⁧مثال: FW-01⁩');
+    expect(isolateDirection('FW-01', 'ltr')).toBe('⁦FW-01⁩');
   });
 });

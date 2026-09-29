@@ -1,0 +1,119 @@
+// Socket.IO contract (spec §8). The server persists first, then broadcasts; clients reconcile
+// optimistic messages by `clientTempId` and, after a reconnect, fetch messages after the last id
+// they know.
+//
+// Rooms (see `rooms` in permissions.ts):
+//   ticket:{id}        client + staff viewers of a ticket — PUBLIC/SYSTEM messages, ticket updates,
+//                      typing by the CLIENT side
+//   ticket:{id}:staff  staff viewers only — INTERNAL notes and typing by STAFF (clients never see
+//                      staff typing, so a note being written is never revealed)
+//   team:{id}          staff of the team — queue changes (staff auto-join their teams on connect;
+//                      super admins join every active team)
+//   user:{id}          one user — personal events (Phase 3 notifications)
+
+import { z } from 'zod';
+import type { MessageDto, TicketSummaryDto } from './schemas/tickets.ts';
+
+/** Server → client event names. */
+export const SERVER_EVENTS = {
+  messageNew: 'message:new',
+  messageTyping: 'message:typing',
+  ticketUpdated: 'ticket:updated',
+  queueUpdated: 'queue:updated',
+  notificationNew: 'notification:new',
+  configUpdated: 'config:updated',
+} as const;
+
+/** Client → server event names (all use an acknowledgement callback). */
+export const CLIENT_EVENTS = {
+  ticketJoin: 'ticket:join',
+  ticketLeave: 'ticket:leave',
+  typing: 'message:typing',
+} as const;
+
+export interface MessageNewPayload {
+  ticketId: string;
+  message: MessageDto;
+}
+
+export interface TypingPayload {
+  ticketId: string;
+  user: { id: string; name: string };
+  isTyping: boolean;
+  /** 'internal' only ever reaches ticket:{id}:staff. */
+  scope: 'public' | 'internal';
+}
+
+export interface TicketUpdatedPayload {
+  ticket: TicketSummaryDto;
+}
+
+export interface QueueUpdatedPayload {
+  teamId: string;
+  ticketId: string;
+  reason: 'created' | 'updated' | 'message';
+}
+
+export interface ServerToClientEvents {
+  'message:new': (payload: MessageNewPayload) => void;
+  'message:typing': (payload: TypingPayload) => void;
+  'ticket:updated': (payload: TicketUpdatedPayload) => void;
+  'queue:updated': (payload: QueueUpdatedPayload) => void;
+  'notification:new': (payload: unknown) => void;
+  'config:updated': (payload: { scope: string }) => void;
+}
+
+/**
+ * At most this many `ticket:{id}` rooms per socket (joins in flight count too). A join beyond it
+ * is acked `TOO_MANY_ROOMS`: leave a room, then try again. Clients keep their live lists below it
+ * (the portal list holds 40 live rows) and send leaves before joins when the set changes. The
+ * server counts a join when it arrives and frees the slot when the leave arrives, so a leave sent
+ * before a join always makes room for it. Like every refused event, a TOO_MANY_ROOMS refusal
+ * counts against the socket's allowance (500 at once, then 50 per second) before it is
+ * disconnected: retry after a leave, not in a loop.
+ */
+export const MAX_TICKET_ROOMS_PER_SOCKET = 50;
+
+export const ticketRoomRequestSchema = z.object({ ticketId: z.uuid() });
+export type TicketRoomRequest = z.infer<typeof ticketRoomRequestSchema>;
+
+export const typingRequestSchema = z.object({
+  ticketId: z.uuid(),
+  isTyping: z.boolean(),
+  scope: z.enum(['public', 'internal']),
+});
+export type TypingRequest = z.infer<typeof typingRequestSchema>;
+
+/**
+ * Every client → server event is acknowledged with this. RATE_LIMITED: the event was dropped —
+ * a throttled typing event (best effort; nothing to retry), or a `ticket:join` / `ticket:leave`
+ * beyond the socket's or the user's budget (retry later; the web's list refreshes stay well
+ * within it) — or any event beyond the socket's overall event budget. A handshake refused with the
+ * connect error `TOO_MANY_CONNECTIONS` means the user (or their address) already has the maximum
+ * number of sockets open. After any refused handshake the server closes the connection; a client
+ * that retries (the web does, with a fresh token) opens a new one. Too many new connections from
+ * one address are refused at the HTTP upgrade (a transport error, no connect error).
+ */
+export type SocketAck =
+  | { ok: true }
+  | {
+      ok: false;
+      /**
+       * Retryable: `RATE_LIMITED` (later, with backoff) and `TOO_MANY_ROOMS` (after leaving a
+       * room — see MAX_TICKET_ROOMS_PER_SOCKET). Final for this holder: `NOT_FOUND` (unknown or
+       * invisible ticket), `FORBIDDEN`, `VALIDATION_FAILED`, `INTERNAL`.
+       */
+      error:
+        | 'VALIDATION_FAILED'
+        | 'FORBIDDEN'
+        | 'NOT_FOUND'
+        | 'RATE_LIMITED'
+        | 'TOO_MANY_ROOMS'
+        | 'INTERNAL';
+    };
+
+export interface ClientToServerEvents {
+  'ticket:join': (payload: TicketRoomRequest, ack: (res: SocketAck) => void) => void;
+  'ticket:leave': (payload: TicketRoomRequest, ack: (res: SocketAck) => void) => void;
+  'message:typing': (payload: TypingRequest, ack: (res: SocketAck) => void) => void;
+}

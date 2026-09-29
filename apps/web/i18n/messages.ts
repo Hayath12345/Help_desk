@@ -7,6 +7,7 @@ export const NAMESPACES = [
   'validation',
   'errors',
   'portal',
+  'tickets',
   'console',
   'admin',
 ] as const;

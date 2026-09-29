@@ -2,22 +2,52 @@ import { randomBytes } from 'node:crypto';
 import { SignJWT } from 'jose';
 import type { Redis } from 'ioredis';
 import { createPrismaClient, hashPassword, type PrismaClient } from '@loons/db';
-import type { Locale, Role, TeamMemberRole, UserStatus } from '@loons/shared';
-import { buildApp, type App } from '../src/app.ts';
+import type {
+  CustomFieldType,
+  Locale,
+  Priority,
+  Role,
+  TeamMemberRole,
+  UserStatus,
+} from '@loons/shared';
+import { buildApp, type App, type AppDeps } from '../src/app.ts';
 import { loadConfig, type AppConfig } from '../src/config.ts';
 import { createQueues, type AppQueues } from '../src/lib/queues.ts';
 import { closeRedis, createRedisClient } from '../src/lib/redis.ts';
 
 export const TEST_PASSWORD = 'Correct-Horse-42';
 
+const passwordHashes = new Map<string, Promise<string>>();
+/**
+ * argon2 is slow and runs on native worker threads: each fixture password is hashed once per test
+ * process and the (valid) hash reused for every user that has it.
+ */
+function fixturePasswordHash(password: string): Promise<string> {
+  let hash = passwordHashes.get(password);
+  if (!hash) {
+    hash = hashPassword(password);
+    passwordHashes.set(password, hash);
+  }
+  return hash;
+}
+
 export function rand(bytes = 5): string {
   return randomBytes(bytes).toString('hex');
+}
+
+/**
+ * A fresh Redis key prefix for a test context: `loons-test:<run>:<random>:` inside `vitest run`
+ * (test/global-setup.ts removes the run's leftovers), `loons-test:<random>:` elsewhere.
+ */
+export function testRedisPrefix(): string {
+  const run = process.env.LOONS_TEST_RUN;
+  return `loons-test:${run ? `${run}:` : ''}${rand()}:`;
 }
 
 /** Real config from the repo .env, quiet logs, isolated Redis key prefix. */
 export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const base = loadConfig({ ...process.env, LOG_LEVEL: process.env.TEST_LOG_LEVEL ?? 'silent' });
-  return { ...base, redisPrefix: `loons-test:${rand()}:`, ...overrides };
+  return { ...base, redisPrefix: testRedisPrefix(), ...overrides };
 }
 
 /** Unique non-staff email on a unique domain: t-<rand>@test-<rand>.example */
@@ -35,6 +65,9 @@ export class Fixtures {
   private readonly emails = new Set<string>();
   private readonly orgIds = new Set<string>();
   private readonly teamIds = new Set<string>();
+  private readonly categoryIds = new Set<string>();
+  private readonly fieldIds = new Set<string>();
+  private readonly tagKeys = new Set<string>();
 
   constructor(readonly prisma: PrismaClient) {}
 
@@ -67,6 +100,91 @@ export class Fixtures {
     return team;
   }
 
+  /** A site of an organisation (deleted with the organisation). */
+  async site(orgId: string, options: { isActive?: boolean; name?: string } = {}) {
+    const key = `site-${rand()}`;
+    return this.prisma.site.create({
+      data: {
+        orgId,
+        key,
+        name: options.name ?? `Site ${key}`,
+        isActive: options.isActive ?? true,
+      },
+    });
+  }
+
+  /**
+   * A ticket category routed to `teamId`, with sub-types and custom fields. Test categories sort
+   * last (sortOrder 10 000+) so they stay out of the way of anyone using the dev database.
+   */
+  async category(options: {
+    teamId: string;
+    isActive?: boolean;
+    subtypes?: Array<{ defaultPriority?: Priority; isActive?: boolean }>;
+    fields?: Array<{
+      type: CustomFieldType;
+      required?: boolean;
+      isActive?: boolean;
+      options?: string[];
+    }>;
+  }) {
+    const key = `test-${rand()}`;
+    const category = await this.prisma.category.create({
+      data: {
+        key,
+        labelEn: `Test ${key}`,
+        labelAr: `اختبار ${key}`,
+        teamId: options.teamId,
+        sortOrder: 10_000,
+        isActive: options.isActive ?? true,
+        assetPlaceholder: 'e.g. TST-01',
+      },
+    });
+    this.categoryIds.add(category.id);
+    const subtypes = [];
+    for (const [i, st] of (options.subtypes ?? [{ defaultPriority: 'P3' }]).entries()) {
+      subtypes.push(
+        await this.prisma.subtype.create({
+          data: {
+            categoryId: category.id,
+            key: `st-${i}-${rand(3)}`,
+            labelEn: `Sub-type ${i}`,
+            labelAr: `نوع فرعي ${i}`,
+            defaultPriority: st.defaultPriority ?? 'P3',
+            isActive: st.isActive ?? true,
+            sortOrder: i,
+          },
+        }),
+      );
+    }
+    const fields = [];
+    for (const [i, f] of (options.fields ?? []).entries()) {
+      const field = await this.prisma.customField.create({
+        data: {
+          key: `tf_${f.type.toLowerCase()}_${rand(3)}`,
+          labelEn: `Field ${f.type}`,
+          labelAr: `حقل ${f.type}`,
+          type: f.type,
+          required: f.required ?? false,
+          isActive: f.isActive ?? true,
+          options: f.options?.map((value) => ({ value, labelEn: value, labelAr: value })),
+        },
+      });
+      this.fieldIds.add(field.id);
+      await this.prisma.categoryField.create({
+        data: { categoryId: category.id, fieldId: field.id, sortOrder: i },
+      });
+      fields.push(field);
+    }
+    return { category, subtypes, fields };
+  }
+
+  /** Tags a test creates through the API (deleted in cleanup). */
+  trackTag(key: string): string {
+    this.tagKeys.add(key);
+    return key;
+  }
+
   async member(teamId: string, userId: string, role: TeamMemberRole = 'MEMBER') {
     return this.prisma.teamMember.create({ data: { teamId, userId, role } });
   }
@@ -95,7 +213,7 @@ export class Fixtures {
         status: options.status ?? 'ACTIVE',
         orgId: options.orgId ?? null,
         locale: options.locale ?? 'en',
-        passwordHash: password === null ? null : await hashPassword(password),
+        passwordHash: password === null ? null : await fixturePasswordHash(password),
         emailVerifiedAt: options.emailVerified === false ? null : new Date(),
       },
     });
@@ -120,6 +238,35 @@ export class Fixtures {
   async cleanup(): Promise<void> {
     const emails = [...this.emails];
     const ids = [...this.userIds];
+    const userIds = [
+      ...ids,
+      ...(
+        await this.prisma.user.findMany({ where: { email: { in: emails } }, select: { id: true } })
+      ).map((u) => u.id),
+    ];
+    // Tickets first (messages, attachments, tags and events cascade), then what they reference.
+    await this.prisma.ticket.deleteMany({
+      where: {
+        OR: [
+          { requesterId: { in: userIds } },
+          { orgId: { in: [...this.orgIds] } },
+          { teamId: { in: [...this.teamIds] } },
+          { categoryId: { in: [...this.categoryIds] } },
+        ],
+      },
+    });
+    await this.prisma.attachment.deleteMany({ where: { uploaderId: { in: userIds } } });
+    if (this.categoryIds.size) {
+      const categoryIds = [...this.categoryIds];
+      await this.prisma.subtype.deleteMany({ where: { categoryId: { in: categoryIds } } });
+      await this.prisma.category.deleteMany({ where: { id: { in: categoryIds } } });
+    }
+    if (this.fieldIds.size)
+      await this.prisma.customField.deleteMany({ where: { id: { in: [...this.fieldIds] } } });
+    if (this.tagKeys.size)
+      await this.prisma.tag.deleteMany({ where: { key: { in: [...this.tagKeys] } } });
+    if (this.orgIds.size)
+      await this.prisma.site.deleteMany({ where: { orgId: { in: [...this.orgIds] } } });
     if (emails.length || ids.length) {
       await this.prisma.user.deleteMany({
         where: { OR: [{ id: { in: ids } }, { email: { in: emails } }] },
@@ -157,7 +304,12 @@ async function deleteKeys(redis: Redis, pattern: string): Promise<void> {
  * caches, queues) so tests never collide with each other or a running dev stack.
  */
 export async function createTestContext(
-  options: { config?: Partial<AppConfig>; beforeReady?: (app: App) => void | Promise<void> } = {},
+  options: {
+    config?: Partial<AppConfig>;
+    beforeReady?: (app: App) => void | Promise<void>;
+    /** Replacement object storage / SLA arithmetic / socket limits. */
+    deps?: Pick<AppDeps, 'storage' | 'sla' | 'realtimeLimits' | 'realtimeClusterTimeoutMs'>;
+  } = {},
 ): Promise<TestContext> {
   const config = testConfig(options.config);
   const prisma = createPrismaClient({ url: config.databaseUrl, poolSize: 4 });
@@ -170,6 +322,7 @@ export async function createTestContext(
     redis,
     queues,
     rateLimitNamespace: `${config.redisPrefix}rl:`,
+    ...options.deps,
   });
   await options.beforeReady?.(app);
   await app.ready();
@@ -227,6 +380,19 @@ export async function mintToken(
     .sign(new TextEncoder().encode(options.secret ?? config.jwt.secret));
 }
 
+/** Addresses handed out by `randomIp` (198.18.0.0/15, the benchmarking range; no .0 / .255). */
+const IP_POOL = 2 * 256 * 254;
+let ipSeq = Math.floor(Math.random() * IP_POOL);
+
+/**
+ * A client address no earlier call in this process got: per-IP rate-limit buckets of one test
+ * never collide with another's. (Random picks from 250 addresses made `rate-limit.test.ts` fail
+ * now and then, when two of its tests drew the same IP.)
+ */
 export function randomIp(): string {
-  return `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
+  ipSeq = (ipSeq + 1) % IP_POOL;
+  const host = (ipSeq % 254) + 1;
+  const third = Math.floor(ipSeq / 254) % 256;
+  const second = 18 + Math.floor(ipSeq / (254 * 256));
+  return `198.${second}.${third}.${host}`;
 }

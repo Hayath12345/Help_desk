@@ -14,15 +14,23 @@ import { BackgroundTasks } from './lib/background.ts';
 import type { EmailProvider } from './lib/email/index.ts';
 import { loggerOptions } from './lib/logger.ts';
 import type { AppQueues } from './lib/queues.ts';
+import { createStorage, type Storage } from './lib/storage.ts';
 import { createAccessTokenVerifier } from './lib/tokens.ts';
 import { registerDocs } from './plugins/docs.ts';
 import { registerErrorHandling } from './plugins/error-handler.ts';
 import { registerSecurity } from './plugins/security.ts';
+import type { RealtimeLimits } from './realtime/limits.ts';
 import { attachRealtime } from './realtime/socket.ts';
+import { attachmentRoutes } from './routes/attachments.ts';
+import { configRoutes } from './routes/config.ts';
 import { healthRoutes } from './routes/health.ts';
 import { internalAuthRoutes } from './routes/internal/auth.ts';
 import { meRoutes } from './routes/me.ts';
+import { staffRoutes } from './routes/staff.ts';
+import { ticketRoutes } from './routes/tickets.ts';
 import { createServices } from './services/index.ts';
+import { sharedSlaMath, type SlaMath } from './services/sla.ts';
+import type { TicketRealtime } from './services/ticket-access.ts';
 import './types.ts';
 
 export const BODY_LIMIT_BYTES = 1024 * 1024;
@@ -57,6 +65,17 @@ export interface AppDeps {
   /** Overrides for tests. */
   principals?: PrincipalStore;
   rateLimitNamespace?: string;
+  /** Object storage (default: S3 / MinIO from config). */
+  storage?: Storage;
+  /** SLA due-date arithmetic (default: @loons/shared). */
+  sla?: SlaMath;
+  /** Socket limits (default: DEFAULT_REALTIME_LIMITS with the REALTIME_* config); tests lower them. */
+  realtimeLimits?: Partial<RealtimeLimits>;
+  /**
+   * Longest wait for the other API instances when a ticket update re-checks its room (default
+   * DEFAULT_CLUSTER_TIMEOUT_MS, 1 s).
+   */
+  realtimeClusterTimeoutMs?: number;
 }
 
 /** Builds the Fastify app (routes, plugins, Socket.IO) without listening. */
@@ -77,7 +96,7 @@ export async function buildApp(deps: AppDeps) {
   app.setSerializerCompiler(serializerCompiler);
 
   const background = new BackgroundTasks(app.log);
-  const principals =
+  const principalStore =
     deps.principals ??
     createPrincipalStore({
       prisma: deps.prisma,
@@ -85,6 +104,21 @@ export async function buildApp(deps: AppDeps) {
       prefix: config.redisPrefix,
       logger: app.log,
     });
+  // A principal is invalidated whenever the user changes (status, role, teams, sessions…): their
+  // live sockets are re-checked at the same time, so a lost permission also closes the realtime
+  // rooms it gave (review SEC-RT-2; Phase 4 member edits get this for free).
+  const principals: PrincipalStore = {
+    load: (userId, options) => principalStore.load(userId, options),
+    async invalidate(userId) {
+      await principalStore.invalidate(userId);
+      if (!app.hasDecorator('realtime')) return;
+      try {
+        await app.realtime.refreshUser(userId);
+      } catch (err) {
+        app.log.error({ err }, 'could not refresh the sockets of a user');
+      }
+    },
+  };
 
   app.decorate('config', config);
   app.decorate('prisma', deps.prisma);
@@ -94,14 +128,27 @@ export async function buildApp(deps: AppDeps) {
   app.decorate('tokens', createAccessTokenVerifier(config.jwt));
   app.decorate('principals', principals);
   app.decorate('background', background);
+  const storage = deps.storage ?? createStorage(config.s3);
+  app.decorate('storage', storage);
+  // `realtime` is attached below; ticket events are only emitted once requests are served.
+  const ticketRealtime: TicketRealtime = {
+    messageNew: (message) => app.realtime.tickets.messageNew(message),
+    ticketUpdated: (ticket, previous) => app.realtime.tickets.ticketUpdated(ticket, previous),
+    queueUpdated: (teamIds, ticketId, reason) =>
+      app.realtime.tickets.queueUpdated(teamIds, ticketId, reason),
+  };
   app.decorate(
     'services',
     createServices({
       prisma: deps.prisma,
+      redis: deps.redis,
       queues: deps.queues,
       principals,
       // `realtime` is attached below; revocations only happen once requests are served.
       sockets: { disconnectUser: (userId) => app.realtime.disconnectUser(userId) },
+      ticketRealtime,
+      storage,
+      sla: deps.sla ?? sharedSlaMath,
       config,
       logger: app.log,
     }),
@@ -123,8 +170,20 @@ export async function buildApp(deps: AppDeps) {
   await app.register(healthRoutes);
   await app.register(meRoutes);
   await app.register(internalAuthRoutes, { prefix: '/internal/auth' });
+  await app.register(configRoutes);
+  await app.register(ticketRoutes);
+  await app.register(attachmentRoutes);
+  await app.register(staffRoutes);
 
-  app.decorate('realtime', attachRealtime(app));
+  app.decorate(
+    'realtime',
+    attachRealtime(app, {
+      ...(deps.realtimeLimits ? { limits: deps.realtimeLimits } : {}),
+      ...(deps.realtimeClusterTimeoutMs !== undefined
+        ? { clusterTimeoutMs: deps.realtimeClusterTimeoutMs }
+        : {}),
+    }),
+  );
 
   // Let queued post-response work (e.g. reset emails) finish before shutting down.
   app.addHook('onClose', async () => {

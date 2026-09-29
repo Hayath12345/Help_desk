@@ -112,6 +112,12 @@ enum TicketEventType {
   P1_ACKNOWLEDGED
   ESCALATED
   AUTO_CLOSED
+  // Console edits of the remaining ticket fields (spec §7: every change writes a TicketEvent).
+  IMPACT_CHANGED
+  SITE_CHANGED
+  ASSET_CHANGED
+  /// meta: { fields: string[] } — the custom-field keys that changed (values are not copied).
+  CUSTOM_FIELDS_CHANGED
 }
 
 enum AttachmentStatus {
@@ -381,6 +387,9 @@ model Ticket {
   slaBreachedAt   DateTime?
   /// Set while the ticket is PENDING (resolution clock paused); cleared on resume.
   slaPausedAt     DateTime?
+  /// Finished PENDING pauses, oldest first: [{ "from": ISO, "to": ISO }]. A priority change
+  /// recomputes resolveDueAt from createdAt and replays them, so waiting on the client stays credited.
+  slaPauses       Json      @default("[]")
   p1AckedAt       DateTime?
   p1AckedById     String?   @db.Uuid
   lastMessageAt   DateTime?

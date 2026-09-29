@@ -1,0 +1,188 @@
+{
+  "type": {
+    "INCIDENT": "Incident",
+    "SERVICE_REQUEST": "Service Request",
+    "CHANGE_REQUEST": "Change Request",
+    "SECURITY_INCIDENT": "Security Incident",
+    "ENQUIRY": "Enquiry"
+  },
+  "impact": {
+    "SINGLE_USER": "Single user",
+    "DEPARTMENT": "Department",
+    "ENTIRE_SITE": "Entire site",
+    "MULTIPLE_SITES": "Multiple sites"
+  },
+  "contract": {
+    "AMC": "AMC",
+    "BILLABLE": "Billable"
+  },
+  "channel": {
+    "PORTAL": "portal",
+    "EMAIL": "email",
+    "PHONE": "phone",
+    "API": "API"
+  },
+  "duration": {
+    "minutes": "{n} min",
+    "hours": "{count, plural, one {{n} hour} other {{n} hours}}",
+    "hoursMinutes": "{hours} h {minutes} min",
+    "days": "{count, plural, one {{n} day} other {{n} days}}",
+    "businessDays": "{count, plural, one {{n} business day} other {{n} business days}}"
+  },
+  "sla": {
+    "replied": "Replied",
+    "overdue": "Overdue {duration}",
+    "paused": "Paused",
+    "none": "No target",
+    "firstReplyIn": "First reply due in {duration}",
+    "firstReplyOverdue": "First reply overdue by {duration}",
+    "repliedLabel": "First reply sent",
+    "pausedLabel": "SLA paused while waiting on the client"
+  },
+  "role": {
+    "client": "Client",
+    "support": "Loons Support",
+    "internal": "Internal note",
+    "system": "System"
+  },
+  "thread": {
+    "label": "Conversation",
+    "loading": "Loading the conversation…",
+    "empty": "No messages yet.",
+    "loadFailed": "The conversation couldn't be loaded.",
+    "retryLoad": "Try again",
+    "sending": "Sending…",
+    "failed": "Not sent",
+    "retry": "Retry",
+    "discard": "Discard",
+    "formerUser": "Former user",
+    "newTab": "(opens in a new tab)"
+  },
+  "typing": {
+    "one": "{name} is typing…",
+    "two": "{first} and {second} are typing…",
+    "many": "{n} people are typing…",
+    "note": "{name} is writing an internal note…"
+  },
+  "attachments": {
+    "label": "Attachments",
+    "drop": "Drop files here or",
+    "browse": "browse",
+    "hint": "Photos or a short video help us resolve faster · PDF, logs · up to 25 MB",
+    "dropActive": "Drop the files to attach them",
+    "sizeKb": "{size} KB",
+    "sizeMb": "{size} MB",
+    "remove": "Remove {name}",
+    "download": "Download {name}",
+    "downloadFailed": "The file couldn't be downloaded. Try again.",
+    "uploading": "Uploading {name}",
+    "progress": "{percent}%",
+    "retry": "Retry uploading {name}",
+    "failed": "Upload failed",
+    "failedAnnouncement": "Couldn't upload {name}. {reason}",
+    "rejected": {
+      "type": "{name}: this file type isn't supported.",
+      "size": "{name} is larger than 25 MB.",
+      "empty": "{name} is empty.",
+      "count": "You can attach up to {max} files.",
+      "total": "Attachments are limited to 25 MB in total."
+    },
+    "error": {
+      "storage": "The upload didn't finish.",
+      "rejected": "The file was rejected by the security scan.",
+      "content": "The file’s content doesn’t match its type.",
+      "network": "Check your connection and retry.",
+      "type": "This file type isn't supported.",
+      "size": "The file is larger than 25 MB.",
+      "empty": "The file is empty."
+    }
+  },
+  "assetPlaceholder": {
+    "example": "e.g. {example}",
+    "optional": "Optional"
+  },
+  "combobox": {
+    "loading": "Loading…",
+    "noResults": "No results."
+  },
+  "yes": "Yes",
+  "no": "No",
+  "newTicket": {
+    "title": "New ticket",
+    "close": "Close",
+    "loading": "Loading the form…",
+    "loadFailed": "The form couldn't be loaded.",
+    "retry": "Try again",
+    "requester": "Requester",
+    "requesterHint": "Client contact raising the ticket",
+    "requesterPlaceholder": "Choose a client contact…",
+    "requesterSearch": "Search by name or email…",
+    "requesterNone": "No matching client contacts.",
+    "ticketType": "Ticket type",
+    "securityTitle": "Security incident checklist — Category set to {category}",
+    "securityCheck1": "Do not power off affected devices",
+    "securityCheck2": "Disconnect from network only if instructed",
+    "categoryLocked": "Security incidents always go to {category}.",
+    "subject": "Subject",
+    "subjectPlaceholder": "e.g. Building 3 cameras not recording",
+    "category": "Category",
+    "categoryPlaceholder": "Choose a category…",
+    "subtype": "Sub-type",
+    "subtypePlaceholder": "Choose a sub-type…",
+    "subtypeNeedsCategory": "Choose a category first",
+    "priority": "Priority",
+    "priorityManual": "Set manually",
+    "priorityAuto": "Auto-set from sub-type",
+    "priorityPending": "Set automatically when you pick a sub-type",
+    "firstReply": "{duration} first reply",
+    "targets": "Target first response: {firstReply} · resolution {resolution}",
+    "targetsPending": "Target first response depends on priority.",
+    "p1Title": "Critical",
+    "p1Message": "our on-call team is alerted immediately. For life-safety emergencies also call 999.",
+    "callSoc": "Call 24/7 SOC",
+    "impact": "Impact",
+    "site": "Site / location",
+    "sitePlaceholder": "Search sites…",
+    "siteNone": "No matching sites.",
+    "siteNeedsRequester": "Choose the requester first",
+    "asset": "Asset / device ID",
+    "assetPlaceholder": "e.g. CAM-014, RDR-203",
+    "optional": "(optional)",
+    "required": "required",
+    "description": "Description",
+    "descriptionPlaceholder": "What’s failing, since when, and what you’ve already tried.",
+    "fieldPlaceholder": "Choose…",
+    "routedTo": "Routed to",
+    "targetFirst": "Target first response",
+    "none": "—",
+    "errorCount": "{count, plural, one {{n} field needs attention} other {{n} fields need attention}}",
+    "uploadsPending": "Wait for the attachments to finish uploading.",
+    "uploadsFailed": "Remove or retry the attachments that failed.",
+    "cancel": "Cancel",
+    "create": "Create ticket",
+    "creating": "Creating…",
+    "created": "Ticket {ref} created · routed to {team}",
+    "categoryLockedNotice": "Category set to {category} and locked for security incidents.",
+    "categoryRestoredNotice": "Category set back to {category}.",
+    "categoryUnlockedNotice": "The category can be changed again.",
+    "createdElsewhere": "Ticket {ref} created and routed to {team}",
+    "createdElsewhereHint": "You're not on that team, so it stays out of your inbox.",
+    "errors": {
+      "requesterRequired": "Choose who is raising this ticket.",
+      "categoryRequired": "Choose a category.",
+      "subtypeRequired": "Choose a sub-type.",
+      "subtypeNeedsCategory": "Choose a category first.",
+      "siteRequired": "Choose the site or location.",
+      "fieldRequired": "{field} is required.",
+      "numberInvalid": "Enter a number.",
+      "dateInvalid": "Enter a valid date.",
+      "optionInvalid": "Choose one of the options.",
+      "securityCategory": "Security incidents must use the security category."
+    }
+  },
+  "toast": {
+    "updateFailed": "Your change wasn't saved. {reason}",
+    "sendFailed": "Your message wasn't sent. {reason}",
+    "closed": "This ticket is closed. Raise a new ticket instead."
+  }
+}

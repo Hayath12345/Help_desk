@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { API_TOKEN_TTL } from '@loons/shared';
 import { ConfigError, fastifyTrustProxy, loadConfig } from './config.ts';
+import { DEFAULT_REALTIME_LIMITS } from './realtime/limits.ts';
 
 const base: NodeJS.ProcessEnv = {
   APP_URL: 'http://localhost:3000/',
@@ -152,6 +153,50 @@ describe('loadConfig', () => {
       const fn = trust as (address: string, hop: number) => boolean;
       expect([fn('10.0.0.1', 0), fn('203.0.113.9', 1)]).toEqual([true, false]);
     });
+  });
+
+  it('realtime limits: the code defaults, or positive integers from REALTIME_*', () => {
+    expect(loadConfig(dev).realtime).toEqual({
+      socketsPerUser: DEFAULT_REALTIME_LIMITS.socketsPerUser,
+      socketsPerIp: DEFAULT_REALTIME_LIMITS.socketsPerIp,
+      handshakesPerIp: DEFAULT_REALTIME_LIMITS.handshakesPerIp,
+      pendingConnectionsPerIp: DEFAULT_REALTIME_LIMITS.pendingConnectionsPerIp,
+    });
+    expect(loadConfig(dev).realtime).toEqual({
+      socketsPerUser: 20,
+      socketsPerIp: 500,
+      handshakesPerIp: { burst: 200, perSecond: 20 },
+      pendingConnectionsPerIp: 50,
+    });
+    const tuned = loadConfig({
+      ...dev,
+      REALTIME_SOCKETS_PER_USER: '30',
+      REALTIME_SOCKETS_PER_IP: ' 2000 ',
+      REALTIME_HANDSHAKES_PER_IP_BURST: '600',
+      REALTIME_HANDSHAKES_PER_IP_PER_SECOND: '60',
+      REALTIME_PENDING_CONNECTIONS_PER_IP: '100',
+    });
+    expect(tuned.realtime).toEqual({
+      socketsPerUser: 30,
+      socketsPerIp: 2000,
+      handshakesPerIp: { burst: 600, perSecond: 60 },
+      pendingConnectionsPerIp: 100,
+    });
+    // Blank means the default.
+    expect(loadConfig({ ...dev, REALTIME_SOCKETS_PER_IP: '' }).realtime.socketsPerIp).toBe(500);
+    for (const name of [
+      'REALTIME_SOCKETS_PER_USER',
+      'REALTIME_SOCKETS_PER_IP',
+      'REALTIME_HANDSHAKES_PER_IP_BURST',
+      'REALTIME_HANDSHAKES_PER_IP_PER_SECOND',
+      'REALTIME_PENDING_CONNECTIONS_PER_IP',
+    ]) {
+      for (const value of ['0', '-5', '1.5', 'many', '1e9']) {
+        const problems = problemsOf({ ...dev, [name]: value });
+        expect(problems, `${name}=${value}`).toHaveLength(1);
+        expect(problems[0], `${name}=${value}`).toMatch(new RegExp(`^${name} must be an integer`));
+      }
+    }
   });
 
   it('rejects wildcard or invalid CORS origins', () => {

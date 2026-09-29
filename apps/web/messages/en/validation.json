@@ -8,5 +8,9 @@
   "nameMin": "Enter your name.",
   "companyRequired": "Enter your organisation.",
   "tooLong": "This is too long.",
-  "invalid": "Check this value."
+  "invalid": "Check this value.",
+  "subjectRequired": "Add a short subject.",
+  "descriptionMin": "Describe the fault (at least 10 characters).",
+  "messageRequired": "Write a message first.",
+  "tagFormat": "Use lowercase letters, numbers and hyphens."
 }

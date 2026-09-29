@@ -1,6 +1,17 @@
 import type { z } from 'zod';
 import { apiErrorSchema, type ErrorCode } from '@loons/shared';
 
+/** One entry of a 400 VALIDATION_FAILED `details` array (request schema or business rule). */
+export interface ValidationIssue {
+  /** Where the invalid value was: body, querystring, params or headers. */
+  location: string;
+  path: Array<string | number>;
+  /** i18n key (e.g. "validation.required") or a zod default message. */
+  message: string;
+  /** Machine-readable reason (zod issue code, or a rule name such as "security_category"). */
+  code: string;
+}
+
 /** An error with a contract error code; the error handler turns it into the API error body. */
 export class AppError extends Error {
   constructor(
@@ -17,6 +28,9 @@ export class AppError extends Error {
 export const errors = {
   badRequest: (message = 'Bad request', details?: unknown) =>
     new AppError(400, 'BAD_REQUEST', message, details),
+  /** 400 VALIDATION_FAILED for business-rule checks (same body as schema validation errors). */
+  validation: (issues: ValidationIssue[]) =>
+    new AppError(400, 'VALIDATION_FAILED', 'Request validation failed', issues),
   unauthenticated: (message = 'Authentication required') =>
     new AppError(401, 'UNAUTHENTICATED', message),
   forbidden: (message = 'You do not have access to this resource') =>

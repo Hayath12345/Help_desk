@@ -58,7 +58,14 @@ services:
       timeout: 5s
       retries: 20
 
-  # One-shot: creates the attachments bucket (private) and a CORS-friendly policy for pre-signed uploads.
+  # One-shot: creates the attachments bucket (private) and a CORS-friendly policy for pre-signed
+  # uploads, and expires browser uploads (`attachments/…`) after a day: `complete` copies a checked
+  # upload under `files/…` and deletes it, but the pre-signed POST stays valid for 15 minutes, so a
+  # re-POST would leave an object nothing references (review RR-SEC-4). The production bucket needs
+  # the same lifecycle rule (plus the delete-marker rule for a versioned bucket; see the docs).
+  # Idempotent by construction: `mc ilm import` replaces the bucket's whole lifecycle configuration
+  # with this fixed document (rule ID expire-browser-uploads) on every run, whatever was there —
+  # a disabled or longer rule on the prefix no longer passes for the real one.
   minio-init:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
@@ -68,9 +75,14 @@ services:
       - /bin/sh
       - -c
       - |
-        mc alias set local http://minio:9000 loons loons-local-secret &&
-        mc mb --ignore-existing local/loons-helpdesk-attachments &&
-        mc anonymous set none local/loons-helpdesk-attachments &&
+        set -e
+        mc alias set local http://minio:9000 loons loons-local-secret
+        mc mb --ignore-existing local/loons-helpdesk-attachments
+        mc anonymous set none local/loons-helpdesk-attachments
+        mc ilm import local/loons-helpdesk-attachments <<'LIFECYCLE'
+        {"Rules":[{"ID":"expire-browser-uploads","Status":"Enabled","Filter":{"Prefix":"attachments/"},"Expiration":{"Days":1},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}
+        LIFECYCLE
+        mc ilm rule ls --json local/loons-helpdesk-attachments
         echo 'bucket ready'
     restart: 'no'
 

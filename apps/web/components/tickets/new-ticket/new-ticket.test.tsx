@@ -1,0 +1,539 @@
+// @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiRequestError } from '@/lib/api/errors';
+import { ticketKeys } from '@/lib/tickets/keys';
+import { FORM_CONFIG, FORM_CONTEXT, IDS, makeDetail } from '@/lib/tickets/test-fixtures';
+import { ViewerProvider } from '@/lib/tickets/viewer';
+import arCommon from '@/messages/ar/common.json';
+import arErrors from '@/messages/ar/errors.json';
+import arTickets from '@/messages/ar/tickets.json';
+import arValidation from '@/messages/ar/validation.json';
+import enCommon from '@/messages/en/common.json';
+import enErrors from '@/messages/en/errors.json';
+import enTickets from '@/messages/en/tickets.json';
+import enValidation from '@/messages/en/validation.json';
+import { NewTicketButton } from '@/components/shell/new-ticket-button';
+import { NewTicketProvider, ticketHref, useNewTicket } from './new-ticket-context';
+
+const api = vi.hoisted(() => ({
+  createTicket: vi.fn(),
+  fetchRequesters: vi.fn(),
+  fetchTicket: vi.fn(),
+}));
+vi.mock('@/lib/tickets/api', async (importOriginal) => ({ ...(await importOriginal()), ...api }));
+
+const router = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => router }));
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
+
+beforeAll(() => {
+  // What Radix needs from a browser that jsdom lacks.
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.releasePointerCapture = vi.fn();
+});
+
+beforeEach(() => {
+  api.createTicket.mockReset();
+  api.fetchRequesters.mockReset();
+  api.fetchTicket.mockReset();
+  router.push.mockReset();
+  toast.success.mockReset();
+});
+afterEach(cleanup);
+
+const CLIENT = { id: IDS.requester, name: 'Dr. Aisha Al-Kuwari', role: 'CLIENT' as const };
+const AGENT = { id: IDS.staff, name: 'Maya Ruiz', role: 'AGENT' as const };
+
+function Opener() {
+  const newTicket = useNewTicket();
+  return (
+    <>
+      <button type="button" onClick={() => newTicket.open()}>
+        open
+      </button>
+      <button type="button" onClick={() => newTicket.close()}>
+        close from outside
+      </button>
+    </>
+  );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+const MESSAGES = {
+  en: { common: enCommon, tickets: enTickets, validation: enValidation, errors: enErrors },
+  ar: { common: arCommon, tickets: arTickets, validation: arValidation, errors: arErrors },
+};
+
+function renderModal(viewer: typeof CLIENT | typeof AGENT = CLIENT, locale: 'en' | 'ar' = 'en') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  queryClient.setQueryData(ticketKeys.formConfig(), FORM_CONFIG);
+  queryClient.setQueryData(ticketKeys.formContext(null), FORM_CONTEXT);
+  queryClient.setQueryData(ticketKeys.formContext(IDS.requester), FORM_CONTEXT);
+  queryClient.setQueryData(ticketKeys.requesters(''), [
+    {
+      id: IDS.requester,
+      name: FORM_CONTEXT.requester.name,
+      email: FORM_CONTEXT.requester.email,
+      org: FORM_CONTEXT.org,
+    },
+  ]);
+  const utils = render(
+    <QueryClientProvider client={queryClient}>
+      <NextIntlClientProvider locale={locale} timeZone="Asia/Qatar" messages={MESSAGES[locale]}>
+        <ViewerProvider viewer={viewer}>
+          <NewTicketProvider>
+            <Opener />
+          </NewTicketProvider>
+        </ViewerProvider>
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'open' }));
+  return {
+    ...utils,
+    queryClient,
+    dialog: () =>
+      screen.getByRole('dialog', {
+        name: locale === 'ar' ? arTickets.newTicket.title : 'New ticket',
+      }),
+  };
+}
+
+/** Opens a Radix select with the keyboard and picks the option whose text starts with `label`. */
+async function choose(trigger: HTMLElement, label: string) {
+  act(() => trigger.focus());
+  fireEvent.keyDown(trigger, { key: 'Enter' });
+  const option = await screen.findByRole('option', { name: new RegExp(`^${escape(label)}`) });
+  fireEvent.keyDown(option, { key: 'Enter' });
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+}
+/** Opens a combobox (requester / site), clicks an option and waits for the popover to close. */
+async function pick(trigger: HTMLElement, option: RegExp) {
+  fireEvent.click(trigger);
+  fireEvent.click(await screen.findByRole('option', { name: option }));
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+}
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+const type = (el: HTMLElement, value: string) => fireEvent.input(el, { target: { value } });
+const radio = (group: HTMLElement, name: string) =>
+  within(group).getByRole('radio', { name: new RegExp(`^${escape(name)}`) });
+
+describe('New ticket modal', () => {
+  it('opens with the client organisation and focuses the ticket type', async () => {
+    const { dialog } = renderModal();
+    expect(within(dialog()).getByRole('heading', { name: 'New ticket' })).toBeTruthy();
+    expect(within(dialog()).getByText('Hamad Medical Corporation')).toBeTruthy();
+    expect(within(dialog()).getByText('AMC')).toBeTruthy();
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Incident'));
+    expect(within(dialog()).getByText(/Routed to/).textContent).toBe(
+      'Routed to — · Target first response —',
+    );
+  });
+
+  it('makes the sub-type depend on the category and sets the priority from it', async () => {
+    const { dialog } = renderModal();
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    expect(subtype.hasAttribute('disabled')).toBe(true);
+    expect(subtype.textContent).toContain('Choose a category first');
+
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'CCTV');
+    expect(subtype.hasAttribute('disabled')).toBe(false);
+    await choose(subtype, 'NVR / VMS recording failure');
+
+    const priority = within(dialog()).getByRole('radiogroup', { name: 'Priority' });
+    expect(radio(priority, 'P1 Critical').getAttribute('aria-checked')).toBe('true');
+    expect(within(dialog()).getByText('Auto-set from sub-type')).toBeTruthy();
+    expect(
+      within(dialog()).getByText('Target first response: 15 min · resolution 4 hours'),
+    ).toBeTruthy();
+    // P1 banner with the SOC phone.
+    const banner = within(dialog()).getByRole('alert');
+    expect(banner.textContent).toContain('Critical');
+    expect(
+      within(banner)
+        .getByRole('link', { name: /Call 24\/7 SOC/ })
+        .getAttribute('href'),
+    ).toBe('tel:+97440000000');
+    expect(within(dialog()).getByText(/Routed to/).textContent).toBe(
+      'Routed to ELV Field · Target first response 15 min',
+    );
+    // The category's asset placeholder and custom field appear.
+    expect(
+      within(dialog())
+        .getByLabelText(/Asset \/ device ID/)
+        .getAttribute('placeholder'),
+    ).toBe('e.g. CAM-014');
+    expect(within(dialog()).getByLabelText(/Camera ID/)).toBeTruthy();
+
+    // Picking a priority makes it manual.
+    fireEvent.click(radio(priority, 'P3 Medium'));
+    expect(within(dialog()).getByText('Set manually')).toBeTruthy();
+    await waitFor(() => expect(within(dialog()).queryByRole('alert')).toBeNull());
+
+    // A new category clears the sub-type.
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'Other');
+    expect(subtype.textContent).toContain('Choose a sub-type…');
+  });
+
+  it('Security Incident shows the checklist and locks the category to Cybersecurity / SOC', async () => {
+    const { dialog } = renderModal();
+    fireEvent.click(
+      radio(within(dialog()).getByRole('radiogroup', { name: 'Ticket type' }), 'Security Incident'),
+    );
+    expect(
+      within(dialog()).getByText(
+        'Security incident checklist — Category set to Cybersecurity / SOC',
+      ),
+    ).toBeTruthy();
+    expect(within(dialog()).getByText('Do not power off affected devices')).toBeTruthy();
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    expect(category.textContent).toContain('Cybersecurity / SOC');
+    expect(category.hasAttribute('disabled')).toBe(true);
+    expect(
+      within(dialog()).getByText('Security incidents always go to Cybersecurity / SOC.'),
+    ).toBeTruthy();
+  });
+
+  it('arrowing through Security Incident leaves the chosen category and sub-type as they were (DA-2)', async () => {
+    const { dialog } = renderModal();
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    await choose(category, 'CCTV');
+    await choose(subtype, 'NVR / VMS recording failure');
+
+    const types = within(dialog()).getByRole('radiogroup', { name: 'Ticket type' });
+    /** The polite live region that says what a type change did to the category. */
+    const announced = (text: string) =>
+      expect(within(dialog()).getByText(text).getAttribute('aria-live')).toBe('polite');
+    act(() => radio(types, 'Incident').focus());
+    // Radix radios select the one arrows land on (the radio pattern).
+    for (const expected of ['Service Request', 'Change Request', 'Security Incident']) {
+      fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
+      await waitFor(() => expect(document.activeElement?.textContent).toBe(expected));
+      fireEvent.keyUp(document.activeElement!, { key: 'ArrowRight' });
+    }
+    await waitFor(() => expect(category.textContent).toContain('Cybersecurity / SOC'));
+    expect(category.hasAttribute('disabled')).toBe(true);
+    announced('Category set to Cybersecurity / SOC and locked for security incidents.');
+
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Enquiry'));
+    await waitFor(() => expect(radio(types, 'Enquiry').getAttribute('aria-checked')).toBe('true'));
+    expect(category.textContent).toContain('CCTV & Video Surveillance');
+    expect(category.hasAttribute('disabled')).toBe(false);
+    expect(subtype.textContent).toContain('NVR / VMS recording failure');
+    announced('Category set back to CCTV & Video Surveillance.');
+    // The sub-type's priority came back with it.
+    const priority = within(dialog()).getByRole('radiogroup', { name: 'Priority' });
+    expect(radio(priority, 'P1 Critical').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('keeps a security sub-type picked on purpose when the type changes again', async () => {
+    const { dialog } = renderModal();
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    await choose(category, 'CCTV');
+    const types = within(dialog()).getByRole('radiogroup', { name: 'Ticket type' });
+    fireEvent.click(radio(types, 'Security Incident'));
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    await choose(subtype, 'Phishing report');
+    fireEvent.click(radio(types, 'Incident'));
+    expect(category.textContent).toContain('Cybersecurity / SOC');
+    expect(subtype.textContent).toContain('Phishing report');
+  });
+
+  it('uses the Arabic words around the English example of the asset placeholder (DA-11)', async () => {
+    const { dialog } = renderModal(CLIENT, 'ar');
+    const asset = () => within(dialog()).getByLabelText(/الأصل|الجهاز/);
+    // Isolated right-to-left (RLI … PDI) for the console's LTR asset input, the ID inside it
+    // left-to-right (LRI … PDI); harmless here (UI-RR-2).
+    await choose(within(dialog()).getByRole('combobox', { name: /^الفئة/ }), 'الدوائر');
+    expect(asset().getAttribute('placeholder')).toBe('\u2067مثال: \u2066CAM-014\u2069\u2069');
+    await choose(within(dialog()).getByRole('combobox', { name: /^الفئة/ }), 'أخرى');
+    expect(asset().getAttribute('placeholder')).toBe('\u2067اختياري\u2069');
+  });
+
+  it('keeps a Latin asset placeholder and a digit-first example in their own order in Arabic (UI-RR-2)', async () => {
+    const { dialog, queryClient } = renderModal(CLIENT, 'ar');
+    queryClient.setQueryData(ticketKeys.formConfig(), {
+      ...FORM_CONFIG,
+      categories: FORM_CONFIG.categories.map((c) =>
+        c.id === IDS.cyber
+          ? { ...c, assetPlaceholder: 'Serial on the label.' }
+          : c.id === IDS.cctv
+            ? { ...c, assetPlaceholder: 'e.g. 2026-018' }
+            : c,
+      ),
+    });
+    const asset = () => within(dialog()).getByLabelText(/الأصل|الجهاز/);
+    const category = () => within(dialog()).getByRole('combobox', { name: /^الفئة/ });
+    // The RTL input: the configured English text is isolated left-to-right, so its full stop
+    // stays at its end instead of moving to the start of the line.
+    await choose(category(), 'الأمن');
+    expect(asset().getAttribute('placeholder')).toBe('\u2066Serial on the label.\u2069');
+    await choose(category(), 'الدوائر');
+    expect(asset().getAttribute('placeholder')).toBe('\u2067مثال: \u20662026-018\u2069\u2069');
+  });
+
+  it('shows per-field errors and the error count after a submit attempt', async () => {
+    const { dialog } = renderModal();
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await within(dialog()).findByText('Add a short subject.');
+    for (const text of [
+      'Choose a category.',
+      'Choose a category first.',
+      'Choose the site or location.',
+      'Describe the fault (at least 10 characters).',
+      '5 fields need attention',
+    ]) {
+      expect(within(dialog()).getByText(text)).toBeTruthy();
+    }
+    const subject = within(dialog()).getByLabelText(/^Subject/);
+    expect(subject.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(subject.getAttribute('aria-describedby')!)?.textContent).toBe(
+      'Add a short subject.',
+    );
+    expect(document.activeElement).toBe(subject);
+
+    type(subject, 'Cameras down');
+    await waitFor(() => expect(within(dialog()).queryByText('Add a short subject.')).toBeNull());
+    expect(within(dialog()).getByText('4 fields need attention')).toBeTruthy();
+    expect(api.createTicket).not.toHaveBeenCalled();
+  });
+
+  it('creates the ticket, toasts and opens it (client)', async () => {
+    api.createTicket.mockResolvedValueOnce(makeDetail({ number: 4900, ref: 'LG-4900' }));
+    const { dialog } = renderModal();
+    type(within(dialog()).getByLabelText(/^Subject/), 'Cameras not recording');
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'CCTV');
+    await choose(within(dialog()).getByRole('combobox', { name: /Sub-type/ }), 'Camera offline');
+    fireEvent.click(
+      radio(within(dialog()).getByRole('radiogroup', { name: 'Impact' }), 'Entire site'),
+    );
+    const site = within(dialog()).getByRole('combobox', { name: /Site/ });
+    await pick(site, /Main Data Center/);
+    expect(site.textContent).toContain('HMC – Main Data Center');
+    type(within(dialog()).getByLabelText(/Camera ID/), 'CAM-014');
+    type(within(dialog()).getByLabelText(/^Description/), 'Nothing recorded since 06:40.');
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await waitFor(() => expect(api.createTicket).toHaveBeenCalled());
+    expect(api.createTicket.mock.calls[0]?.[0]).toEqual({
+      type: 'INCIDENT',
+      categoryId: IDS.cctv,
+      subtypeId: IDS.cameraOffline,
+      impact: 'ENTIRE_SITE',
+      siteId: IDS.siteB,
+      subject: 'Cameras not recording',
+      description: 'Nothing recorded since 06:40.',
+      customFields: { camera_id: 'CAM-014' },
+      attachmentIds: [],
+    });
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/tickets/LG-4900'));
+    expect(toast.success).toHaveBeenCalledWith('Ticket LG-4900 created · routed to ELV Field');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  /** Fills the minimum valid form (client: the org's site is chosen from the list). */
+  async function fillValidForm(dialog: () => HTMLElement) {
+    type(within(dialog()).getByLabelText(/^Subject/), 'Printer');
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'Other');
+    await choose(within(dialog()).getByRole('combobox', { name: /Sub-type/ }), 'Describe below');
+    await pick(within(dialog()).getByRole('combobox', { name: /Site/ }), /Building 3/);
+    type(within(dialog()).getByLabelText(/^Description/), 'The printer on level 2 is jammed.');
+  }
+
+  it('Cancel does nothing while the ticket is being created, which then opens (F7)', async () => {
+    const created = deferred<ReturnType<typeof makeDetail>>();
+    api.createTicket.mockReturnValueOnce(created.promise);
+    const { dialog } = renderModal();
+    await fillValidForm(dialog);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    const cancel = await within(dialog()).findByRole('button', { name: 'Cancel' });
+    await waitFor(() => expect(cancel.getAttribute('aria-disabled')).toBe('true'));
+    fireEvent.click(cancel);
+    fireEvent.keyDown(dialog(), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'New ticket' })).toBeTruthy();
+
+    await act(async () => {
+      created.resolve(makeDetail({ number: 4900, ref: 'LG-4900' }));
+      await created.promise;
+    });
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/tickets/LG-4900'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('a form closed while its ticket is being created reports it but never navigates (F7)', async () => {
+    const created = deferred<ReturnType<typeof makeDetail>>();
+    api.createTicket.mockReturnValueOnce(created.promise);
+    const { dialog } = renderModal();
+    await fillValidForm(dialog);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await waitFor(() => expect(api.createTicket).toHaveBeenCalled());
+    // Closed from elsewhere (useNewTicket().close()), e.g. by a keyboard shortcut.
+    fireEvent.click(screen.getByRole('button', { name: 'close from outside', hidden: true }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await act(async () => {
+      created.resolve(makeDetail({ number: 4900, ref: 'LG-4900' }));
+      await created.promise;
+    });
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Ticket LG-4900 created · routed to ELV Field'),
+    );
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('staff who raise a ticket for a team they are not on stay where they are (P2-CC-4)', async () => {
+    // Routed to ELV Field, unassigned: the API gives it to the creator only on their own team.
+    api.createTicket.mockResolvedValueOnce(
+      makeDetail({ number: 4900, ref: 'LG-4900', assignee: null }),
+    );
+    api.fetchTicket.mockRejectedValueOnce(
+      new ApiRequestError(404, 'NOT_FOUND', 'Ticket not found'),
+    );
+    api.fetchRequesters.mockResolvedValue([]);
+    const { dialog, queryClient } = renderModal(AGENT);
+    await pick(
+      within(dialog()).getByRole('combobox', { name: /Requester/ }),
+      /Dr\. Aisha Al-Kuwari/,
+    );
+    await fillValidForm(dialog);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Ticket LG-4900 created and routed to ELV Field', {
+        description: "You're not on that team, so it stays out of your inbox.",
+      }),
+    );
+    expect(api.fetchTicket).toHaveBeenCalledWith('LG-4900', expect.anything());
+    expect(router.push).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(ticketKeys.detail('LG-4900'))).toBeUndefined();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('staff assigned to the ticket they raised open it in the console without an extra request', async () => {
+    api.createTicket.mockResolvedValueOnce(
+      makeDetail({ number: 4900, ref: 'LG-4900', assignee: { id: AGENT.id, name: AGENT.name } }),
+    );
+    api.fetchRequesters.mockResolvedValue([]);
+    const { dialog } = renderModal(AGENT);
+    await pick(
+      within(dialog()).getByRole('combobox', { name: /Requester/ }),
+      /Dr\. Aisha Al-Kuwari/,
+    );
+    await fillValidForm(dialog);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/console/inbox?ticket=LG-4900'));
+    expect(toast.success).toHaveBeenCalledWith('Ticket LG-4900 created · routed to ELV Field');
+    expect(api.fetchTicket).not.toHaveBeenCalled();
+  });
+
+  it('maps API validation issues onto the fields', async () => {
+    // The API's shape for a business rule: the generic key plus the rule's code.
+    api.createTicket.mockRejectedValueOnce(
+      new ApiRequestError(400, 'VALIDATION_FAILED', 'Request validation failed', undefined, [
+        { location: 'body', path: ['siteId'], message: 'validation.invalid', code: 'site' },
+      ]),
+    );
+    const { dialog } = renderModal();
+    type(within(dialog()).getByLabelText(/^Subject/), 'Printer');
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'Other');
+    await choose(within(dialog()).getByRole('combobox', { name: /Sub-type/ }), 'Describe below');
+    await pick(within(dialog()).getByRole('combobox', { name: /Site/ }), /Building 3/);
+    type(within(dialog()).getByLabelText(/^Description/), 'The printer on level 2 is jammed.');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    expect(await within(dialog()).findByText('Choose the site or location.')).toBeTruthy();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('staff pick the requester first; the org chip and sites follow', async () => {
+    api.fetchRequesters.mockResolvedValue([]);
+    const { dialog } = renderModal(AGENT);
+    const requester = within(dialog()).getByRole('combobox', { name: /Requester/ });
+    await waitFor(() => expect(document.activeElement).toBe(requester));
+    expect(within(dialog()).queryByText('Hamad Medical Corporation')).toBeNull();
+    const site = within(dialog()).getByRole('combobox', { name: /Site/ });
+    expect(site.hasAttribute('disabled')).toBe(true);
+    expect(site.textContent).toContain('Choose the requester first');
+
+    await pick(requester, /Dr\. Aisha Al-Kuwari/);
+    await waitFor(() =>
+      expect(within(dialog()).getByText('Hamad Medical Corporation')).toBeTruthy(),
+    );
+    expect(site.hasAttribute('disabled')).toBe(false);
+  });
+});
+
+describe('entry points', () => {
+  it('ticketHref sends clients to the thread and staff to the console', () => {
+    expect(ticketHref({ ref: 'LG-4900', number: 4900 }, false)).toBe('/tickets/LG-4900');
+    expect(ticketHref({ ref: 'LG-4900', number: 4900 }, true)).toBe(
+      '/console/inbox?ticket=LG-4900',
+    );
+    expect(ticketHref({ ref: 'javascript:x', number: 7 }, false)).toBe('/tickets/LG-7');
+  });
+
+  it('the "+ New ticket" button opens the modal, and is inert without a provider', async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(ticketKeys.formConfig(), FORM_CONFIG);
+    queryClient.setQueryData(ticketKeys.formContext(null), FORM_CONTEXT);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const tree = (withProvider: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <NextIntlClientProvider
+          locale="en"
+          timeZone="UTC"
+          messages={{
+            common: enCommon,
+            tickets: enTickets,
+            validation: enValidation,
+            errors: enErrors,
+          }}
+        >
+          <ViewerProvider viewer={CLIENT}>
+            {withProvider ? (
+              <NewTicketProvider>
+                <NewTicketButton />
+              </NewTicketProvider>
+            ) : (
+              <NewTicketButton />
+            )}
+          </ViewerProvider>
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    );
+    render(tree(false));
+    const inert = screen.getByRole('button', { name: 'New ticket' });
+    expect(inert.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(inert);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    cleanup();
+
+    render(tree(true));
+    fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    warn.mockRestore();
+  });
+});

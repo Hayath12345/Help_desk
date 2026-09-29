@@ -1,31 +1,105 @@
 'use client';
 
+import type { Route } from 'next';
 import { Search, X } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { createContext, useContext, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { INBOX_PATH, SEARCH_MAX, inboxHref, updateInboxUrl } from '@/components/console/inbox-url';
 import { cn } from '@/lib/utils';
 
 interface ConsoleSearchState {
   query: string;
   setQuery: (query: string) => void;
+  /** Applies the query at once (Enter / clear) instead of after the typing pause. */
+  submit: (query?: string) => void;
 }
 
 const ConsoleSearchContext = createContext<ConsoleSearchState | null>(null);
 
+/** Typing pause before the inbox URL (and so the ticket list query) follows the box. */
+export const SEARCH_DEBOUNCE_MS = 300;
+
 /**
- * Holds the console's ticket search query so the top-bar box and the ticket lists share it.
- * Phase 1 keeps it client-side only; Phase 2 feeds it to the ticket list queries.
+ * The console's ticket search. The box in the top bar is the inbox's `?q=`:
+ * - on /console/inbox, typing updates `q` (History API replace, after a short pause) and drops
+ *   `ticket`, so the list refilters in place; Back / Forward and links update the box;
+ * - on the other console pages, searching opens the inbox's "All open" view with that query
+ *   (design: searching from Customers / Reports jumps to the inbox).
  */
 export function ConsoleSearchProvider({ children }: { children: React.ReactNode }) {
-  const [query, setQuery] = useState('');
-  const value = useMemo(() => ({ query, setQuery }), [query]);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const onInbox = pathname === INBOX_PATH;
+  const urlQuery = onInbox ? (searchParams?.get('q') ?? '').slice(0, SEARCH_MAX) : '';
+
+  // What the box shows. `synced` is the URL value it was last aligned with: when the URL
+  // changes by itself (Back, a link, the view select), the box follows it.
+  const [text, setText] = useState(urlQuery);
+  const [synced, setSynced] = useState(urlQuery);
+  if (synced !== urlQuery) {
+    setSynced(urlQuery);
+    if (text.trim() !== urlQuery) setText(urlQuery);
+  }
+
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => cancel, []);
+
+  const apply = useCallback(
+    (value: string) => {
+      const q = value.trim().slice(0, SEARCH_MAX);
+      if (onInbox) {
+        updateInboxUrl({ q, ticket: null }, 'replace');
+      } else if (q) {
+        router.push(inboxHref({ view: 'open', q }) as Route);
+      }
+    },
+    [onInbox, router],
+  );
+
+  const setQuery = useCallback(
+    (value: string) => {
+      setText(value);
+      cancel();
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        apply(value);
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    [apply],
+  );
+
+  const submit = useCallback(
+    (value?: string) => {
+      const next = value ?? text;
+      if (value !== undefined) setText(value);
+      cancel();
+      apply(next);
+    },
+    [apply, text],
+  );
+
+  const value = useMemo(() => ({ query: text, setQuery, submit }), [text, setQuery, submit]);
   return <ConsoleSearchContext.Provider value={value}>{children}</ConsoleSearchContext.Provider>;
 }
 
-/** Current console search query (empty string outside a provider). */
+/** Current console search (a no-op store outside a provider). */
 export function useConsoleSearch(): ConsoleSearchState {
   const ctx = useContext(ConsoleSearchContext);
-  return ctx ?? { query: '', setQuery: () => {} };
+  return ctx ?? { query: '', setQuery: () => {}, submit: () => {} };
 }
 
 /**
@@ -35,7 +109,7 @@ export function useConsoleSearch(): ConsoleSearchState {
  */
 export function ConsoleSearchBox({ className }: { className?: string }) {
   const t = useTranslations('console.search');
-  const { query, setQuery } = useConsoleSearch();
+  const { query, setQuery, submit } = useConsoleSearch();
   const input = useRef<HTMLInputElement>(null);
 
   return (
@@ -51,11 +125,15 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
         ref={input}
         type="search"
         value={query}
+        maxLength={SEARCH_MAX}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && query) {
+          if (event.key === 'Enter') {
             event.preventDefault();
-            setQuery('');
+            submit();
+          } else if (event.key === 'Escape' && query) {
+            event.preventDefault();
+            submit('');
           }
         }}
         placeholder={t('placeholder')}
@@ -68,7 +146,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
         <button
           type="button"
           onClick={() => {
-            setQuery('');
+            submit('');
             input.current?.focus();
           }}
           aria-label={t('clear')}

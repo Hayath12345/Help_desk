@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiErrorSchema } from '@loons/shared';
 import { HOUR, MINUTE } from '../src/lib/rate-limit.ts';
@@ -27,6 +28,12 @@ describe('rate limits', () => {
       headers: ctx.internalHeaders(clientIp),
       payload: { email, password: 'Wrong-password-1' },
     });
+
+  it('test addresses never repeat, so the per-IP buckets of two tests never collide', () => {
+    const ips = Array.from({ length: 5_000 }, () => randomIp());
+    expect(new Set(ips).size).toBe(ips.length);
+    expect(ips.every((ip) => isIP(ip) === 4)).toBe(true);
+  });
 
   it('login: 10 attempts per (client IP, email) per 15 min, then 429 RATE_LIMITED', async () => {
     const ip = randomIp();

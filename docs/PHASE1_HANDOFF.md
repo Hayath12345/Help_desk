@@ -157,10 +157,10 @@ Fix the `.env.example` comment on `SEED_DEMO_DATA` to explain how production is 
    - known limitations and Phase 2 carry-overs (below).
 4. **Stop and wait for approval** before starting Phase 2.
 
-## Carry-overs for Phase 2
+## Carry-overs for Phase 2 (status after Phase 2)
 
-- **Email templates:** every non-URL template variable is rendered on one line and never becomes a link (`packages/emails`, SEC-7). Multi-line variables (`messageBody`, `description`, `ticketList`) need a "block variable" list that keeps paragraphs but is still never linkified.
-- **Browser socket client:** it must refetch a token and reconnect on `disconnect`, because the server now closes sockets on token expiry and revocation. Only `ACTIVE` + verified users may connect (others get `FORBIDDEN`).
-- **Admin changes:** after changing a user's role, status, org or teams, call `app.services.sessions.revokeUserSessions()` or `principals.invalidate(userId)`.
+- **Email templates:** every non-URL template variable is rendered on one line and never becomes a link (`packages/emails`, SEC-7). Multi-line variables (`messageBody`, `description`, `ticketList`) need a "block variable" list that keeps paragraphs but is still never linkified. _Still open — carried to Phase 3 (ticket notification emails)._
+- **Browser socket client:** it must refetch a token and reconnect on `disconnect`, because the server now closes sockets on token expiry and revocation. Only `ACTIVE` + verified users may connect (others get `FORBIDDEN`). _Done in Phase 2 (`apps/web/lib/realtime`)._
+- **Admin changes:** after changing a user's role, status, org or teams, call `app.services.sessions.revokeUserSessions()` or `principals.invalidate(userId)`. _Still applies in Phase 4; since Phase 2 the invalidation also refreshes the user's sockets on every instance._
 - **Rate-limit key names:** keys from `limitGuard` are named `loons:rl:undefinedundefined-<rule>:…`, because `@fastify/rate-limit` `createRateLimit` passes an empty route. This is cosmetic; the `loons:rl*` reset pattern still matches.
-- **Flaky API test:** one unexplained API-test failure was seen once in about 15 full runs and never reproduced. Watch for flakes in `apps/api/test/rate-limit.test.ts` and `socket.test.ts`.
+- **Flaky API test:** one unexplained API-test failure was seen once in about 15 full runs and never reproduced. _Explained in Phase 2: a libuv crash on Windows in Node 24.15 and older, fixed in Node 24.16.0 (see `docs/PHASE2_HANDOFF.md`, Testing notes), plus an IP collision in `rate-limit.test.ts`, both handled._

@@ -7,6 +7,29 @@ import { formatTicketNumber, type Locale } from '@loons/shared';
 
 export { formatTicketNumber };
 
+const LRI = String.fromCharCode(0x2066); // LEFT-TO-RIGHT ISOLATE
+const RLI = String.fromCharCode(0x2067); // RIGHT-TO-LEFT ISOLATE
+const FSI = String.fromCharCode(0x2068); // FIRST STRONG ISOLATE
+const PDI = String.fromCharCode(0x2069); // POP DIRECTIONAL ISOLATE
+
+/**
+ * Wraps text in Unicode first-strong isolates (FSI … PDI) before it goes into a sentence, so a
+ * Latin name inside Arabic copy (or the reverse) can't reorder the words and punctuation around
+ * it — e.g. a file name starting with digits ("2026-09-24 firewall.log") in an Arabic message.
+ */
+export function isolate(text: string): string {
+  return FSI + text + PDI;
+}
+
+/**
+ * Like `isolate`, with a fixed base direction (LRI / RLI … PDI) instead of the first strong
+ * character's: for text that must keep the UI language's order wherever it is laid out — e.g. the
+ * Arabic "مثال: FW-01" placeholder of an input that is `dir="ltr"` for the IDs typed into it.
+ */
+export function isolateDirection(text: string, dir: 'ltr' | 'rtl'): string {
+  return (dir === 'rtl' ? RLI : LRI) + text + PDI;
+}
+
 /** Business timezone for Loons Group (Qatar). */
 export const DISPLAY_TIME_ZONE = 'Asia/Qatar';
 

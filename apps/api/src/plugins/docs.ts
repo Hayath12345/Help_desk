@@ -20,6 +20,10 @@ export async function registerDocs(app: FastifyInstance): Promise<void> {
         { name: 'health', description: 'Liveness and readiness' },
         { name: 'me', description: 'The signed-in user' },
         { name: 'internal-auth', description: 'Sign-in support for the web server (internal key)' },
+        { name: 'config', description: 'Live configuration for forms' },
+        { name: 'tickets', description: 'Tickets, their conversation and changes' },
+        { name: 'attachments', description: 'Pre-signed uploads and downloads' },
+        { name: 'staff', description: 'Console look-ups (staff only)' },
       ],
       components: {
         securitySchemes: {

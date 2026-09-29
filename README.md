@@ -9,7 +9,11 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 
-> **Status:** Phase 1 (Foundation) — monorepo, local infrastructure, database schema + seed, authentication and role routing, design tokens, EN/AR + RTL app shells. Tickets, chat, SLA, notifications, admin, reports and AWS packaging arrive in phases 2–6.
+> **Status:** Phase 2 (Tickets & chat) — on top of the Phase 1 foundation (monorepo, infrastructure, schema + seed,
+> authentication, design tokens, EN/AR + RTL shells): the New ticket modal driven by the database configuration, My
+> tickets and the ticket thread for clients, the agent Inbox with conversation, internal notes and the right panel,
+> attachments through pre-signed uploads, and realtime chat over Socket.IO. SLA worker + notifications, admin, reports
+> and AWS packaging arrive in phases 3–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md).
 
 ---
 
@@ -51,7 +55,8 @@ loons-helpdesk/
 
 ### Prerequisites
 
-- **Node.js 24+**
+- **Node.js 24.16 or newer** (the current 24 LTS is recommended). On Windows, Node 24.15 and older crash now and then
+  with `0xC0000409` on local TCP connections (a libuv bug fixed in Node 24.16.0); see the Windows note under Scripts.
 - **pnpm 12** — `npm i -g pnpm@12` (or `corepack enable pnpm`)
 - **Docker Desktop** (with Docker Compose)
 
@@ -135,31 +140,44 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 
 ## Scripts
 
-| Command                                  | What it does                                                                   |
-| ---------------------------------------- | ------------------------------------------------------------------------------ |
-| `pnpm dev`                               | web + API + worker in watch mode                                               |
-| `pnpm build`                             | production build of every package                                              |
-| `pnpm typecheck` / `pnpm lint`           | TypeScript and ESLint across the repo                                          |
-| `pnpm format` / `pnpm format:check`      | Prettier (write / verify) across the repo                                      |
-| `pnpm test`                              | unit + integration tests (needs `docker compose up`)                           |
-| `pnpm test:e2e`                          | Playwright E2E (see [End-to-end tests](#end-to-end-tests))                     |
-| `pnpm db:migrate`                        | create/apply migrations in development                                         |
-| `pnpm db:deploy`                         | apply committed migrations (CI / production)                                   |
-| `pnpm db:seed`                           | seed configuration + demo data (idempotent)                                    |
-| `pnpm db:reset`                          | drop the database, re-apply migrations and re-seed                             |
-| `pnpm db:studio`                         | Prisma Studio                                                                  |
-| `pnpm --filter @loons/db db:cleanup-e2e` | delete the accounts E2E runs create (runs automatically after `pnpm test:e2e`) |
+| Command                                  | What it does                                                                               |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pnpm dev`                               | web + API + worker in watch mode                                                           |
+| `pnpm build`                             | production build of every package                                                          |
+| `pnpm typecheck` / `pnpm lint`           | TypeScript and ESLint across the repo                                                      |
+| `pnpm format` / `pnpm format:check`      | Prettier (write / verify) across the repo                                                  |
+| `pnpm test`                              | unit + integration tests (needs `docker compose up`; see the Windows note below)           |
+| `pnpm test:e2e`                          | Playwright E2E (see [End-to-end tests](#end-to-end-tests))                                 |
+| `pnpm db:migrate`                        | create/apply migrations in development                                                     |
+| `pnpm db:deploy`                         | apply committed migrations (CI / production)                                               |
+| `pnpm db:seed`                           | seed configuration + demo data (idempotent)                                                |
+| `pnpm db:reset`                          | drop the database, re-apply migrations and re-seed                                         |
+| `pnpm db:studio`                         | Prisma Studio                                                                              |
+| `pnpm --filter @loons/db db:cleanup-e2e` | delete the accounts, tickets and stored files E2E runs create (runs after `pnpm test:e2e`) |
+
+> **Windows note on `pnpm test`:** with Node 24.15 or older, test workers (and occasionally the dev servers) die with
+> `0xC0000409`. This is a libuv bug on Windows loopback TCP connections, fixed in Node 24.16.0
+> ([libuv#5107](https://github.com/libuv/libuv/pull/5107)); it is not this code base. **Upgrade Node** to fix it.
+> Until then `pnpm test` in `apps/api` runs `test/run-vitest.ts`, which re-runs a crashed file once, fails on
+> anything else, and prints the upgrade hint. A crashed worker can leave `test-…` organisations/teams/categories and
+> `t-<hex>@` users in the dev database; `docs/PHASE2_HANDOFF.md` (Testing notes) says how to remove them.
 
 ### End-to-end tests
 
 - First time: `pnpm --filter @loons/web exec playwright install --with-deps chromium`.
-- Needs Postgres, Redis and **Mailpit** (`docker compose up -d`), migrated and seeded with demo data. The sign-up test
-  reads the verification and reset emails from Mailpit's API (`MAILPIT_API_URL`, default
+- Needs Postgres, Redis, **MinIO** and **Mailpit** (`docker compose up -d`), migrated and seeded with demo data. The
+  sign-up test reads the verification and reset emails from Mailpit's API (`MAILPIT_API_URL`, default
   `http://localhost:8025/api/v1`); the emails are sent by the **API worker**.
+- The attachment tests (API suite and E2E) expect the bucket's upload-expiry lifecycle rule. A fresh
+  `docker compose up -d` adds it; an existing local MinIO needs `docker compose up minio-init` once after pulling.
 - Playwright reuses a running API (:4000) and web app (:3000) — e.g. from `pnpm dev` — or starts them, and always starts
   its own worker next to them (harmless: workers share the queues).
-- Each run signs up one `e2e-<timestamp>@hamad.qa` client; a global teardown deletes every such test client
+- Each run signs up one `e2e-<timestamp>@hamad.qa` client and raises tickets whose subject starts with
+  `[e2e:<timestamp>]` as a seeded client; a global teardown deletes those accounts, tickets and their MinIO objects
   (`db:cleanup-e2e`), so don't run two E2E suites against the same database at once. A failed cleanup fails the run.
+- The ticket spec opens two browser contexts: a client raises a ticket with an attachment, the agent sees it appear in
+  the Inbox without reloading, replies publicly and adds an internal note, and the client sees the reply in realtime
+  but never the note (page and network are both checked).
 
 ---
 
@@ -189,6 +207,38 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - Sign-in, sign-up and reset are rate-limited per IP and per email (they fail closed if Redis is down). The web app
   sends security headers (CSP `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, HSTS in production),
   and the API uses Helmet and strict CORS. The apps refuse to start with the placeholder secrets from `.env.example`.
+
+## Tickets & chat
+
+- **Raising a ticket:** the New ticket modal is driven by the database configuration (categories → sub-types with a
+  default priority, custom fields per category, sites of the requester's organisation, impact). A _Security incident_
+  is locked to the Cybersecurity/SOC category and tagged `security`; P1 shows the 24/7 SOC banner. Staff raise tickets
+  on behalf of a client (channel PHONE); the ticket is routed to the category's team. Numbers are `LG-<n>`.
+- **Statuses:** NEW → OPEN → PENDING (waiting on the client) → SOLVED → CLOSED. A client reply reopens a ticket, a staff
+  public reply sets PENDING (or SOLVED with _Send & solve_), an internal note on a NEW ticket makes it OPEN. Clients can
+  only mark their tickets solved or reopen them; every change writes a `TicketEvent`.
+- **SLA:** first-reply and resolution targets come from the priority's policy over the business calendar
+  (`Asia/Qatar` business hours and holidays from the seed). PENDING pauses the resolution clock only; the first-reply
+  clock never pauses. A priority change recomputes the targets and replays the ticket's pauses. The console sorts by
+  SLA and shows the _SLA at risk_ view (remaining time under 1 hour or under half the window).
+- **Conversation:** public replies and internal notes (staff only, yellow). Messages are delivered over Socket.IO to
+  the ticket's room after the database commit; internal notes, staff typing and note attachments only ever reach the
+  staff room. Sending is optimistic with retry; a reconnect catches up from the last known message.
+- **Attachments:** allow-listed types (PDF, images, video, text/log files, zip), 25 MB per file and per message, 10
+  files per message. The browser uploads straight to storage with a pre-signed POST (MinIO locally, S3 on AWS —
+  `NEXT_PUBLIC_UPLOAD_ORIGIN` must be in the web CSP). On completion the API copies the checked object to a
+  server-only key, verifies the file's magic bytes against its declared type, runs the virus-scan hook (a no-op
+  placeholder until ClamAV / GuardDuty is plugged in) and serves only that copy through 5-minute signed download
+  links. File names always end with an extension that matches the declared type (`Invoice.pdf.exe` becomes
+  `Invoice.pdf.exe.pdf`); invisible and direction-control characters are removed and names are capped at 200 bytes.
+- **Limits:** 30 new tickets and 60 pre-signed uploads per user per 10 minutes, 120 messages per minute. Realtime:
+  a user may hold 20 sockets and a client address 500; new connections per address are limited (200 at once, then
+  20/s) and so are connections still waiting for their handshake (50); a socket may join at most 50 ticket rooms;
+  every packet and event is budgeted and floods are disconnected. The per-address and per-user numbers can be
+  raised with the `REALTIME_*` variables in `.env.example` (a large office behind one NAT shares one address).
+  Details: `docs/PHASE2_HANDOFF.md` → Realtime.
+- **Macros:** team macros fill the composer (`{{requesterFirstName}}`, `{{siteName}}`) and can arm a status that is
+  applied when the reply is sent.
 
 ### Enabling Google (clients)
 
@@ -240,6 +290,11 @@ Enforce MFA with Entra Conditional Access.
   the counters: `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:rl*' | xargs -r redis-cli del"`.
 
 - **`os error 3` from every pnpm script on Windows** — the repository path is too long; see the Windows note under Prerequisites.
+- **Uploads fail in the browser** — the upload goes straight to MinIO: check that `NEXT_PUBLIC_UPLOAD_ORIGIN` matches
+  `S3_ENDPOINT` as the browser sees it and that the `minio-init` container finished (`docker compose logs minio-init`
+  ends with `bucket ready`). _"The file's content doesn't match its type"_ means the bytes are not what the file
+  extension says (for example a JPEG renamed `.png`); rename the file to its real type.
+- **A test worker exited with `0xC0000409`** — see the Windows note under Scripts; run `pnpm test` again.
 
 ---
 
@@ -253,3 +308,9 @@ Enforce MFA with Entra Conditional Access.
   should therefore probe a page, not just wait for the log line.
 - Seed production with `NODE_ENV=production` set (`pnpm db:seed` only defaults `NODE_ENV` to development when it is
   unset, so an explicit production value never gets demo data).
+- **Attachments bucket:** private and unversioned; CORS must allow `POST` from the web origin; a lifecycle rule
+  expires the transient `attachments/` prefix after 1 day (confirmed files live under `files/` and must not expire).
+  `docker-compose.yml` sets this up for MinIO; the S3 lifecycle JSON and the IAM actions the API needs are in
+  `docs/PHASE2_HANDOFF.md` → Deployment notes. Plug a real scanner into the API's `scanHook` before go-live.
+- **Several API instances** need `SOCKET_REDIS_ADAPTER=true`; socket limits are per instance, and a ticket update
+  waits at most about 1 s for the other instances.

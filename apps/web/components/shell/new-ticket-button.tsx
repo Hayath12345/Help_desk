@@ -2,7 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { toast } from 'sonner';
+import { useNewTicket } from '@/components/tickets/new-ticket/new-ticket-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -14,9 +14,9 @@ export interface NewTicketButtonProps {
 }
 
 /**
- * Primary "+ New ticket" action. The New ticket modal ships in Phase 2; until then the button
- * explains that instead of doing nothing. Every entry point uses this component, so Phase 2
- * only swaps the click handler here.
+ * Primary "+ New ticket" action: opens the New ticket modal (`useNewTicket()` from
+ * components/tickets; the area's layout mounts the provider). Hovering or focusing it warms the
+ * form configuration so the modal opens with its fields ready.
  */
 export function NewTicketButton({
   className,
@@ -24,13 +24,18 @@ export function NewTicketButton({
   compact = false,
 }: NewTicketButtonProps) {
   const t = useTranslations('common');
+  const newTicket = useNewTicket();
   const label = t('newTicket');
 
   return (
     <Button
       type="button"
       size={size}
-      onClick={() => toast(t('newTicketSoon'))}
+      onClick={() => newTicket.open()}
+      onPointerEnter={newTicket.prefetch}
+      onFocus={newTicket.prefetch}
+      aria-haspopup="dialog"
+      aria-disabled={newTicket.available ? undefined : true}
       className={cn(
         // Sized by padding like the design's button (8px 14px → 34px; lg: 10px 16px → 39px at 15px),
         // so an Arabic label gets the same taller line box as in the design.

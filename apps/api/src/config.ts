@@ -6,6 +6,7 @@ import {
   parseBooleanEnv,
   parseStaffEmailDomain,
 } from '@loons/shared';
+import { DEFAULT_REALTIME_LIMITS } from './realtime/limits.ts';
 
 // Environment → typed config. Validated once at startup; the process refuses to start on any
 // problem (fail fast). Error messages name the variables, never their values.
@@ -173,6 +174,24 @@ const envSchema = z.object({
   DATABASE_POOL_SIZE: envInt(10, 1, 100),
   REDIS_URL: requiredString(),
   SOCKET_REDIS_ADAPTER: envBool('SOCKET_REDIS_ADAPTER', false),
+  // Per API instance; see RealtimeLimits (realtime/limits.ts) and .env.example.
+  REALTIME_SOCKETS_PER_USER: envInt(DEFAULT_REALTIME_LIMITS.socketsPerUser, 1, 1_000_000),
+  REALTIME_SOCKETS_PER_IP: envInt(DEFAULT_REALTIME_LIMITS.socketsPerIp, 1, 1_000_000),
+  REALTIME_HANDSHAKES_PER_IP_BURST: envInt(
+    DEFAULT_REALTIME_LIMITS.handshakesPerIp.burst,
+    1,
+    1_000_000,
+  ),
+  REALTIME_HANDSHAKES_PER_IP_PER_SECOND: envInt(
+    DEFAULT_REALTIME_LIMITS.handshakesPerIp.perSecond,
+    1,
+    1_000_000,
+  ),
+  REALTIME_PENDING_CONNECTIONS_PER_IP: envInt(
+    DEFAULT_REALTIME_LIMITS.pendingConnectionsPerIp,
+    1,
+    1_000_000,
+  ),
 
   API_JWT_SECRET: requiredString(32),
   API_JWT_ISSUER: requiredString(),
@@ -237,6 +256,17 @@ export interface AppConfig {
   databasePoolSize: number;
   redisUrl: string;
   socketRedisAdapter: boolean;
+  /**
+   * Socket.IO limits operators can tune (REALTIME_* variables; the others are fixed in
+   * DEFAULT_REALTIME_LIMITS). Per API instance; per-address ones key on the client address as
+   * TRUST_PROXY resolves it (IPv6 by /64).
+   */
+  realtime: {
+    socketsPerUser: number;
+    socketsPerIp: number;
+    handshakesPerIp: { burst: number; perSecond: number };
+    pendingConnectionsPerIp: number;
+  };
   /** Key prefix for everything this app stores in Redis (cache, rate limits, queues…). */
   redisPrefix: string;
   jwt: { secret: string; issuer: string; audience: string; ttlSeconds: number };
@@ -331,6 +361,15 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     databasePoolSize: env.DATABASE_POOL_SIZE,
     redisUrl: env.REDIS_URL,
     socketRedisAdapter: env.SOCKET_REDIS_ADAPTER,
+    realtime: {
+      socketsPerUser: env.REALTIME_SOCKETS_PER_USER,
+      socketsPerIp: env.REALTIME_SOCKETS_PER_IP,
+      handshakesPerIp: {
+        burst: env.REALTIME_HANDSHAKES_PER_IP_BURST,
+        perSecond: env.REALTIME_HANDSHAKES_PER_IP_PER_SECOND,
+      },
+      pendingConnectionsPerIp: env.REALTIME_PENDING_CONNECTIONS_PER_IP,
+    },
     redisPrefix: 'loons:',
     jwt: {
       secret: env.API_JWT_SECRET,

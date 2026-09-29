@@ -6,6 +6,7 @@ import type { PrincipalStore } from './lib/actor.ts';
 import type { BackgroundTasks } from './lib/background.ts';
 import type { EmailProvider } from './lib/email/index.ts';
 import type { AppQueues } from './lib/queues.ts';
+import type { Storage } from './lib/storage.ts';
 import type { AccessTokenVerifier } from './lib/tokens.ts';
 import type { Realtime } from './realtime/socket.ts';
 import type { Services } from './services/index.ts';
@@ -19,6 +20,8 @@ declare module 'fastify' {
     tokens: AccessTokenVerifier;
     principals: PrincipalStore;
     background: BackgroundTasks;
+    /** Attachment object storage (S3 / MinIO). */
+    storage: Storage;
     services: Services;
     realtime: Realtime;
     /** Only set when the caller passed one (the API itself queues emails for the worker). */

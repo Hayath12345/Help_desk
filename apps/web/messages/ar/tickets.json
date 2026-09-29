@@ -1,0 +1,188 @@
+{
+  "type": {
+    "INCIDENT": "عطل",
+    "SERVICE_REQUEST": "طلب خدمة",
+    "CHANGE_REQUEST": "طلب تغيير",
+    "SECURITY_INCIDENT": "حادث أمني",
+    "ENQUIRY": "استفسار"
+  },
+  "impact": {
+    "SINGLE_USER": "مستخدم واحد",
+    "DEPARTMENT": "قسم",
+    "ENTIRE_SITE": "الموقع بالكامل",
+    "MULTIPLE_SITES": "عدة مواقع"
+  },
+  "contract": {
+    "AMC": "عقد صيانة",
+    "BILLABLE": "بالفوترة"
+  },
+  "channel": {
+    "PORTAL": "البوابة",
+    "EMAIL": "البريد الإلكتروني",
+    "PHONE": "الهاتف",
+    "API": "واجهة البرمجة"
+  },
+  "duration": {
+    "minutes": "{n} دقيقة",
+    "hours": "{count, plural, one {ساعة واحدة} two {ساعتان} few {{n} ساعات} other {{n} ساعة}}",
+    "hoursMinutes": "{hours} س {minutes} د",
+    "days": "{count, plural, one {يوم واحد} two {يومان} few {{n} أيام} other {{n} يومًا}}",
+    "businessDays": "{count, plural, one {يوم عمل واحد} two {يوما عمل} few {{n} أيام عمل} other {{n} يوم عمل}}"
+  },
+  "sla": {
+    "replied": "تم الرد",
+    "overdue": "متأخرة {duration}",
+    "paused": "متوقفة مؤقتًا",
+    "none": "بلا هدف",
+    "firstReplyIn": "الرد الأول مستحق خلال {duration}",
+    "firstReplyOverdue": "الرد الأول متأخر بمقدار {duration}",
+    "repliedLabel": "تم إرسال الرد الأول",
+    "pausedLabel": "مهلة الخدمة متوقفة بانتظار العميل"
+  },
+  "role": {
+    "client": "العميل",
+    "support": "دعم لونز",
+    "internal": "ملاحظة داخلية",
+    "system": "النظام"
+  },
+  "thread": {
+    "label": "المحادثة",
+    "loading": "جارٍ تحميل المحادثة…",
+    "empty": "لا توجد رسائل بعد.",
+    "loadFailed": "تعذّر تحميل المحادثة.",
+    "retryLoad": "حاول مرة أخرى",
+    "sending": "جارٍ الإرسال…",
+    "failed": "لم تُرسل",
+    "retry": "إعادة المحاولة",
+    "discard": "تجاهل",
+    "formerUser": "مستخدم سابق",
+    "newTab": "(يفتح في علامة تبويب جديدة)"
+  },
+  "typing": {
+    "one": "{name} يكتب الآن…",
+    "two": "{first} و{second} يكتبان الآن…",
+    "many": "{n} أشخاص يكتبون الآن…",
+    "note": "{name} يكتب ملاحظة داخلية…"
+  },
+  "attachments": {
+    "label": "المرفقات",
+    "drop": "أفلت الملفات هنا أو",
+    "browse": "تصفّح",
+    "hint": "الصور أو مقطع فيديو قصير تساعدنا على الحل أسرع · PDF، السجلات · حتى 25 ميجابايت",
+    "dropActive": "أفلت الملفات لإرفاقها",
+    "sizeKb": "{size} كيلوبايت",
+    "sizeMb": "{size} ميجابايت",
+    "remove": "إزالة {name}",
+    "download": "تنزيل {name}",
+    "downloadFailed": "تعذّر تنزيل الملف. حاول مرة أخرى.",
+    "uploading": "جارٍ رفع {name}",
+    "progress": "{percent}٪",
+    "retry": "إعادة رفع {name}",
+    "failed": "فشل الرفع",
+    "failedAnnouncement": "تعذّر رفع {name}. {reason}",
+    "rejected": {
+      "type": "{name}: نوع الملف غير مدعوم.",
+      "size": "حجم {name} أكبر من 25 ميجابايت.",
+      "empty": "الملف {name} فارغ.",
+      "count": "يمكنك إرفاق {max} ملفات كحد أقصى.",
+      "total": "الحد الأقصى لإجمالي المرفقات 25 ميجابايت."
+    },
+    "error": {
+      "storage": "لم يكتمل الرفع.",
+      "rejected": "رُفض الملف أثناء الفحص الأمني.",
+      "content": "محتوى الملف لا يطابق نوعه.",
+      "network": "تحقق من الاتصال وأعد المحاولة.",
+      "type": "نوع الملف غير مدعوم.",
+      "size": "حجم الملف أكبر من 25 ميجابايت.",
+      "empty": "الملف فارغ."
+    }
+  },
+  "assetPlaceholder": {
+    "example": "مثال: {example}",
+    "optional": "اختياري"
+  },
+  "combobox": {
+    "loading": "جارٍ التحميل…",
+    "noResults": "لا توجد نتائج."
+  },
+  "yes": "نعم",
+  "no": "لا",
+  "newTicket": {
+    "title": "تذكرة جديدة",
+    "close": "إغلاق",
+    "loading": "جارٍ تحميل النموذج…",
+    "loadFailed": "تعذّر تحميل النموذج.",
+    "retry": "حاول مرة أخرى",
+    "requester": "مقدم الطلب",
+    "requesterHint": "جهة الاتصال لدى العميل",
+    "requesterPlaceholder": "اختر جهة اتصال…",
+    "requesterSearch": "ابحث بالاسم أو البريد الإلكتروني…",
+    "requesterNone": "لا توجد جهات اتصال مطابقة.",
+    "ticketType": "نوع التذكرة",
+    "securityTitle": "قائمة التحقق للحادث الأمني — تم ضبط الفئة إلى {category}",
+    "securityCheck1": "لا تقم بإيقاف تشغيل الأجهزة المتأثرة",
+    "securityCheck2": "افصل الأجهزة عن الشبكة فقط إذا طُلب منك ذلك",
+    "categoryLocked": "تُوجَّه الحوادث الأمنية دائمًا إلى {category}.",
+    "subject": "الموضوع",
+    "subjectPlaceholder": "مثال: كاميرات المبنى 3 لا تسجّل",
+    "category": "الفئة",
+    "categoryPlaceholder": "اختر فئة…",
+    "subtype": "النوع الفرعي",
+    "subtypePlaceholder": "اختر نوعًا فرعيًا…",
+    "subtypeNeedsCategory": "اختر الفئة أولًا",
+    "priority": "الأولوية",
+    "priorityManual": "مضبوطة يدويًا",
+    "priorityAuto": "مضبوطة تلقائيًا من النوع الفرعي",
+    "priorityPending": "تُضبط تلقائيًا عند اختيار النوع الفرعي",
+    "firstReply": "{duration} للرد الأول",
+    "targets": "هدف الرد الأول: {firstReply} · الحل {resolution}",
+    "targetsPending": "يعتمد هدف الرد الأول على الأولوية.",
+    "p1Title": "حرجة",
+    "p1Message": "يتم تنبيه فريق المناوبة فورًا. في حالات الطوارئ المتعلقة بسلامة الأرواح اتصل أيضًا بالرقم 999.",
+    "callSoc": "اتصل بمركز SOC على مدار الساعة",
+    "impact": "التأثير",
+    "site": "الموقع / المكان",
+    "sitePlaceholder": "ابحث عن موقع…",
+    "siteNone": "لا توجد مواقع مطابقة.",
+    "siteNeedsRequester": "اختر مقدم الطلب أولًا",
+    "asset": "رقم الأصل / الجهاز",
+    "assetPlaceholder": "مثال: CAM-014، RDR-203",
+    "optional": "(اختياري)",
+    "required": "مطلوب",
+    "description": "الوصف",
+    "descriptionPlaceholder": "ما الذي لا يعمل، ومنذ متى، وما الذي جربته بالفعل.",
+    "fieldPlaceholder": "اختر…",
+    "routedTo": "موجّهة إلى",
+    "targetFirst": "هدف الرد الأول",
+    "none": "—",
+    "errorCount": "{count, plural, one {حقل واحد يحتاج إلى مراجعة} two {حقلان يحتاجان إلى مراجعة} few {{n} حقول تحتاج إلى مراجعة} other {{n} حقلًا يحتاج إلى مراجعة}}",
+    "uploadsPending": "انتظر حتى يكتمل رفع المرفقات.",
+    "uploadsFailed": "أزل المرفقات التي فشل رفعها أو أعد المحاولة.",
+    "cancel": "إلغاء",
+    "create": "إنشاء التذكرة",
+    "creating": "جارٍ الإنشاء…",
+    "created": "تم إنشاء التذكرة {ref} · موجّهة إلى {team}",
+    "categoryLockedNotice": "تم ضبط الفئة إلى {category} وقفلها للحوادث الأمنية.",
+    "categoryRestoredNotice": "أُعيدت الفئة إلى {category}.",
+    "categoryUnlockedNotice": "يمكن تغيير الفئة مجددًا.",
+    "createdElsewhere": "تم إنشاء التذكرة {ref} وتوجيهها إلى {team}",
+    "createdElsewhereHint": "لست ضمن هذا الفريق، لذا لن تظهر في صندوق الوارد لديك.",
+    "errors": {
+      "requesterRequired": "اختر مقدم هذه التذكرة.",
+      "categoryRequired": "اختر فئة.",
+      "subtypeRequired": "اختر نوعًا فرعيًا.",
+      "subtypeNeedsCategory": "اختر الفئة أولًا.",
+      "siteRequired": "اختر الموقع أو المكان.",
+      "fieldRequired": "الحقل {field} مطلوب.",
+      "numberInvalid": "أدخل رقمًا.",
+      "dateInvalid": "أدخل تاريخًا صالحًا.",
+      "optionInvalid": "اختر أحد الخيارات.",
+      "securityCategory": "يجب أن تستخدم الحوادث الأمنية فئة الأمن السيبراني."
+    }
+  },
+  "toast": {
+    "updateFailed": "لم يتم حفظ التغيير. {reason}",
+    "sendFailed": "لم تُرسل رسالتك. {reason}",
+    "closed": "هذه التذكرة مغلقة. أنشئ تذكرة جديدة بدلًا من ذلك."
+  }
+}

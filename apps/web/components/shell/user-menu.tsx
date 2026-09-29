@@ -4,6 +4,7 @@ import { LogOut, SquarePen } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useRef } from 'react';
 import { signOutAction } from '@/app/actions/auth';
+import { useNewTicket } from '@/components/tickets/new-ticket/new-ticket-context';
 import { clearApiToken } from '@/lib/api/browser';
 import {
   DropdownMenu,
@@ -17,13 +18,14 @@ export interface UserMenuProps {
   name: string;
   email: string;
   initials: string;
-  /** Staff menus also offer "New ticket" (enabled in Phase 2 with the New ticket modal). */
+  /** Staff menus also offer "New ticket" (opens the New ticket modal via `useNewTicket()`). */
   showNewTicket?: boolean;
 }
 
 /** 34px initials button → 220px menu with the user's name/email and Sign out (design 566–572). */
 export function UserMenu({ name, email, initials, showNewTicket = false }: UserMenuProps) {
   const t = useTranslations('common');
+  const newTicket = useNewTicket();
   // The sign-out form lives outside the menu so it stays mounted while the menu closes.
   const signOutForm = useRef<HTMLFormElement>(null);
 
@@ -51,10 +53,17 @@ export function UserMenu({ name, email, initials, showNewTicket = false }: UserM
             </span>
           </DropdownMenuLabel>
           {showNewTicket ? (
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem
+              disabled={!newTicket.available}
+              onPointerEnter={newTicket.prefetch}
+              onSelect={() => {
+                // Open after the menu has closed and handed focus back to its trigger, so the
+                // dialog returns focus there when it closes.
+                setTimeout(() => newTicket.open(), 0);
+              }}
+            >
               <SquarePen aria-hidden="true" />
               {t('newTicket')}
-              <span className="ms-auto text-xs text-ink-subtle">{t('comingSoon')}</span>
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem

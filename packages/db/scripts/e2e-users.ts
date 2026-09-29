@@ -30,3 +30,32 @@ export function isE2eUserEmail(email: string): boolean {
       value.length > prefix.length + suffix.length,
   );
 }
+
+// ───────────── Tickets ─────────────
+// apps/web/e2e/tickets.spec.ts raises real tickets as a seeded demo client (the account itself is
+// kept). They are recognised by a generated subject prefix AND a requester the suite signs in as.
+
+/** Subject prefix of the tickets the suite raises: `[e2e:<timestamp>] …`. */
+export const E2E_TICKET_SUBJECT_PREFIX = '[e2e:';
+const E2E_TICKET_SUBJECT = /^\[e2e:\d{10,}\] \S/u;
+/** Seeded demo clients the suite raises tickets as. */
+export const E2E_TICKET_REQUESTERS = ['aisha.alkuwari@hamad.qa'] as const;
+
+/**
+ * Prisma filter for candidate E2E tickets (prefix + requester). Callers must also check each
+ * subject with `isE2eTicket`, which requires the generated timestamp.
+ */
+export function e2eTicketWhere(): Prisma.TicketWhereInput {
+  return {
+    subject: { startsWith: E2E_TICKET_SUBJECT_PREFIX },
+    requester: { role: 'CLIENT', email: { in: [...E2E_TICKET_REQUESTERS] } },
+  };
+}
+
+/** Same rule in plain code: a generated `[e2e:<timestamp>] ` subject raised by a suite account. */
+export function isE2eTicket(ticket: { subject: string; requesterEmail: string }): boolean {
+  return (
+    E2E_TICKET_SUBJECT.test(ticket.subject) &&
+    (E2E_TICKET_REQUESTERS as readonly string[]).includes(ticket.requesterEmail.toLowerCase())
+  );
+}

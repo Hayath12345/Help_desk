@@ -106,6 +106,20 @@ describe('validationIssues', () => {
     ]);
   });
 
+  it('keeps the API rule code when there is one', () => {
+    const error = new ApiRequestError(400, 'VALIDATION_FAILED', 'x', undefined, [
+      {
+        location: 'body',
+        path: ['categoryId'],
+        message: 'validation.invalid',
+        code: 'security_category',
+      },
+    ]);
+    expect(validationIssues(error)).toEqual([
+      { path: ['categoryId'], message: 'validation.invalid', code: 'security_category' },
+    ]);
+  });
+
   it('accepts { issues: [...] } details and ignores other shapes', () => {
     const wrapped = new ApiRequestError(400, 'VALIDATION_FAILED', 'x', undefined, {
       issues: [{ path: ['name'], message: 'validation.nameMin' }],
