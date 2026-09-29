@@ -20,7 +20,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { isApiRequestError } from '@/lib/api/errors';
-import { createTicket, postMessage, updateTicket } from './api';
+import { acknowledgeTicket, createTicket, postMessage, updateTicket } from './api';
 import {
   applyTicketDetail,
   applyTicketSummary,
@@ -283,5 +283,32 @@ export function useUpdateTicket() {
     },
     onSuccess: (detail) => applyTicketDetail(queryClient, detail),
     onSettled: () => invalidateListsAndCounts(queryClient),
+  });
+}
+
+// ───────────── Acknowledge a P1 ─────────────
+
+/**
+ * POST /tickets/:id/acknowledge — server-confirmed, not optimistic (acknowledging stops the
+ * escalation chain, so the UI only says "Acknowledged" once the API has stored it). On success
+ * the returned detail (with `p1AckedBy` / `p1AckedAt`, the first acknowledger's on a repeat) is
+ * written into every cached copy. Errors are left to the caller (the P1 banner shows them).
+ */
+export function useAcknowledgeTicket() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ['tickets', 'acknowledge'],
+    mutationFn: (ticketId: string) => acknowledgeTicket(ticketId),
+    onSuccess: (result) => {
+      applyTicketDetail(queryClient, result.ticket);
+      invalidateListsAndCounts(queryClient);
+    },
+    onError: (_error, ticketId) => {
+      // The ticket may have changed (no longer P1, acknowledged elsewhere): reload what's shown.
+      void queryClient.invalidateQueries({
+        queryKey: ticketKeys.details(),
+        predicate: (query) => queryHoldsTicket(query, ticketId),
+      });
+    },
   });
 }

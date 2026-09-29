@@ -1,9 +1,10 @@
 import {
-  computeDueDates,
+  computeSlaTargets,
   resumeDueDate,
   type BusinessCalendar,
   type SlaPause,
-  type SlaPolicyLike,
+  type SlaPolicyRiskLike,
+  type SlaTargets,
 } from '@loons/shared';
 
 // SLA due-date arithmetic used by the ticket services. The implementation is the shared one
@@ -11,16 +12,19 @@ import {
 
 export interface SlaMath {
   /**
-   * Due dates for a new ticket, or after a priority change (from `createdAt`, replaying the
-   * ticket's finished PENDING pauses on the resolution clock).
+   * Due dates and at-risk instants (decisions D1/D2) for a new ticket, or after a priority change
+   * (from `createdAt`, replaying the ticket's finished PENDING pauses on the resolution clock).
    */
-  computeDueDates(
+  computeSlaTargets(
     createdAt: Date,
-    policy: SlaPolicyLike,
+    policy: SlaPolicyRiskLike,
     calendar: BusinessCalendar,
     pauses?: readonly SlaPause[],
-  ): { firstReplyDueAt: Date; resolveDueAt: Date };
-  /** Resolution due date once a PENDING pause ends. */
+  ): SlaTargets;
+  /**
+   * Resolution due date once a PENDING pause ends; also moves the resolution at-risk instant
+   * (pass it as `dueAt`).
+   */
   resumeDueDate(
     dueAt: Date,
     pausedAt: Date,
@@ -30,7 +34,7 @@ export interface SlaMath {
   ): Date;
 }
 
-export const sharedSlaMath: SlaMath = { computeDueDates, resumeDueDate };
+export const sharedSlaMath: SlaMath = { computeSlaTargets, resumeDueDate };
 
 /** Where the business calendar comes from (the config service by default; tests may fake it). */
 export type SlaCalendarSource = () => Promise<BusinessCalendar>;

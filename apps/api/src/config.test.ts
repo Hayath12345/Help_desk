@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { API_TOKEN_TTL } from '@loons/shared';
-import { ConfigError, fastifyTrustProxy, loadConfig } from './config.ts';
+import { API_TOKEN_TTL, DEFAULT_UPLOAD_DAILY_BYTES_PER_USER } from '@loons/shared';
+import {
+  ConfigError,
+  DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR,
+  DEFAULT_TEAMS_TIMEOUT_MS,
+  DEFAULT_TEAMS_WEBHOOK_HOSTS,
+  fastifyTrustProxy,
+  loadConfig,
+} from './config.ts';
 import { DEFAULT_REALTIME_LIMITS } from './realtime/limits.ts';
 
 const base: NodeJS.ProcessEnv = {
@@ -199,6 +206,22 @@ describe('loadConfig', () => {
     }
   });
 
+  it('UPLOAD_DAILY_BYTES_PER_USER: the shared default, or a positive integer', () => {
+    expect(loadConfig(dev).uploads.dailyBytesPerUser).toBe(DEFAULT_UPLOAD_DAILY_BYTES_PER_USER);
+    expect(DEFAULT_UPLOAD_DAILY_BYTES_PER_USER).toBe(2 * 1024 ** 3);
+    expect(loadConfig({ ...dev, UPLOAD_DAILY_BYTES_PER_USER: '' }).uploads.dailyBytesPerUser).toBe(
+      DEFAULT_UPLOAD_DAILY_BYTES_PER_USER,
+    );
+    expect(
+      loadConfig({ ...dev, UPLOAD_DAILY_BYTES_PER_USER: ' 5000000000 ' }).uploads.dailyBytesPerUser,
+    ).toBe(5_000_000_000);
+    for (const value of ['0', '-1', '1.5', 'lots', '2GB', '1e400']) {
+      const problems = problemsOf({ ...dev, UPLOAD_DAILY_BYTES_PER_USER: value });
+      expect(problems, value).toHaveLength(1);
+      expect(problems[0]).toMatch(/^UPLOAD_DAILY_BYTES_PER_USER must be an integer/);
+    }
+  });
+
   it('rejects wildcard or invalid CORS origins', () => {
     expect(problemsOf({ ...base, CORS_ORIGINS: '*' })[0]).toContain('CORS_ORIGINS');
     expect(problemsOf({ ...base, CORS_ORIGINS: 'not a url' })[0]).toContain('CORS_ORIGINS');
@@ -240,5 +263,47 @@ describe('loadConfig', () => {
       'SNS_REGION is required when SMS_PROVIDER=sns',
     ]);
     expect(problemsOf({ ...base, S3_ACCESS_KEY_ID: 'only-one' })).toHaveLength(1);
+  });
+
+  it('Phase 3: Teams provider, webhook host allow-list, timeouts, SMS cap and worker schedulers', () => {
+    const c = loadConfig(dev);
+    expect(c.teams).toEqual({
+      provider: 'console',
+      webhookHosts: [...DEFAULT_TEAMS_WEBHOOK_HOSTS],
+      timeoutMs: DEFAULT_TEAMS_TIMEOUT_MS,
+    });
+    expect(c.sms.maxPerRecipientPerHour).toBe(DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR);
+    expect(c.worker.schedulers).toBe(true);
+
+    const custom = loadConfig({
+      ...dev,
+      TEAMS_PROVIDER: 'webhook',
+      TEAMS_WEBHOOK_HOSTS: ' Hooks.Example.com , *.logic.azure.com ',
+      TEAMS_TIMEOUT_MS: '5000',
+      SMS_MAX_PER_RECIPIENT_PER_HOUR: '3',
+      WORKER_SCHEDULERS: 'false',
+    });
+    expect(custom.teams).toEqual({
+      provider: 'webhook',
+      webhookHosts: ['hooks.example.com', '*.logic.azure.com'],
+      timeoutMs: 5000,
+    });
+    expect(custom.sms.maxPerRecipientPerHour).toBe(3);
+    expect(custom.worker.schedulers).toBe(false);
+
+    expect(problemsOf({ ...dev, TEAMS_PROVIDER: 'slack' })).toHaveLength(1);
+    expect(
+      problemsOf({ ...dev, TEAMS_WEBHOOK_HOSTS: 'hooks.example.com, https://x.com/' }),
+    ).toEqual(['TEAMS_WEBHOOK_HOSTS entry 2 is not a host name or *.domain pattern']);
+    expect(problemsOf({ ...dev, TEAMS_WEBHOOK_HOSTS: '*' })).toHaveLength(1);
+    expect(problemsOf({ ...dev, TEAMS_TIMEOUT_MS: '100' })).toEqual([
+      'TEAMS_TIMEOUT_MS must be an integer between 1000 and 60000',
+    ]);
+    expect(problemsOf({ ...dev, SMS_MAX_PER_RECIPIENT_PER_HOUR: '0' })).toEqual([
+      'SMS_MAX_PER_RECIPIENT_PER_HOUR must be an integer between 1 and 1000',
+    ]);
+    expect(problemsOf({ ...dev, WORKER_SCHEDULERS: 'sometimes' })).toEqual([
+      'WORKER_SCHEDULERS must be true or false',
+    ]);
   });
 });

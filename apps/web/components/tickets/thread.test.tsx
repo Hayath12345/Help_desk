@@ -9,7 +9,7 @@ import enTickets from '@/messages/en/tickets.json';
 import { IDS, fixtureId, makeMessage, makeSummary } from '@/lib/tickets/test-fixtures';
 import type { ThreadMessage } from '@/lib/tickets/types';
 import { MessageBubble, messageKind } from './message-bubble';
-import { SlaText, slaTone } from './sla-text';
+import { SlaText, slaRowTone, slaTone } from './sla-text';
 import { TicketThread } from './ticket-thread';
 import { TypingIndicator } from './typing-indicator';
 import { slaState } from '@loons/shared';
@@ -200,7 +200,21 @@ describe('SlaText', () => {
 
   it('shows the first-reply countdown coloured by risk', () => {
     expect(text(makeSummary())).toEqual({ visible: '9m', tone: 'ok', sr: 'First reply due in 9m' });
-    expect(text(makeSummary({ firstReplyDueAt: '2026-09-23T12:08:00.000Z' })).tone).toBe('risk');
+    // "At risk" once the stored instant has passed (D1/D2), whatever the time left.
+    // The words say so too (not only the colour).
+    expect(text(makeSummary({ firstReplyAtRiskAt: '2026-09-23T12:06:00.000Z' }))).toEqual({
+      visible: '9m',
+      tone: 'risk',
+      sr: 'First reply due in 9m, at risk',
+    });
+    expect(
+      text(
+        makeSummary({
+          firstReplyDueAt: '2026-09-23T12:08:00.000Z',
+          firstReplyAtRiskAt: '2026-09-23T12:06:00.001Z',
+        }),
+      ).tone,
+    ).toBe('ok');
     expect(text(makeSummary({ firstReplyDueAt: '2026-09-23T12:00:00.000Z' }))).toMatchObject({
       visible: 'Overdue 6m',
       tone: 'overdue',
@@ -226,5 +240,47 @@ describe('SlaText', () => {
       tone: 'done',
     });
     expect(slaTone(slaState(makeSummary({ status: 'CLOSED' }), now))).toBe('done');
+  });
+
+  it('after the first reply, shows the resolution clock once it is at risk or overdue (D1)', () => {
+    const replied = { firstRepliedAt: '2026-09-23T12:01:00.000Z' };
+    // Resolution at risk from its stored instant (not before): amber countdown.
+    expect(
+      text(makeSummary({ ...replied, resolveAtRiskAt: '2026-09-23T12:06:00.001Z' })),
+    ).toMatchObject({ visible: 'Replied', tone: 'replied' });
+    expect(
+      text(
+        makeSummary({
+          ...replied,
+          resolveDueAt: '2026-09-23T12:51:00.000Z',
+          resolveAtRiskAt: '2026-09-23T12:06:00.000Z',
+        }),
+      ),
+    ).toEqual({ visible: '45m', tone: 'risk', sr: 'Resolution due in 45m, at risk' });
+    // Overdue from the due date, even without a known instant.
+    expect(
+      text(
+        makeSummary({
+          ...replied,
+          resolveDueAt: '2026-09-23T11:56:00.000Z',
+          resolveAtRiskAt: null,
+        }),
+      ),
+    ).toEqual({ visible: 'Overdue 10m', tone: 'overdue', sr: 'Resolution overdue by 10m' });
+    // PENDING pauses the resolution clock: "Paused", whatever the instants say.
+    expect(
+      text(
+        makeSummary({
+          ...replied,
+          status: 'PENDING',
+          resolveAtRiskAt: '2026-09-23T12:00:00.000Z',
+        }),
+      ),
+    ).toMatchObject({ visible: 'Paused', tone: 'paused' });
+    expect(
+      slaRowTone(
+        slaState(makeSummary({ ...replied, resolveDueAt: '2026-09-23T11:56:00.000Z' }), now),
+      ),
+    ).toBe('overdue');
   });
 });

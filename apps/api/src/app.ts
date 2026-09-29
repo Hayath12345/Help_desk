@@ -16,16 +16,19 @@ import { loggerOptions } from './lib/logger.ts';
 import type { AppQueues } from './lib/queues.ts';
 import { createStorage, type Storage } from './lib/storage.ts';
 import { createAccessTokenVerifier } from './lib/tokens.ts';
+import type { UploadQuotaOptions } from './lib/upload-quota.ts';
 import { registerDocs } from './plugins/docs.ts';
 import { registerErrorHandling } from './plugins/error-handler.ts';
 import { registerSecurity } from './plugins/security.ts';
 import type { RealtimeLimits } from './realtime/limits.ts';
 import { attachRealtime } from './realtime/socket.ts';
+import { attachWorkerBridge } from './realtime/worker-bridge.ts';
 import { attachmentRoutes } from './routes/attachments.ts';
 import { configRoutes } from './routes/config.ts';
 import { healthRoutes } from './routes/health.ts';
 import { internalAuthRoutes } from './routes/internal/auth.ts';
 import { meRoutes } from './routes/me.ts';
+import { notificationRoutes } from './routes/notifications.ts';
 import { staffRoutes } from './routes/staff.ts';
 import { ticketRoutes } from './routes/tickets.ts';
 import { createServices } from './services/index.ts';
@@ -76,6 +79,10 @@ export interface AppDeps {
    * DEFAULT_CLUSTER_TIMEOUT_MS, 1 s).
    */
   realtimeClusterTimeoutMs?: number;
+  /** Upload budget window / clock (default 24 h, Redis TIME); tests shorten or fake them. */
+  uploadQuota?: Pick<UploadQuotaOptions, 'windowMs' | 'now'>;
+  /** Length of an escalation "minute" when scheduling P1 steps (default 60 000 ms; tests shrink it). */
+  escalationMinuteMs?: number;
 }
 
 /** Builds the Fastify app (routes, plugins, Socket.IO) without listening. */
@@ -151,6 +158,8 @@ export async function buildApp(deps: AppDeps) {
       sla: deps.sla ?? sharedSlaMath,
       config,
       logger: app.log,
+      uploadQuota: deps.uploadQuota,
+      escalationMinuteMs: deps.escalationMinuteMs,
     }),
   );
   app.decorateRequest('actor', null);
@@ -174,6 +183,7 @@ export async function buildApp(deps: AppDeps) {
   await app.register(ticketRoutes);
   await app.register(attachmentRoutes);
   await app.register(staffRoutes);
+  await app.register(notificationRoutes);
 
   app.decorate(
     'realtime',
@@ -184,6 +194,8 @@ export async function buildApp(deps: AppDeps) {
         : {}),
     }),
   );
+  // Worker events (SLA flags, escalation, auto-close, in-app notifications) → sockets (D14).
+  attachWorkerBridge(app);
 
   // Let queued post-response work (e.g. reset emails) finish before shutting down.
   app.addHook('onClose', async () => {

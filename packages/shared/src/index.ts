@@ -10,3 +10,4 @@ export * from './tickets.ts';
 export * from './ticket-number.ts';
 export * from './schemas/auth.ts';
 export * from './schemas/tickets.ts';
+export * from './schemas/notifications.ts';

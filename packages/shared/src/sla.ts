@@ -11,6 +11,8 @@
 //   functions must be correct for zones with DST even though Asia/Qatar has none.
 // - Minutes are whole numbers ≥ 0; results are exact to the millisecond of the inputs. Pauses
 //   (resumeDueDate, computeDueDates' `pauses`) carry the remaining time to the millisecond.
+// - At-risk instants (computeSlaTargets) are `atRiskPercent` of each window in the same SLA time,
+//   rounded to the millisecond.
 
 export interface BusinessDayHours {
   /** "HH:mm" local time. */
@@ -96,24 +98,101 @@ export function computeDueDates(
   pauses: readonly SlaPause[] = [],
 ): { firstReplyDueAt: Date; resolveDueAt: Date } {
   const { businessHoursOnly } = policy;
-  let resolveDueAt = addSlaMinutes(createdAt, policy.resolveMins, calendar, businessHoursOnly);
-  const ordered = pauses
-    .filter((p) => p.to.getTime() >= p.from.getTime())
-    .sort((a, b) => a.from.getTime() - b.from.getTime());
-  for (const pause of ordered) {
-    resolveDueAt = resumeDueDate(resolveDueAt, pause.from, pause.to, calendar, businessHoursOnly);
-  }
+  const resolveDueAt = replayPauses(
+    addSlaMinutes(createdAt, policy.resolveMins, calendar, businessHoursOnly),
+    pauses,
+    calendar,
+    businessHoursOnly,
+  );
   return {
     firstReplyDueAt: addSlaMinutes(createdAt, policy.firstReplyMins, calendar, businessHoursOnly),
     resolveDueAt,
   };
 }
 
+/** An SLA policy with its at-risk threshold (`SlaPolicy.atRiskPercent`). */
+export interface SlaPolicyRiskLike extends SlaPolicyLike {
+  /** Share of each window (percent; 1–99 in the database) after which a target is "at risk". */
+  atRiskPercent: number;
+}
+
+/** Both SLA targets of a ticket: due dates and the instants at which they become "at risk". */
+export interface SlaTargets {
+  firstReplyDueAt: Date;
+  resolveDueAt: Date;
+  /** `atRiskPercent` of the first-reply window elapsed (in SLA time). */
+  firstReplyAtRiskAt: Date;
+  /** `atRiskPercent` of the resolution window elapsed (in SLA time, PENDING pauses excluded). */
+  resolveAtRiskAt: Date;
+}
+
+/**
+ * `computeDueDates` plus the at-risk instant of each target (decisions D1/D2): the instant at
+ * which `atRiskPercent` of the window has elapsed **in SLA time** — business minutes for a
+ * business-hours policy (so nights, weekends and holidays don't count), wall-clock for 24/7 —
+ * i.e. `addSlaMinutes(createdAt, minutes × atRiskPercent / 100)`, to the millisecond. The
+ * resolution instant replays the finished pauses exactly like the due date (`resumeDueDate`), so
+ * an instant that had already passed when a pause started stays where it was. Store the result
+ * with the ticket; the web, the SQL views and the worker compare `now` with it (no calendar maths
+ * there). When a PENDING pause ends, move `resolveAtRiskAt` with `resumeDueDate` as well.
+ *
+ * Throws a RangeError for an `atRiskPercent` outside 0–100 (and like addSlaMinutes otherwise).
+ */
+export function computeSlaTargets(
+  createdAt: Date,
+  policy: SlaPolicyRiskLike,
+  calendar: BusinessCalendar,
+  pauses: readonly SlaPause[] = [],
+): SlaTargets {
+  const percent = policy.atRiskPercent;
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new RangeError(
+      `computeSlaTargets: atRiskPercent must be a number from 0 to 100 (got ${String(percent)})`,
+    );
+  }
+  const { businessHoursOnly } = policy;
+  const share = (minutes: number) => (minutes * percent) / 100;
+  const due = computeDueDates(createdAt, policy, calendar, pauses);
+  return {
+    ...due,
+    firstReplyAtRiskAt: addSlaMinutes(
+      createdAt,
+      share(policy.firstReplyMins),
+      calendar,
+      businessHoursOnly,
+    ),
+    resolveAtRiskAt: replayPauses(
+      addSlaMinutes(createdAt, share(policy.resolveMins), calendar, businessHoursOnly),
+      pauses,
+      calendar,
+      businessHoursOnly,
+    ),
+  };
+}
+
+/** `instant` moved by each finished pause in turn (oldest first; malformed pauses ignored). */
+function replayPauses(
+  instant: Date,
+  pauses: readonly SlaPause[],
+  calendar: BusinessCalendar,
+  businessHoursOnly: boolean,
+): Date {
+  const ordered = pauses
+    .filter((p) => p.to.getTime() >= p.from.getTime())
+    .sort((a, b) => a.from.getTime() - b.from.getTime());
+  let result = instant;
+  for (const pause of ordered) {
+    result = resumeDueDate(result, pause.from, pause.to, calendar, businessHoursOnly);
+  }
+  return result;
+}
+
 /**
  * Resolution due date after a PENDING pause ends: the SLA time that was left when the pause
  * started is added from the moment it ends, to the millisecond (repeated pauses never drift the
  * target). A target that had already passed when the pause started stays where it was (the
- * breach is not erased).
+ * breach is not erased). The resolution at-risk instant (`SlaTargets.resolveAtRiskAt`) is moved
+ * the same way: pass it as `dueAt`.
  */
 export function resumeDueDate(
   dueAt: Date,

@@ -6,12 +6,21 @@
 // `attachmentIds` when creating a ticket or a message.
 //
 // Exports
-//   useAttachmentUploads({ ticketId? })  State for a composer / form: items with progress, add(files)
+//   useAttachmentUploads({ visibility, ticketId? })
+//                                        State for a composer / form: items with progress, add(files)
 //                                        → rejected files, remove, retry, reset, attachmentIds,
 //                                        attachments, isUploading, hasFailed, totalBytes.
 //                                        Render it with <AttachmentDropzone uploads={…} />.
-//   uploadAttachment(file, { ticketId?, onProgress?, signal? })  One upload → AttachmentDto; throws UploadError.
-//   UploadError / isUploadError          `reason`: type | size | empty | storage | rejected | network | aborted.
+//                                        `visibility` (required, sent with presign): 'public' for a
+//                                        public reply or a new ticket, 'internal' for a staff note;
+//                                        the API links a file only to a message of that kind.
+//                                        A finished item takes the stored name and type (an image
+//                                        whose bytes are another image type is stored as what it is).
+//   uploadAttachment(file, { visibility, ticketId?, onProgress?, signal? })
+//                                        One upload → AttachmentDto; throws UploadError.
+//   UploadError / isUploadError          `reason`: type | size | empty | storage | rejected | content |
+//                                        quota | network | aborted. `quota` (presign 429, daily
+//                                        budget) carries `retryAfterSeconds`.
 //   downloadAttachment(id)               Starts a download through the 5-minute signed URL.
 //   getAttachmentDownloadUrl(id), presignAttachment, completeAttachment, postToStorage
 //                                        The individual steps.

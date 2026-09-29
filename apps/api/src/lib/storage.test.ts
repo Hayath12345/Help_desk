@@ -8,7 +8,10 @@ import {
   contentMatchesMimeType,
   copySource,
   createStorage,
+  detectAllowedImageType,
+  fileNameForDetectedType,
   fileNameForMimeType,
+  isAllowedImageMimeType,
   isAllowedMimeType,
   noopScanHook,
   normalizeMimeType,
@@ -249,7 +252,118 @@ describe('sanitizeFileName', () => {
         typed,
       );
       expect(sanitizeFileName(typed)).toBe(typed);
+      // An image accepted as its detected type: same guarantees, extension of that type.
+      const detectedType = (['image/jpeg', 'image/png', 'image/heic', 'image/tiff'] as const)[
+        i % 4
+      ]!;
+      const renamed = fileNameForDetectedType(typed, detectedType);
+      expect(fileNameForDetectedType(renamed, detectedType), JSON.stringify(name)).toBe(renamed);
+      expect(sanitizeFileName(renamed)).toBe(renamed);
+      expect(Buffer.byteLength(renamed)).toBeLessThanOrEqual(MAX_FILE_NAME_BYTES);
+      expect(fileNameForMimeType(renamed, detectedType)).toBe(renamed);
     }
+  });
+});
+
+describe('images accepted as their detected type', () => {
+  const png = bytes(0x89, 'PNG', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 'IHDR');
+  const jpeg = bytes(0xff, 0xd8, 0xff, 0xe0, 0, 16, 'JFIF', 0);
+  const gif = bytes('GIF89a', 1, 0, 1, 0);
+  const webp = bytes('RIFF', 0, 0, 0, 0, 'WEBPVP8 ');
+  const tiff = bytes(0x49, 0x49, 0x2a, 0, 8, 0, 0, 0);
+  const ftyp = (brand: string) => bytes(0, 0, 0, 24, 'ftyp', brand, 0, 0, 0, 0);
+  const bmp = (dibSize: number) =>
+    bytes('BM', 0x3a, 0, 0, 0, 0, 0, 0, 0, 0x36, 0, 0, 0, dibSize, 0, 0, 0, 1, 0);
+
+  it('detectAllowedImageType reads the real image type from the magic bytes', () => {
+    expect(detectAllowedImageType(png)).toBe('image/png');
+    expect(detectAllowedImageType(jpeg)).toBe('image/jpeg');
+    expect(detectAllowedImageType(gif)).toBe('image/gif');
+    expect(detectAllowedImageType(webp)).toBe('image/webp');
+    expect(detectAllowedImageType(tiff)).toBe('image/tiff');
+    expect(detectAllowedImageType(ftyp('heic'))).toBe('image/heic');
+    expect(detectAllowedImageType(ftyp('hevc'))).toBe('image/heic');
+    expect(detectAllowedImageType(ftyp('mif1'))).toBe('image/heif');
+    expect(detectAllowedImageType(bmp(40))).toBe('image/bmp');
+    expect(detectAllowedImageType(bmp(124))).toBe('image/bmp');
+  });
+
+  it('detectAllowedImageType: anything that is no allowed image → null (stricter than the declared-type check)', () => {
+    expect(detectAllowedImageType(bytes('%PDF-1.7'))).toBeNull();
+    expect(detectAllowedImageType(bytes('MZ', 0x90, 0, 3, 0))).toBeNull();
+    expect(detectAllowedImageType(bytes('PK', 3, 4, 20, 0))).toBeNull();
+    expect(detectAllowedImageType(bytes('hello world'))).toBeNull();
+    expect(detectAllowedImageType(new Uint8Array())).toBeNull();
+    // Video in an ISO box is no HEIF image (the lenient declared-type check would pass it).
+    expect(detectAllowedImageType(ftyp('isom'))).toBeNull();
+    expect(detectAllowedImageType(ftyp('qt  '))).toBeNull();
+    // "BM" text is no bitmap without a DIB header.
+    expect(detectAllowedImageType(bytes('BMW parts list, 2024 edition'))).toBeNull();
+    expect(detectAllowedImageType(bmp(41))).toBeNull();
+    // SVG / HTML are not allowed images.
+    expect(detectAllowedImageType(bytes('<svg xmlns="http://www.w3.org/2000/svg">'))).toBeNull();
+  });
+
+  it('a declared image/heic or image/heif needs a HEIF image brand, not just any ftyp box', () => {
+    // ftyp box: size, 'ftyp', major brand, minor version, compatible brands.
+    const box = (major: string, ...compatible: string[]) =>
+      bytes(0, 0, 0, 16 + 4 * compatible.length, 'ftyp', major, 0, 0, 0, 0, ...compatible);
+    for (const declared of ['image/heic', 'image/heif']) {
+      // One family: either declared type takes a HEIC or a generic HEIF image.
+      expect(contentMatchesMimeType(declared, box('heic', 'mif1', 'heic')), declared).toBe(true);
+      expect(contentMatchesMimeType(declared, box('heix')), declared).toBe(true);
+      expect(contentMatchesMimeType(declared, box('mif1', 'heic')), declared).toBe(true);
+      expect(contentMatchesMimeType(declared, box('msf1')), declared).toBe(true);
+      // A camera's own major brand with a HEVC image brand among the compatible ones.
+      expect(contentMatchesMimeType(declared, box('MiHE', 'MiHE', 'mif1', 'heic'))).toBe(true);
+      // Video and AVIF are ISO files too, but no HEIC / HEIF image.
+      expect(contentMatchesMimeType(declared, box('isom', 'isom', 'iso2', 'mp41'))).toBe(false);
+      expect(contentMatchesMimeType(declared, box('mp42', 'mp42', 'isom'))).toBe(false);
+      expect(contentMatchesMimeType(declared, box('qt  ', 'qt  '))).toBe(false);
+      expect(contentMatchesMimeType(declared, box('avif', 'avif', 'mif1', 'miaf'))).toBe(false);
+      expect(contentMatchesMimeType(declared, bytes(0, 0, 0, 8, 'moov'))).toBe(false);
+      // A compatible brand past the end of the box does not count.
+      expect(
+        contentMatchesMimeType(declared, bytes(0, 0, 0, 16, 'ftypisom', 0, 0, 0, 0, 'heic')),
+      ).toBe(false);
+    }
+    expect(detectAllowedImageType(box('MiHE', 'mif1', 'heic'))).toBe('image/heic');
+    expect(detectAllowedImageType(box('avif', 'avif', 'mif1', 'miaf'))).toBeNull();
+  });
+
+  it('only allowed image/* types may be corrected', () => {
+    for (const mime of ['image/png', 'image/JPEG', 'image/heif; x=1', 'image/tiff']) {
+      expect(isAllowedImageMimeType(mime), mime).toBe(true);
+    }
+    for (const mime of ['application/pdf', 'video/mp4', 'text/plain', 'image/svg+xml', 'x']) {
+      expect(isAllowedImageMimeType(mime), mime).toBe(false);
+    }
+  });
+
+  it.each([
+    ['photo.png', 'image/jpeg', 'photo.jpg'],
+    ['photo.PNG', 'image/jpeg', 'photo.jpg'],
+    ['shot.jpeg', 'image/png', 'shot.png'],
+    ['scan.tiff', 'image/png', 'scan.png'],
+    ['report.pdf.png', 'image/jpeg', 'report.pdf.jpg'],
+    ['archive.zip', 'image/png', 'archive.zip.png'],
+    ['scan', 'image/jpeg', 'scan.jpg'],
+    ['IMG_1.jpg', 'image/heic', 'IMG_1.heic'],
+    ['IMG_1.heif', 'image/heic', 'IMG_1.heif'],
+    ['already.jpeg', 'image/jpeg', 'already.jpeg'],
+  ] as const)('%s as %s → %s', (name, mime, expected) => {
+    expect(fileNameForDetectedType(name, mime)).toBe(expected);
+  });
+
+  it('keeps the 200-byte cap and the new extension', () => {
+    const long = `${'ب'.repeat(98)}.png`; // 196 + 4 bytes
+    expect(Buffer.byteLength(long)).toBe(MAX_FILE_NAME_BYTES);
+    const renamed = fileNameForDetectedType(long, 'image/jpeg');
+    expect(renamed).toBe(`${'ب'.repeat(98)}.jpg`);
+    const appended = fileNameForDetectedType(`${'a'.repeat(196)}.zip`, 'image/jpeg');
+    expect(Buffer.byteLength(appended)).toBeLessThanOrEqual(MAX_FILE_NAME_BYTES);
+    expect(appended.endsWith('.jpg')).toBe(true);
+    expect(fileNameForDetectedType(appended, 'image/jpeg')).toBe(appended);
   });
 });
 
@@ -352,6 +466,18 @@ describe('storage presigning (no network)', () => {
       "attachment; filename*=UTF-8''",
     );
     expect(url.searchParams.has('x-amz-checksum-mode')).toBe(false);
+  });
+
+  it('download URLs can override the served Content-Type (images stored as their detected type)', async () => {
+    const url = new URL(
+      await storage.getDownloadUrl('files/a/u/p.png', {
+        fileName: 'p.jpg',
+        contentType: 'image/jpeg',
+      }),
+    );
+    expect(url.searchParams.get('response-content-type')).toBe('image/jpeg');
+    const plain = new URL(await storage.getDownloadUrl('files/a/u/p.png', { fileName: 'p.png' }));
+    expect(plain.searchParams.has('response-content-type')).toBe(false);
   });
 
   it('the default scan hook reports NOT_SCANNED', async () => {

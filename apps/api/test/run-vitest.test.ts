@@ -57,8 +57,8 @@ describe('hasLoopbackCrashBug / maxReruns', () => {
     expect(hasLoopbackCrashBug('darwin', '24.15.0')).toBe(false);
   });
 
-  it('allows a second rerun only where the bug is known', () => {
+  it('reruns only where the bug is known (up to twice); elsewhere a crash fails the run', () => {
     expect(maxReruns(true)).toBe(2);
-    expect(maxReruns(false)).toBe(1);
+    expect(maxReruns(false)).toBe(0);
   });
 });

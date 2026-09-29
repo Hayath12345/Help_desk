@@ -9,9 +9,10 @@
 //   RealtimeProvider        Opens the tab's single connection (API origin, path /socket.io, token
 //                           auth, reconnect with a fresh token) and pipes events into the caches:
 //                           message:new → thread, ticket:updated → detail + lists, queue:updated →
-//                           lists/counts (debounced), config:updated → form config, room joined (first
+//                           lists/counts (debounced), config:updated → form config, notification:new
+//                           → the console bell's list (lib/notifications), room joined (first
 //                           join and every re-join) → thread catch-up (`?after=` last id), reconnect
-//                           (after the re-joins) → refetch tickets + lists.
+//                           (after the re-joins) → refetch tickets, lists and notifications.
 //   useTicketRoom(id)       Join/leave `ticket:{id}` while mounted (ref-counted, serialised per ticket:
 //                           the next join/leave waits for the previous ack; re-joined on reconnect).
 //   useTicketRooms(ids)     Same for many tickets (e.g. a client's list rows). A socket may hold at

@@ -56,7 +56,9 @@ Read first: `docs/PHASE1_HANDOFF.md` (architecture, conventions, setup) and READ
 SECURITY_INCIDENT` ⇒ category must be the `securityCategoryKey` ('cyber') (reject otherwise) and tag `security` is
   added; custom fields: only fields linked to the category, required ones present, values match type (TEXT/ASSET_ID ≤
   500 chars, NUMBER finite, DROPDOWN ∈ options, MULTI_SELECT ⊆ options, DATE ISO date, YES_NO boolean); site belongs
-  to the requester's org and is active; attachments were uploaded by the caller, are UPLOADED/CLEAN and unlinked.
+  to the requester's org and is active; attachments were uploaded by the caller, are UPLOADED/CLEAN and unlinked
+  (code `attachment` otherwise) and **★** were presigned `public` (code `attachment_visibility` otherwise: the
+  description is public).
   Priority = override ?? sub-type default. Team = category's team. Due dates = `computeDueDates(createdAt, policy,
 calendar)` with the calendar from BusinessHours + active Holidays + AppSetting `business.timezone` (cache ≤ 60 s).
   Client-created: status NEW, channel PORTAL, requester = caller. Staff-created: `requesterId` required (active,
@@ -69,7 +71,11 @@ calendar)` with the calendar from BusinessHours + active Holidays + AppSetting `
   leaving PENDING pauses / resumes the resolution clock (`slaPausedAt`, `resumeDueDate`). **★** Leaving PENDING
   appends `{from, to}` to `Ticket.slaPauses`, and the resume carries the remaining time to the millisecond (an
   already-overdue ticket stays overdue). The first-reply clock never pauses. `lastMessageAt` updated.
-  Every status/assignee change writes its TicketEvent. Attachments as in create (≤ 10 files, ≤ 25 MB total).
+  Every status/assignee change writes its TicketEvent. Attachments as in create (≤ 10 files, ≤ 25 MB total), except
+  that **★** a PUBLIC message takes `public` uploads and an INTERNAL note `internal` ones: a file of the other kind is
+  400 VALIDATION_FAILED with the issue code `attachment_visibility` at path `['attachmentIds', i]` (location
+  `body`, message `validation.invalid`). The whole request is refused (nothing created or linked, so the same
+  `clientTempId` can be retried); a replay of a stored `clientTempId` returns the stored message (200) unchecked.
   **★** Clients of an inactive organisation get 403 on create, message post, presign and PATCH (reads still work).
 - **Update (PATCH):** apply each field, validate (`staffCanSetStatus` / `clientCanSetStatus`; assignee = active staff
   member of the ticket's team or a super admin; category change ⇒ team = category's team + `subtypeId` of that category
@@ -85,15 +91,32 @@ calendar)` with the calendar from BusinessHours + active Holidays + AppSetting `
   `UPLOAD_MIME_EXTENSIONS`), creates an Attachment (PENDING, uploader = caller, ticketId optional — must be visible
   if given; **★** the id is generated before signing and the upload key is `attachments/<attachmentId>/<name>`)
   and returns a pre-signed POST limited by content-length-range and content-type (expires in 15 min).
+  **★** `visibility: 'public' | 'internal'` (default `public`, `ATTACHMENT_VISIBILITIES`) is stored on the row and
+  fixes which messages the file can be linked to (see Create / Messages); a client asking for `internal` gets 403
+  FORBIDDEN (no row, no budget used). **★** Daily budget: when the caller's reserved bytes over a rolling 24 h plus
+  this file's `sizeBytes` would exceed `UPLOAD_DAILY_BYTES_PER_USER` (default `DEFAULT_UPLOAD_DAILY_BYTES_PER_USER`
+  = 2 GiB), presign answers 429 RATE_LIMITED "Daily upload limit reached. Try again in N seconds." with
+  `details = {reason: 'daily-quota', limitBytes, retryAfterSeconds}` (`uploadQuotaDetailsSchema`) and a `Retry-After`
+  header; `retryAfterSeconds` (≥ 1) is when enough old reservations age out for THIS file. The per-request presign
+  limit's 429 carries only `{retryAfterSeconds}` (no `reason`), which is how clients tell the two apart. A file larger
+  than the whole budget is 400 VALIDATION_FAILED on `sizeBytes`, code `file_too_large`. Reservations are atomic (one
+  Redis script), count declared bytes and stay counted when the upload is later rejected or never sent.
   `complete` HEADs the object, checks size/type match, **★** copies it (pinned by ETag) to
   `files/<attachmentId>/<uuid>/<name>`, deletes the upload key, rejects content whose magic bytes don't match the
   declared type, runs the scan hook on the copy, sets UPLOADED→CLEAN (or INFECTED/REJECTED + delete the copy) and
   only ever serves the copy; refusals are 400 BAD_REQUEST with `details.reason` ∈ `mismatch | content | infected`
   (`UPLOAD_REJECTION_REASONS`); a swap between check and copy is 409 and the row stays PENDING for a retry.
+  **★** An allowed image declared as another allowed image type (a JPEG named .png, a PNG named .jpg, a HEIC declared
+  as PNG) is accepted as what it really is: the row and the returned attachment get the detected `mimeType` and a
+  `fileName` whose image extension is replaced (or the canonical one appended when the name has no image extension),
+  sanitised as always. heic and heif are one family and stay as declared, but a declared heic / heif needs a HEIF
+  image brand in its `ftyp` box (an MP4, QuickTime or AVIF file is refused). Anything that is no allowed image, and
+  every non-image declared type, is still refused with reason `content`.
   **★** One confirmation per attachment at a time (Redis lock): a concurrent `complete` gets 409 "already being
   checked". A storage 400 on HEAD ⇒ 409 "not uploaded yet"; 401/403 stay 500. **★** File names are made well-formed,
   stripped of control / bidi / invisible characters, NFC-composed and capped at 200 UTF-8 bytes keeping the
-  extension (`sanitizeFileName`, idempotent). `download` returns a 5-minute signed GET with `Content-Disposition: attachment; filename*=UTF-8''…`. Browser uploads
+  extension (`sanitizeFileName`, idempotent). `download` returns a 5-minute signed GET with `Content-Disposition: attachment; filename*=UTF-8''…`
+  and **★** the row's `mimeType` as the response Content-Type (signed override). Browser uploads
   go straight to storage: MinIO must answer CORS for the web origin (verify; configure via docker-compose env if
   needed) and the web CSP `connect-src` must allow `NEXT_PUBLIC_UPLOAD_ORIGIN`. Per-user rate limit on presign.
   **★** The `attachments/` prefix is transient: a bucket lifecycle rule expires it after 1 day (`minio-init`
@@ -163,8 +186,12 @@ getApiToken()`), reconnects with a fresh token after the server closes it (token
   same tick are sent as one batch, leaves before joins; `TOO_MANY_ROOMS` is retried after a leave (or a backoff),
   `RATE_LIMITED` with backoff 1 s → 30 s; other refusals are final for that holder. The portal list keeps
   `MAX_TICKET_ROOMS_PER_SOCKET − 10` live rows.
-- Uploads: `uploadAttachment(file, {ticketId?, onProgress})` → presign → multipart POST to the returned URL (XHR for
-  progress) → complete; client-side checks (allow-list, 25 MB each, 25 MB total, ≤ 10 files) before presigning.
+- Uploads: `uploadAttachment(file, {visibility, ticketId?, onProgress})` → presign → multipart POST to the returned URL
+  (XHR for progress) → complete; client-side checks (allow-list, 25 MB each, 25 MB total, ≤ 10 files) before
+  presigning. **★** `visibility` is required (`useAttachmentUploads({visibility, ticketId?})` too): the console's
+  Internal note tab uses `internal`; Public reply, the portal reply and New ticket use `public`. A presign 429 with
+  `details.reason: 'daily-quota'` fails as `quota` (the chip says when this file would fit); any other 429 as `busy`;
+  a presign `file_too_large` as `allowance`. A finished chip takes the stored `fileName` / `mimeType`.
 - `next.config.ts` CSP: add `NEXT_PUBLIC_UPLOAD_ORIGIN` to `connect-src` (and the API origin's ws/wss already there).
 
 ### Shared ticket UI (`components/tickets/**`) — design references in the design file
@@ -231,4 +258,5 @@ only; every string EN + AR (namespaces: `tickets` for shared ticket UI + new-tic
   selects/priority/security behaviour, composer.
 - E2E (Playwright, two browser contexts): **client creates a ticket in the portal → it appears in the agent's inbox
   in realtime → agent replies publicly → the client sees the reply without reload**; agent adds an internal note → the
-  client never sees it (page + network); status change by the agent reflects on the client page; attachments upload.
+  client never sees it (page + network); status change by the agent reflects on the client page; attachments upload
+  (**★** incl. a JPEG named .png that is stored and downloaded as .jpg, and a note's file presigned `internal`).

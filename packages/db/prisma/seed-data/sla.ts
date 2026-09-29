@@ -82,6 +82,10 @@ export const APP_SETTINGS: readonly AppSettingSeed[] = [
   { key: 'business.timezone', value: 'Asia/Qatar' },
   { key: 'tickets.autoCloseDays', value: 5 },
   { key: 'support.socPhone', value: '+974 4000 0000' },
+  // Local time (business.timezone) of the daily P4 digest, sent on business days only (D9).
+  { key: 'notifications.p4DigestTime', value: '07:30' },
+  // Category forced for SECURITY_INCIDENT tickets (spec §7); the API falls back to 'cyber' too.
+  { key: 'tickets.securityCategoryKey', value: 'cyber' },
 ];
 
 export interface EscalationStepSeed {

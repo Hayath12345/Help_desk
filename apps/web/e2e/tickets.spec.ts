@@ -1,8 +1,10 @@
 // Phase 2 "done when" flow (docs/PHASE2_CONTRACT.md → Tests → E2E), with two browser contexts:
 // the client raises a ticket in the portal (with an attachment) → it appears in the agent's inbox
 // without a reload → the agent replies publicly → the client sees the reply without a reload → the
-// agent adds an internal note → the client never receives it (page, HTTP responses and socket
-// frames) → the agent solves the ticket → the client's page shows Solved without a reload.
+// agent adds an internal note with a file → the client never receives it (page, HTTP responses and
+// socket frames) → the agent solves the ticket → the client's page shows Solved without a reload.
+// Uploads cross both halves here: a JPEG named .png is stored and downloaded as .jpg, and a note's
+// file is presigned `internal`, never shows on the Public reply tab and is linked to the note only.
 //
 // Needs the API (Socket.IO) + web app with the seeded demo data (the Playwright config starts or
 // reuses them) and MinIO for the attachment. Tickets are created with an `[e2e:<timestamp>]` subject
@@ -119,6 +121,20 @@ async function chooseOption(scope: Page, label: string, option: string) {
 
 const PHONE = { width: 390, height: 844 };
 
+/** The first bytes of a JPEG (what the API sniffs): a photo whose name says .png. */
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0]);
+
+/** Resolves with the JSON body of the next POST /attachments/presign the page sends. */
+function nextPresignBody(page: Page): Promise<Record<string, unknown>> {
+  return page
+    .waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        new URL(request.url()).pathname.endsWith('/attachments/presign'),
+    )
+    .then((request) => request.postDataJSON() as Record<string, unknown>);
+}
+
 /** UI text the phone checks look for, from the app's own message files. */
 function uiText(locale: 'en' | 'ar') {
   const read = (file: string) =>
@@ -220,6 +236,7 @@ test.describe('tickets & realtime chat', () => {
     const description = `Site-to-site VPN to Building 3 drops every 5–10 minutes since this morning (${stamp}).`;
     const reply = `We are checking the VPN concentrator logs now (${stamp}).`;
     const note = `INTERNAL-ONLY-${stamp}: suspect the ISP link flapping on tunnel 2`;
+    const noteFile = `isp-trace-${stamp}.log`;
 
     const agent = await signIn(browser, baseURL, 'staff');
     const client = await signIn(browser, baseURL, 'client');
@@ -243,14 +260,21 @@ test.describe('tickets & realtime chat', () => {
     await chooseOption(client.page, 'Sub-type', SUBTYPE);
     await chooseOption(client.page, 'Site / location', SITE);
     await dialog.getByLabel(/^Description/).fill(description);
-    await dialog.locator('input[type="file"]').setInputFiles({
-      name: 'vpn-drops.log',
-      mimeType: 'text/plain',
-      buffer: Buffer.from(`${new Date(stamp).toISOString()} tunnel 2 down\n`),
-    });
+    await dialog.locator('input[type="file"]').setInputFiles([
+      {
+        name: 'vpn-drops.log',
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`${new Date(stamp).toISOString()} tunnel 2 down\n`),
+      },
+      // A JPEG named .png: the API stores it as what it really is.
+      { name: 'camera-14.png', mimeType: 'image/png', buffer: JPEG_BYTES },
+    ]);
     // Uploaded (presign → storage → complete): the chip offers "Remove" and no progress.
     await expect(dialog.getByRole('button', { name: 'Remove vpn-drops.log' })).toBeVisible();
     await expect(dialog.getByLabel('Uploading vpn-drops.log')).toHaveCount(0);
+    // The photo's chip takes the stored name once complete answered.
+    await expect(dialog.getByRole('button', { name: 'Remove camera-14.jpg' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Remove camera-14.png' })).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Create ticket' }).click();
 
     await expect(client.page).toHaveURL(/\/tickets\/LG-\d+$/);
@@ -264,6 +288,12 @@ test.describe('tickets & realtime chat', () => {
     ]);
     expect(download.suggestedFilename()).toBe('vpn-drops.log');
     expect(await download.failure()).toBeNull();
+    const [photo] = await Promise.all([
+      client.page.waitForEvent('download'),
+      client.page.getByRole('button', { name: 'Download camera-14.jpg' }).click(),
+    ]);
+    expect(photo.suggestedFilename()).toBe('camera-14.jpg');
+    expect(await photo.failure()).toBeNull();
     await markDocument(client.page);
 
     // ── It shows up in the agent's inbox without a reload.
@@ -282,11 +312,30 @@ test.describe('tickets & realtime chat', () => {
     await expect(client.page.getByText(reply)).toBeVisible({ timeout: 20_000 });
     await expectNotReloaded(client.page);
 
-    // ── Internal note: visible to staff, never to the client.
+    // ── Internal note with a file: visible to staff, never to the client.
     await agent.page.getByRole('tab', { name: 'Internal note' }).click();
+    const composer = agent.page.locator('[data-mode="internal"]');
+    const presigned = nextPresignBody(agent.page);
+    await composer.locator('input[type="file"]').setInputFiles({
+      name: noteFile,
+      mimeType: 'text/plain',
+      buffer: Buffer.from(`${new Date(stamp).toISOString()} tunnel 2 flaps at ISP hop 3
+`),
+    });
+    // Uploaded for the note only (the API links it to nothing else).
+    expect(await presigned).toMatchObject({ fileName: noteFile, visibility: 'internal' });
+    await expect(composer.getByRole('button', { name: `Remove ${noteFile}` })).toBeVisible();
+    await expect(composer.getByLabel(`Uploading ${noteFile}`)).toHaveCount(0);
+    // The Public reply tab neither shows the note's file nor would send it.
+    await agent.page.getByRole('tab', { name: 'Public reply' }).click();
+    await expect(agent.page.locator('[data-mode="public"]')).toBeVisible();
+    await expect(agent.page.getByRole('button', { name: `Remove ${noteFile}` })).toHaveCount(0);
+    await agent.page.getByRole('tab', { name: 'Internal note' }).click();
+    await expect(composer.getByRole('button', { name: `Remove ${noteFile}` })).toBeVisible();
     await agent.page.getByRole('textbox', { name: /^Internal note/ }).fill(note);
     await sendAndWaitStored(agent.page, 'Add note');
     await expect(agent.page.getByText(note)).toBeVisible();
+    await expect(agent.page.getByRole('button', { name: `Download ${noteFile}` })).toBeVisible();
 
     // ── Status → Solved; the client's page follows without a reload.
     await agent.page.getByRole('radio', { name: 'Solved', exact: true }).click();
@@ -302,11 +351,13 @@ test.describe('tickets & realtime chat', () => {
     await client.page.reload();
     await expect(client.page.getByText(reply)).toBeVisible();
     await expect(client.page.getByText(note)).toHaveCount(0);
+    await expect(client.page.getByText(noteFile)).toHaveCount(0);
     expect(traffic.frames.length, 'the client received socket frames').toBeGreaterThan(0);
     const received = await traffic.received();
     expect(received).toContain(reply); // sanity: the capture does see the conversation
     expect(received).not.toContain(note);
     expect(received).not.toContain(`INTERNAL-ONLY-${stamp}`);
+    expect(received).not.toContain(noteFile);
     expect(problems, 'console errors / CSP violations').toEqual([]);
   });
 

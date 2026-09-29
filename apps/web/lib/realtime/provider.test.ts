@@ -1,6 +1,13 @@
 import type { MessageDto } from '@loons/shared';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  notificationItems,
+  unreadCountOf,
+  type NotificationPages,
+} from '@/lib/notifications/cache';
+import { notificationKeys } from '@/lib/notifications/keys';
+import { makeNotification, makePages } from '@/lib/notifications/test-fixtures';
 import { updateThread, upsertThreadMessage } from '@/lib/tickets/cache';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { loadThread } from '@/lib/tickets/queries';
@@ -146,6 +153,31 @@ describe('realtime → query cache', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.lists() });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.details() });
     unsubscribe();
+  });
+
+  it('inserts notification:new into the bell list (once), ignoring malformed pushes (Phase 3)', () => {
+    const { queryClient, socket } = setup();
+    queryClient.setQueryData(
+      notificationKeys.list(),
+      makePages([{ items: [makeNotification(1)] }], 1),
+    );
+    const pushed = makeNotification(0, { type: 'P1_CREATED', data: { priority: 'P1' } });
+    socket.receive('notification:new', { notification: pushed, unreadCount: 2 });
+    socket.receive('notification:new', { notification: pushed, unreadCount: 2 });
+    socket.receive('notification:new', { notification: { id: 'nope' }, unreadCount: 9 });
+    socket.receive('notification:new', { notification: pushed });
+    const data = queryClient.getQueryData<NotificationPages>(notificationKeys.list());
+    expect(notificationItems(data).map((n) => n.id)).toEqual([pushed.id, makeNotification(1).id]);
+    expect(unreadCountOf(data)).toBe(2);
+  });
+
+  it('refetches notifications after a reconnect (pushes sent meanwhile were missed)', async () => {
+    const { socket, invalidate } = setup();
+    socket.transportClose();
+    socket.accept();
+    await vi.waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: notificationKeys.all }),
+    );
   });
 
   it('stops updating the cache after cleanup', () => {

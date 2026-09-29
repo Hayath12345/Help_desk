@@ -77,6 +77,32 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
   stored copy) and a late lock is released afterwards.
 - **Storage errors on HEAD:** a 400 (MinIO refusing the key) ⇒ 409 "The file has not been uploaded yet"; 401/403 and
   anything else stay a 500 — they are a credential or permission fault of the API, not the client's.
+- **Visibility (SEC-WEB-1, server side):** presign takes `visibility: 'public' | 'internal'` (default `public`) and
+  stores it (`Attachment.visibility`, enum `AttachmentVisibility`). Only staff may presign `internal` (a client gets
+  403, checked before the budget, so no row and no bytes). `attachmentLinkIssues(db, actor, ids, ticketId, target)`
+  refuses a file of the other kind with a 400 issue `{path: ['attachmentIds', i], code: 'attachment_visibility'}`,
+  and `linkAttachments(…, target)` filters on visibility in its `updateMany`, so a race past the check fails the
+  count guard and rolls the whole transaction back. Ticket create links as `PUBLIC` (the description is public); a
+  message links as its own type. A `clientTempId` replay is answered before the check.
+- **Daily upload budget** (`apps/api/src/lib/upload-quota.ts`): per user over a rolling 24 h, in declared bytes at
+  presign, `UPLOAD_DAILY_BYTES_PER_USER` (default 2 GiB). One sorted set per user at
+  `<redisPrefix>upload-quota:<userId>` (member `<attachmentId>|<bytes>`, score = reservation time in ms from Redis
+  `TIME`), updated by one Lua script that trims, sums and adds only when the file fits, so concurrent presigns can't
+  overshoot; the key expires one window after its newest entry. Over budget ⇒ 429 RATE_LIMITED with
+  `details = {reason: 'daily-quota', limitBytes, retryAfterSeconds}` and `Retry-After`; `retryAfterSeconds` is when
+  the oldest reservations whose bytes cover the excess age out. A reservation stays counted when the upload is
+  rejected or never sent (the POST lets the caller write those bytes for 15 min); only a presign that fails on the
+  server (`createUploadPost` or the insert throws) gives its bytes back. A file larger than the whole budget is 400
+  `file_too_large`. Redis errors or > 2 s ⇒ fail open with a warning, like the presign limit. `reserve` / `release`
+  throw a TypeError for a size that is not a whole number from 1 to `MAX_SAFE_INTEGER`, and the script counts a
+  member it cannot read as 0 (one odd member must not turn every later check into "fail open").
+- **Mismatched images:** at `complete`, an allowed image declared as another allowed image type (a JPEG named .png) is
+  accepted as its detected type (`detectAllowedImageType`): the row's `mimeType` and `fileName`
+  (`fileNameForDetectedType`: image extension replaced, else the canonical one appended; 200-byte cap kept) are
+  updated with the CLEAN status, the scan hook sees the detected type, and `download` signs the row's `mimeType` as
+  the response Content-Type. The object key keeps the original name and the stored object keeps the declared
+  Content-Type. heic/heif are one family; a declared heic/heif needs a HEIF image brand in `ftyp` (major brand, or a
+  HEVC image brand among the compatible ones), so MP4 / QuickTime / AVIF are refused. Everything else stays strict.
 
 ### Realtime
 
@@ -137,6 +163,15 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
   `يتولاها {assignee} · {team}` / `يتولاها {team}` (Arabic team names already contain the parenthesised short name).
 - **Status control (console):** a radiogroup with manual activation — arrow keys move focus only; Space/Enter saves.
 - **Composer (console):** Public reply and Internal note keep separate attachment lists and macro-armed statuses.
+- **Uploads:** `useAttachmentUploads({ visibility, ticketId? })` and `uploadAttachment(file, { visibility, … })`
+  require `visibility` (no default, so a new call site fails `tsc` until it says who the file is for). The console
+  Internal note uses `internal`; Public reply, the portal reply and New ticket use `public`. Upload failure reasons
+  from presign: a 429 with `details.reason: 'daily-quota'` ⇒ `quota` ("This file doesn't fit in what's left of your
+  upload allowance for the last 24 hours. Try again in N hours/minutes.", ICU plurals EN one/other, AR
+  one/two/few/other; rounded up to minutes under an hour, else hours; computed once, no countdown); any other 429 ⇒
+  `busy` ("Too many uploads in a short time…"); a 400 `file_too_large` ⇒ `allowance` ("larger than your daily upload
+  allowance"). Retry stays for every failure. A finished chip takes the stored `fileName` / `mimeType`, so a
+  corrected image shows its real name and icon.
 - **Upload chips:** one shared `UploadChip` / `UploadChipList` (`components/tickets/upload-chip.tsx`) in the dropzone
   and the console composer. The failure reason sits under the chip (never inside it) and is linked to Retry/Remove
   with `aria-describedby`; the `role="status"` region announces only the **newest** failure (per tab in the console,
@@ -163,10 +198,9 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
   duplicate. The test suites make thousands of loopback connections (Postgres, Redis, MinIO, Socket.IO), so on
   24.15 a full API run loses a worker every few runs; the dev API, worker and Next.js server can crash the same way.
   Linux and macOS are not affected.
-- `pnpm test` in `apps/api` runs `test/run-vitest.ts`. It runs `vitest run` and re-runs, **once**, only the files whose
-  worker died with `0xC0000409` when nothing else failed (on an affected Node it also prints the upgrade hint). Once
-  every developer machine runs Node ≥ 24.16.0, raise `engines.node` to `>=24.16.0` (pnpm refuses to install with a
-  root `engines` mismatch, so do it after upgrading) and drop the wrapper. The API suite also uses `pool: 'forks'`,
+- `pnpm test` in `apps/api` runs `test/run-vitest.ts`. The root `engines.node` is now `>=24.16.0`; the wrapper runs
+  `vitest run` and re-runs files whose worker died with `0xC0000409` only on a Node release known to have the bug
+  (with the upgrade hint); on a fixed Node such a crash fails the run. The API suite also uses `pool: 'forks'`,
   `MSGPACKR_NATIVE_ACCELERATION_DISABLED=true` and a per-run Redis prefix `loons-test:<run>:` that
   `test/global-setup.ts` removes even after a crash.
 - A crashed worker's DB fixtures are **not** removed automatically. They use unique keys (`Organization`/`Team`/
@@ -181,6 +215,12 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
   tickets with a `[e2e:<timestamp>]` subject prefix as a seeded client; the global teardown (`db:cleanup-e2e`) deletes
   those tickets, the `e2e-…@hamad.qa` accounts and their stored MinIO objects (`files/<id>/` and
   `attachments/<id>/`). Clear the auth rate limits between runs (README → Troubleshooting).
+- Upload follow-ups: `apps/api/test/upload-quota.test.ts` (the Redis script with a fake clock, and the HTTP presign
+  budget with an injected clock and a 1000-byte limit; `createTestContext` accepts
+  `deps.uploadQuota {now, windowMs}`); `attachments.test.ts` has the visibility, backfill-migration and mismatched-image tests;
+  `src/lib/storage.test.ts` the detection and HEIF-brand rules. The e2e ticket flow attaches a JPEG named .png (stored
+  and downloaded as .jpg) and a file on the Internal note (presigned `internal`, never on the Public reply tab, never
+  received by the client).
 - Reviewer probe scripts (attack scripts for the security findings) live outside the repo; each finding has a
   regression test instead (`apps/api/test/realtime-limits.test.ts`, `realtime-cluster.test.ts`, `attachments.test.ts`,
   `tickets-*.test.ts`, `src/lib/storage.test.ts`, `src/lib/client-address.test.ts`, web component tests next to the
@@ -225,6 +265,14 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
   `s3:DeleteObject`; the browser's pre-signed POST needs `s3:PutObject` on `attachments/*`.
 - **Bucket CORS:** browsers upload straight to storage, so the bucket must allow `POST` from `APP_URL`; the web CSP
   `connect-src` must include `NEXT_PUBLIC_UPLOAD_ORIGIN`.
+- **Migrations `20260929063553_attachment_visibility` + `20260929071227_attachment_visibility_backfill`:** the first
+  adds enum `AttachmentVisibility {PUBLIC, INTERNAL}` and `Attachment.visibility NOT NULL DEFAULT 'PUBLIC'`; the
+  second marks files already linked to INTERNAL messages `INTERNAL` (re-runnable). Unlinked uploads presigned before
+  the deploy are PUBLIC: a note upload in flight during the deploy has to be uploaded again (400
+  `attachment_visibility`). The seed is unchanged.
+- **Upload budget env:** `UPLOAD_DAILY_BYTES_PER_USER` (positive integer, blank ⇒ 2147483648; an invalid value stops
+  the API with a ConfigError). With several API instances the budget is shared (Redis `TIME`). It fails open while
+  Redis is down, as does the presign limit, so nothing bounds uploads during a Redis outage.
 - **Multiple API instances:** `SOCKET_REDIS_ADAPTER=true` is required. Socket limits are per instance (N instances ⇒ N
   × the budget). With an unresponsive instance still subscribed to Redis (e.g. a host that died without closing its
   connection, until Redis notices after `tcp-keepalive`), every PATCH and PUBLIC message waits up to about 1 s for the
@@ -236,22 +284,21 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
 
 ## Decisions for the owner / known limitations
 
-- **Per-user upload volume** (review round 3): the presign limit (60 per 10 min, 25 MB each) bounds requests, not
-  bytes. One verified client could keep about 1.5 GB of transient uploads per 10 minutes, each removed by the
-  lifecycle rule within 24–48 h. A per-user byte quota (e.g. a rolling daily total) is a product decision; not built.
+- **Per-user upload volume** (review round 3): resolved — a rolling 24 h budget per user in declared bytes
+  (`UPLOAD_DAILY_BYTES_PER_USER`, default 2 GiB; see Attachments). Rejected or never-sent uploads use budget until
+  they age out (by design).
 - **Staff creating a ticket for another team** (review P2-CC-4): the API keeps team-scoped visibility, so the creator
   cannot open the ticket unless they are on that team or assigned. The web shows "Ticket LG-n created and routed to
   <team>" and stays on the page. Alternative: give creators read access to tickets they raised (contract change).
-- **Attachment visibility is decided by the message** (SEC-WEB-1 server side): the API links any finished upload of
-  the caller to whichever message they post. The console keeps note and reply uploads apart, but a hand-written API
-  call by the same staff user could publish a file they uploaded for a note. Fix would be an intended-visibility
-  field on the upload (contract change).
-- **Strict content check:** a genuine JPEG named `.png` (browsers then declare `image/png`) is refused with "The
-  file's content doesn't match its type". Accepting any image signature for `image/*` uploads is a product decision.
+- **Attachment visibility** (SEC-WEB-1 server side): resolved — fixed at presign and enforced when linking (see
+  Attachments). Downloads and the ticket detail still gate on the message type as before.
+- **Mismatched images:** resolved — a JPEG named `.png` is stored as `image/jpeg` with a `.jpg` name. The object in
+  the bucket keeps the declared Content-Type; only signed downloads correct it (response-content-type override).
 - **Pause credit before the migration:** tickets paused before `Ticket.slaPauses` existed have an empty history, so a
   priority change on them drops pause credit earned earlier. Seeded tickets never had pause credit.
-- **Other upload errors** (403 inactive organisation, 409 changed during check or already being checked) are shown by
-  the web as a generic upload failure with Retry; only the three `complete` refusals carry a reason.
+- **Other upload errors** (403 inactive organisation or a client presigning `internal`, 409 changed during check or
+  already being checked) are shown by the web as a generic upload failure with Retry; the three `complete` refusals,
+  the daily-quota 429, other 429s (`busy`) and `file_too_large` (`allowance`) carry their own text.
 - **Realtime residuals:** a `ticket:leave` refused as `RATE_LIMITED` is treated as left by the web client (the server
   may keep that room until reconnect; a later join then gets `TOO_MANY_ROOMS` and is retried). In the DB-failure
   fallback of eviction, everyone in the old team's room misses that one `ticket:updated` (over-inclusive, never open).
@@ -266,7 +313,7 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
 - SLA worker: at-risk / breach flags and notifications, auto-close of solved tickets, P1 acknowledge + escalation
   (`TicketEvent` types and `slaState` already exist; the `risk` view is computed live today).
 - Orphan sweep: a periodic job that deletes `Attachment` rows in PENDING/REJECTED older than the POST policy and any
-  `attachments/` objects a lifecycle rule did not catch (plus the byte quota above, if the owner wants one).
+  `attachments/` objects a lifecycle rule did not catch.
 - Notifications: `notification:new` on `user:{id}` is wired on the server side but unused; the client socket ignores it.
 - Email templates for ticket events still need the "block variable" rule from the Phase 1 carry-overs (multi-line
   `messageBody` / `description` that keeps paragraphs and is never linkified).

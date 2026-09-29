@@ -15,7 +15,7 @@ type Pending = {
 function fakeUploader() {
   const calls: Pending[] = [];
   const upload = vi.fn(
-    (file: File, options: UploadAttachmentOptions = {}) =>
+    (file: File, options: UploadAttachmentOptions) =>
       new Promise<AttachmentDto>((resolve, reject) => {
         calls.push({ file, options, resolve, reject });
       }),
@@ -36,7 +36,9 @@ const txt = (name: string) => new File(['abc'], name, { type: 'text/plain' });
 describe('useAttachmentUploads', () => {
   it('uploads accepted files in parallel with progress and exposes the finished ids', async () => {
     const { upload, calls } = fakeUploader();
-    const { result } = renderHook(() => useAttachmentUploads({ ticketId: 't1', upload }));
+    const { result } = renderHook(() =>
+      useAttachmentUploads({ visibility: 'public', ticketId: 't1', upload }),
+    );
 
     let rejected: ReturnType<typeof result.current.add> = [];
     act(() => {
@@ -48,6 +50,7 @@ describe('useAttachmentUploads', () => {
       ['c.txt', 'uploading'],
     ]);
     expect(calls[0]?.options.ticketId).toBe('t1');
+    expect(calls.map((c) => c.options.visibility)).toEqual(['public', 'public']);
     expect(result.current.isUploading).toBe(true);
 
     act(() => calls[0]!.options.onProgress?.(0.5));
@@ -64,7 +67,7 @@ describe('useAttachmentUploads', () => {
 
   it('marks failures, retries them, and cancels removed or reset uploads', async () => {
     const { upload, calls } = fakeUploader();
-    const { result } = renderHook(() => useAttachmentUploads({ upload }));
+    const { result } = renderHook(() => useAttachmentUploads({ visibility: 'public', upload }));
     act(() => {
       result.current.add([txt('a.txt'), txt('b.txt')]);
     });
@@ -89,7 +92,11 @@ describe('useAttachmentUploads', () => {
   it('counts uploads towards the 10-file and 25 MB limits', () => {
     const { upload } = fakeUploader();
     const { result } = renderHook(() =>
-      useAttachmentUploads({ upload, limits: { maxFiles: 2, maxFileBytes: 10, maxTotalBytes: 5 } }),
+      useAttachmentUploads({
+        visibility: 'public',
+        upload,
+        limits: { maxFiles: 2, maxFileBytes: 10, maxTotalBytes: 5 },
+      }),
     );
     let rejected: ReturnType<typeof result.current.add> = [];
     act(() => {
@@ -108,11 +115,76 @@ describe('useAttachmentUploads', () => {
 
   it('aborts in-flight uploads on unmount', () => {
     const { upload, calls } = fakeUploader();
-    const { result, unmount } = renderHook(() => useAttachmentUploads({ upload }));
+    const { result, unmount } = renderHook(() =>
+      useAttachmentUploads({ visibility: 'public', upload }),
+    );
     act(() => {
       result.current.add([txt('a.txt')]);
     });
     unmount();
     expect(calls[0]!.options.signal?.aborted).toBe(true);
+  });
+
+  it('uploads with the visibility it was given, including on retry', async () => {
+    const { upload, calls } = fakeUploader();
+    const { result } = renderHook(() => useAttachmentUploads({ visibility: 'internal', upload }));
+    act(() => {
+      result.current.add([txt('note.txt')]);
+    });
+    await act(async () => calls[0]!.reject(new UploadError('network', 'down')));
+    act(() => result.current.retry(result.current.items[0]!.id));
+    expect(calls.map((c) => c.options.visibility)).toEqual(['internal', 'internal']);
+  });
+
+  it('keeps when a quota failure can be retried, and clears it on retry', async () => {
+    const { upload, calls } = fakeUploader();
+    const { result } = renderHook(() => useAttachmentUploads({ visibility: 'public', upload }));
+    act(() => {
+      result.current.add([txt('a.txt')]);
+    });
+    await act(async () =>
+      calls[0]!.reject(new UploadError('quota', 'limit', { retryAfterSeconds: 5400 })),
+    );
+    expect(result.current.items[0]).toMatchObject({
+      status: 'error',
+      error: 'quota',
+      retryAfterSeconds: 5400,
+    });
+    act(() => result.current.retry(result.current.items[0]!.id));
+    expect(result.current.items[0]).toMatchObject({
+      status: 'uploading',
+      error: null,
+      retryAfterSeconds: null,
+    });
+  });
+
+  it('shows the stored name and type once complete corrected an image (a JPEG named .png)', async () => {
+    const { upload, calls } = fakeUploader();
+    const { result } = renderHook(() => useAttachmentUploads({ visibility: 'public', upload }));
+    const jpegNamedPng = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'camera-14.png', {
+      type: 'image/png',
+    });
+    let rejected: ReturnType<typeof result.current.add> = [];
+    act(() => {
+      rejected = result.current.add([jpegNamedPng]);
+    });
+    // The client-side checks accept it as before (the browser says image/png).
+    expect(rejected).toEqual([]);
+    expect(result.current.items[0]).toMatchObject({ name: 'camera-14.png', mimeType: 'image/png' });
+
+    const stored: AttachmentDto = {
+      id: '00000000-0000-4000-8000-000000000042',
+      fileName: 'camera-14.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 3,
+      createdAt: '2026-09-23T12:00:00.000Z',
+    };
+    await act(async () => calls[0]!.resolve(stored));
+    expect(result.current.items[0]).toMatchObject({
+      status: 'done',
+      name: 'camera-14.jpg',
+      mimeType: 'image/jpeg',
+    });
+    expect(result.current.attachments).toEqual([stored]);
   });
 });

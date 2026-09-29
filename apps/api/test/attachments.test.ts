@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GetBucketLifecycleConfigurationCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
@@ -6,12 +8,14 @@ import {
   completeAttachmentResponseSchema,
   presignAttachmentResponseSchema,
   toWellFormed,
+  type Actor,
 } from '@loons/shared';
 import { createStorage, rfc5987, type ScanHook, type Storage } from '../src/lib/storage.ts';
 import { PRESIGN_LIMIT } from '../src/routes/attachments.ts';
 import {
   CONFIRM_IN_PROGRESS_MESSAGE,
   CONFIRM_LOCK_WAIT_MS,
+  linkAttachments,
 } from '../src/services/attachments.service.ts';
 import { createTestContext, testConfig, type TestContext } from './helpers.ts';
 import {
@@ -31,6 +35,12 @@ import {
 const WEB_ORIGIN = 'http://localhost:3000';
 /** 11 bytes that start like a PDF (complete() checks the magic number). */
 const PDF = '%PDF-1.4 ok';
+/** The first bytes of real images (JFIF JPEG, PNG, HEIC with an image brand). */
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+const ftyp = (brand: string) =>
+  Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from(`ftyp${brand}`), Buffer.alloc(8)]);
+const HEIC_BYTES = ftyp('heic');
 
 type Presigned = ReturnType<typeof presignAttachmentResponseSchema.parse>;
 
@@ -109,7 +119,13 @@ describe('attachments (MinIO)', () => {
 
   async function presign(
     as: Persona,
-    body: { fileName?: string; mimeType?: string; sizeBytes?: number; ticketId?: string } = {},
+    body: {
+      fileName?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+      ticketId?: string;
+      visibility?: 'public' | 'internal';
+    } = {},
   ): Promise<Presigned> {
     const res = await apiAs(ctx, as).post('/attachments/presign', {
       fileName: 'report.pdf',
@@ -159,8 +175,17 @@ describe('attachments (MinIO)', () => {
     };
   }
 
-  async function uploaded(as: Persona, fileName = 'report.pdf', content = PDF) {
-    const p = await presign(as, { fileName, sizeBytes: Buffer.byteLength(content) });
+  async function uploaded(
+    as: Persona,
+    fileName = 'report.pdf',
+    content = PDF,
+    visibility?: 'public' | 'internal',
+  ) {
+    const p = await presign(as, {
+      fileName,
+      sizeBytes: Buffer.byteLength(content),
+      ...(visibility ? { visibility } : {}),
+    });
     const res = await upload(p, content, 'application/pdf');
     expect(res.status).toBe(204);
     const done = await complete(as, p.attachmentId);
@@ -674,6 +699,319 @@ describe('attachments (MinIO)', () => {
       await upload(ok, png, 'image/png');
       expect((await complete(uploader, ok.attachmentId)).statusCode).toBe(200);
     });
+
+    /** Presign + upload `content` declared as `mimeType`, then complete. */
+    async function sent(fileName: string, mimeType: string, content: Buffer) {
+      const p = await presign(uploader, { fileName, mimeType, sizeBytes: content.length });
+      expect((await upload(p, content, mimeType)).status).toBe(204);
+      return { p, res: await complete(uploader, p.attachmentId) };
+    }
+
+    it('an image whose bytes are another allowed image type is stored as what it really is', async () => {
+      const cases = [
+        // A JPEG named .png (the browser declares image/png).
+        [
+          'holiday.png',
+          'image/png',
+          JPEG_BYTES,
+          { mimeType: 'image/jpeg', fileName: 'holiday.jpg' },
+        ],
+        // A PNG named .jpeg.
+        ['screen.jpeg', 'image/jpeg', PNG_BYTES, { mimeType: 'image/png', fileName: 'screen.png' }],
+        // A HEIC photo declared as PNG.
+        ['IMG_7.png', 'image/png', HEIC_BYTES, { mimeType: 'image/heic', fileName: 'IMG_7.heic' }],
+      ] as const;
+      for (const [fileName, mimeType, content, expected] of cases) {
+        const { p, res } = await sent(fileName, mimeType, content);
+        expect(res.statusCode, `${fileName}: ${res.body}`).toBe(200);
+        const dto = completeAttachmentResponseSchema.parse(res.json()).attachment;
+        expect(dto, fileName).toMatchObject(expected);
+        const row = await ctx.prisma.attachment.findUniqueOrThrow({
+          where: { id: p.attachmentId },
+        });
+        expect(row, fileName).toMatchObject({ ...expected, status: 'CLEAN' });
+        // Downloads carry the corrected type and name.
+        const file = await downloaded(uploader, p.attachmentId);
+        expect(file, fileName).toMatchObject({
+          status: 200,
+          type: expected.mimeType,
+          disposition: `attachment; filename*=UTF-8''${expected.fileName}`,
+        });
+        // Confirming again changes nothing.
+        const again = await complete(uploader, p.attachmentId);
+        expect(again.json().attachment, fileName).toMatchObject(expected);
+      }
+    });
+
+    it('a stored name that is not an image name gets the detected extension appended (200-byte cap kept)', async () => {
+      // Presign stores it as "…pdf.png" cut to 200 bytes.
+      const long = `${'\u0628'.repeat(98)}.pdf`;
+      const { p, res } = await sent(long, 'image/png', JPEG_BYTES);
+      expect(res.statusCode, res.body).toBe(200);
+      const name: string = res.json().attachment.fileName;
+      expect(name.endsWith('.jpg')).toBe(true);
+      expect(Buffer.byteLength(name)).toBeLessThanOrEqual(200);
+      const row = await ctx.prisma.attachment.findUniqueOrThrow({ where: { id: p.attachmentId } });
+      expect(row.fileName).toBe(name);
+      expect((await downloaded(uploader, p.attachmentId)).disposition).toBe(
+        `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      );
+    });
+
+    it('heic and heif are one family: a HEIC declared as image/heif is kept as declared', async () => {
+      const { p, res } = await sent('IMG_1.heif', 'image/heif', HEIC_BYTES);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().attachment).toMatchObject({
+        mimeType: 'image/heif',
+        fileName: 'IMG_1.heif',
+      });
+      expect(await downloaded(uploader, p.attachmentId)).toMatchObject({ type: 'image/heif' });
+    });
+
+    it('content that is no allowed image is still refused; non-image types stay strict', async () => {
+      const mz = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00]);
+      const cases = [
+        ['image/png', Buffer.from(PDF), 'a PDF declared as PNG'],
+        ['image/png', mz, 'an executable declared as PNG'],
+        ['image/jpeg', ftyp('isom'), 'an MP4 declared as JPEG'],
+        // A declared HEIC / HEIF needs a HEIF image brand, not just any ISO `ftyp` box.
+        ['image/heic', ftyp('isom'), 'an MP4 declared as HEIC'],
+        ['image/heif', ftyp('qt  '), 'a QuickTime video declared as HEIF'],
+        ['image/heic', ftyp('avif'), 'an AVIF declared as HEIC'],
+        ['image/png', Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), 'SVG as PNG'],
+        ['application/pdf', JPEG_BYTES, 'a JPEG declared as PDF'],
+        ['application/zip', PNG_BYTES, 'a PNG declared as zip'],
+        ['video/mp4', JPEG_BYTES, 'a JPEG declared as MP4'],
+      ] as const;
+      for (const [mimeType, content, label] of cases) {
+        const { p, res } = await sent('x', mimeType, content);
+        expect(res.statusCode, label).toBe(400);
+        expect(res.json().error.details, label).toEqual({ reason: 'content' });
+        const row = await ctx.prisma.attachment.findUniqueOrThrow({
+          where: { id: p.attachmentId },
+        });
+        expect(row, label).toMatchObject({ status: 'REJECTED', mimeType });
+      }
+    });
+  });
+
+  describe('visibility: who an upload is for (review SEC-WEB-1)', () => {
+    let t: { id: string };
+    beforeAll(async () => {
+      t = await createTicket(ctx, uploader, ticketBody(w));
+    });
+    const linkedTo = async (id: string) =>
+      (await ctx.prisma.attachment.findUniqueOrThrow({ where: { id } })).messageId;
+    const messagesWith = (body: string) =>
+      ctx.prisma.message.count({ where: { ticketId: t.id, body } });
+
+    it('presign stores it (default public); clients cannot reserve internal uploads (403, no row)', async () => {
+      const plain = await presign(uploader);
+      const staffNote = await presign(w.agentA, { visibility: 'internal' });
+      const staffReply = await presign(w.agentA, { visibility: 'public' });
+      const visibility = async (id: string) =>
+        (await ctx.prisma.attachment.findUniqueOrThrow({ where: { id } })).visibility;
+      expect(await visibility(plain.attachmentId)).toBe('PUBLIC');
+      expect(await visibility(staffNote.attachmentId)).toBe('INTERNAL');
+      expect(await visibility(staffReply.attachmentId)).toBe('PUBLIC');
+
+      const before = await ctx.prisma.attachment.count({ where: { uploaderId: uploader.id } });
+      const res = await apiAs(ctx, uploader).post('/attachments/presign', {
+        fileName: 'a.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 5,
+        visibility: 'internal',
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('FORBIDDEN');
+      expect(await ctx.prisma.attachment.count({ where: { uploaderId: uploader.id } })).toBe(
+        before,
+      );
+      const bad = await apiAs(ctx, w.agentA).post('/attachments/presign', {
+        fileName: 'a.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 5,
+        visibility: 'staff',
+      });
+      expect(bad.statusCode).toBe(400);
+    });
+
+    it('a public reply refuses an internal upload: 400, no message, nothing linked', async () => {
+      const internal = await uploaded(w.agentA, 'note-only.pdf', PDF, 'internal');
+      const pub = await uploaded(w.agentA, 'reply.pdf');
+      const res = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Public with a note file',
+        attachmentIds: [pub, internal],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION_FAILED');
+      expect(res.json().error.details).toEqual([
+        expect.objectContaining({ path: ['attachmentIds', 1], code: 'attachment_visibility' }),
+      ]);
+      expect(await messagesWith('Public with a note file')).toBe(0);
+      expect(await linkedTo(internal)).toBeNull();
+      expect(await linkedTo(pub)).toBeNull();
+      // The client never gets the file.
+      expect((await apiAs(ctx, uploader).get(`/attachments/${internal}/download`)).statusCode).toBe(
+        404,
+      );
+    });
+
+    it('an internal note refuses a public upload: 400, no note', async () => {
+      const pub = await uploaded(w.agentA, 'public.pdf');
+      const res = await postMessage(ctx, w.agentA, t.id, {
+        type: 'INTERNAL',
+        body: 'Note with a public file',
+        attachmentIds: [pub],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.details).toEqual([
+        expect.objectContaining({ path: ['attachmentIds', 0], code: 'attachment_visibility' }),
+      ]);
+      expect(await messagesWith('Note with a public file')).toBe(0);
+      expect(await linkedTo(pub)).toBeNull();
+    });
+
+    it('matching kinds are linked (201): public reply, internal note, client reply', async () => {
+      const pub = await uploaded(w.agentA, 'reply.pdf');
+      const reply = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Reply with its file',
+        attachmentIds: [pub],
+      });
+      expect(reply.statusCode, reply.body).toBe(201);
+      expect(await linkedTo(pub)).toBe(reply.json().message.id);
+
+      const internal = await uploaded(w.agentA, 'findings.pdf', PDF, 'internal');
+      const note = await postMessage(ctx, w.agentA, t.id, {
+        type: 'INTERNAL',
+        body: 'Note with its file',
+        attachmentIds: [internal],
+      });
+      expect(note.statusCode, note.body).toBe(201);
+      expect(await linkedTo(internal)).toBe(note.json().message.id);
+
+      const clientFile = await uploaded(uploader, 'photo.pdf');
+      const clientReply = await postMessage(ctx, uploader, t.id, {
+        body: 'Client reply with a file',
+        attachmentIds: [clientFile],
+      });
+      expect(clientReply.statusCode, clientReply.body).toBe(201);
+      expect(await linkedTo(clientFile)).toBe(clientReply.json().message.id);
+    });
+
+    it('the backfill migration marks files already on internal notes INTERNAL, nothing else', async () => {
+      const dir = fileURLToPath(
+        new URL('../../../packages/db/prisma/migrations/', import.meta.url),
+      );
+      const [name] = readdirSync(dir).filter((d) => d.endsWith('_attachment_visibility_backfill'));
+      expect(name).toBeDefined();
+      const sql = readFileSync(`${dir}${name}/migration.sql`, 'utf8');
+
+      // Rows as the column's default left them before the backfill: every file PUBLIC.
+      const noteFile = await uploaded(w.agentA, 'old-note.pdf', PDF, 'internal');
+      const note = await postMessage(ctx, w.agentA, t.id, {
+        type: 'INTERNAL',
+        body: 'Old note with a file',
+        attachmentIds: [noteFile],
+      });
+      expect(note.statusCode, note.body).toBe(201);
+      const replyFile = await uploaded(w.agentA, 'old-reply.pdf');
+      const reply = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Old reply with a file',
+        attachmentIds: [replyFile],
+      });
+      expect(reply.statusCode, reply.body).toBe(201);
+      const unlinked = await uploaded(w.agentA, 'old-unlinked.pdf');
+      const ids = [noteFile, replyFile, unlinked];
+      await ctx.prisma.attachment.updateMany({
+        where: { id: { in: ids } },
+        data: { visibility: 'PUBLIC' },
+      });
+
+      await ctx.prisma.$executeRawUnsafe(sql);
+      await ctx.prisma.$executeRawUnsafe(sql); // Safe to run again.
+      const rows = await ctx.prisma.attachment.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, visibility: true },
+      });
+      expect(Object.fromEntries(rows.map((r) => [r.id, r.visibility]))).toEqual({
+        [noteFile]: 'INTERNAL',
+        [replyFile]: 'PUBLIC',
+        [unlinked]: 'PUBLIC',
+      });
+    });
+
+    it('a refused post can be retried with the same clientTempId; a replay is answered as before', async () => {
+      const clientTempId = randomUUID();
+      const internal = await uploaded(w.agentA, 'retry.pdf', PDF, 'internal');
+      const pub = await uploaded(w.agentA, 'retry-public.pdf');
+      const wrong = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Retried reply',
+        clientTempId,
+        attachmentIds: [internal],
+      });
+      expect(wrong.statusCode).toBe(400);
+      const right = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Retried reply',
+        clientTempId,
+        attachmentIds: [pub],
+      });
+      expect(right.statusCode, right.body).toBe(201);
+      // A replay (even naming the internal file) returns the stored message and links nothing.
+      const replay = await postMessage(ctx, w.agentA, t.id, {
+        type: 'PUBLIC',
+        body: 'Retried reply',
+        clientTempId,
+        attachmentIds: [internal],
+      });
+      expect(replay.statusCode).toBe(200);
+      expect(replay.json().message.id).toBe(right.json().message.id);
+      expect(replay.json().message.attachments.map((a: { id: string }) => a.id)).toEqual([pub]);
+      expect(await linkedTo(internal)).toBeNull();
+    });
+
+    it('a new ticket takes only public uploads (its description is public)', async () => {
+      const internal = await uploaded(w.agentA, 'secret.pdf', PDF, 'internal');
+      const subject = `Internal file on create ${randomUUID().slice(0, 8)}`;
+      const res = await apiAs(ctx, w.agentA).post(
+        '/tickets',
+        ticketBody(w, { subject, requesterId: w.clientX.id, attachmentIds: [internal] }),
+      );
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.details).toContainEqual(
+        expect.objectContaining({ path: ['attachmentIds', 0], code: 'attachment_visibility' }),
+      );
+      expect(await ctx.prisma.ticket.count({ where: { subject } })).toBe(0);
+      expect(await linkedTo(internal)).toBeNull();
+
+      const pub = await uploaded(w.agentA, 'photo.pdf');
+      const created = await apiAs(ctx, w.agentA).post(
+        '/tickets',
+        ticketBody(w, { requesterId: w.clientX.id, attachmentIds: [pub] }),
+      );
+      expect(created.statusCode, created.body).toBe(201);
+    });
+
+    it('linking itself refuses the other kind (a race past the check): the transaction rolls back', async () => {
+      const internal = await uploaded(w.agentA, 'raced.pdf', PDF, 'internal');
+      const actor = { id: w.agentA.id } as Actor;
+      await expect(
+        ctx.prisma.$transaction(async (tx) => {
+          const message = await tx.message.create({
+            data: { ticketId: t.id, authorId: w.agentA.id, type: 'PUBLIC', body: 'Raced reply' },
+            select: { id: true },
+          });
+          await linkAttachments(tx, actor, [internal], t.id, message.id, 'PUBLIC');
+        }),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED' });
+      expect(await messagesWith('Raced reply')).toBe(0);
+      expect(await linkedTo(internal)).toBeNull();
+    });
   });
 
   it('clients of a deactivated organisation cannot reserve uploads (review SEC-API-3)', async () => {
@@ -731,7 +1069,7 @@ describe('attachments (MinIO)', () => {
 
     it('files of an internal note: staff only (clients 404, never listed for them)', async () => {
       const t = await createTicket(ctx, uploader, ticketBody(w));
-      const id = await uploaded(w.agentA, 'internal-findings.pdf');
+      const id = await uploaded(w.agentA, 'internal-findings.pdf', PDF, 'internal');
       const note = await postMessage(ctx, w.agentA, t.id, {
         type: 'INTERNAL',
         body: 'Logs attached',

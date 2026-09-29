@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  computeDueDates,
+  computeSlaTargets,
   formContextSchema,
   ticketFormConfigSchema,
   ticketResponseSchema,
@@ -201,8 +201,14 @@ describe('ticket configuration, form context and creation', () => {
         firstRepliedAt: null,
         solvedAt: null,
         slaPausedAt: null,
+        closedAt: null,
+        // Not P1: no P1 period, nothing to acknowledge.
+        p1Since: null,
+        p1EscalationStep: 0,
+        p1AckedAt: null,
+        p1AckedBy: null,
         requesterCard: { org: { id: w.orgX.id }, sitesCount: 2, otherTicketsCount: 0 },
-        sla: { priority: 'P3', businessHoursOnly: true },
+        sla: { priority: 'P3', businessHoursOnly: true, atRiskPercent: 75 },
       });
       expect(ticket.ref).toBe(`LG-${ticket.number}`);
       expect(ticket.lastMessageAt).toBe(ticket.createdAt);
@@ -211,9 +217,15 @@ describe('ticket configuration, form context and creation', () => {
       const calendar = await ctx.app.services.ticketConfig.getCalendar();
       expect(calendar.timeZone).toBe('Asia/Qatar');
       const policy = await ctx.prisma.slaPolicy.findUniqueOrThrow({ where: { priority: 'P3' } });
-      const due = computeDueDates(new Date(ticket.createdAt), policy, calendar);
+      const due = computeSlaTargets(new Date(ticket.createdAt), policy, calendar);
       expect(ticket.firstReplyDueAt).toBe(due.firstReplyDueAt.toISOString());
       expect(ticket.resolveDueAt).toBe(due.resolveDueAt.toISOString());
+      // …and the at-risk instants (D1/D2): 75 % of each window in business minutes, stored.
+      expect(ticket.firstReplyAtRiskAt).toBe(due.firstReplyAtRiskAt.toISOString());
+      expect(ticket.resolveAtRiskAt).toBe(due.resolveAtRiskAt.toISOString());
+      const stored = await ctx.prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(stored.firstReplyAtRiskAt).toEqual(due.firstReplyAtRiskAt);
+      expect(stored.resolveAtRiskAt).toEqual(due.resolveAtRiskAt);
 
       // The description is the first PUBLIC message, by the client; CREATED event.
       const messages = await ctx.prisma.message.findMany({ where: { ticketId: ticket.id } });
@@ -243,11 +255,22 @@ describe('ticket configuration, form context and creation', () => {
       expect(ticket.priority).toBe('P1');
       expect(Date.parse(ticket.firstReplyDueAt) - created).toBe(15 * MIN);
       expect(Date.parse(ticket.resolveDueAt) - created).toBe(240 * MIN);
+      // At risk after 75 % of each window, wall-clock (24/7): 11 min 15 s and 3 h.
+      expect(Date.parse(ticket.firstReplyAtRiskAt) - created).toBe(11.25 * MIN);
+      expect(Date.parse(ticket.resolveAtRiskAt) - created).toBe(180 * MIN);
       expect(ticket.sla).toEqual({
         priority: 'P1',
         firstReplyMins: 15,
         resolveMins: 240,
         businessHoursOnly: false,
+        atRiskPercent: 75,
+      });
+      // A P1 period starts at creation (D3), step 0, not acknowledged.
+      expect(ticket).toMatchObject({
+        p1Since: ticket.createdAt,
+        p1EscalationStep: 0,
+        p1AckedAt: null,
+        p1AckedBy: null,
       });
     });
 

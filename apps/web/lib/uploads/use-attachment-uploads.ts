@@ -1,6 +1,6 @@
 'use client';
 
-import type { AttachmentDto } from '@loons/shared';
+import type { AttachmentDto, AttachmentVisibility } from '@loons/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { newClientTempId } from '@/lib/tickets/ids';
 import { UPLOAD_LIMITS, checkFiles, type RejectedFile } from './limits';
@@ -10,6 +10,10 @@ export interface UploadItem {
   /** Local id (not the attachment id). */
   id: string;
   file: File;
+  /**
+   * The picked file's name and type until the upload completes, then the stored attachment's: the
+   * API stores an image whose bytes are another image type (a JPEG named .png) as what it is.
+   */
   name: string;
   size: number;
   mimeType: string;
@@ -19,6 +23,8 @@ export interface UploadItem {
   /** Set once the upload is complete. */
   attachment: AttachmentDto | null;
   error: UploadErrorReason | null;
+  /** For `error: 'quota'`: seconds (at the time of the failure) until this file would fit. */
+  retryAfterSeconds: number | null;
 }
 
 export interface AttachmentUploads {
@@ -39,6 +45,11 @@ export interface AttachmentUploads {
 }
 
 export interface UseAttachmentUploadsOptions {
+  /**
+   * Who these files are for (sent with presign): `public` for a public reply or a new ticket,
+   * `internal` for a staff note. Required, so no call site relies on a default.
+   */
+  visibility: AttachmentVisibility;
   /** Uploads for a reply on an existing ticket; omit while creating a ticket. */
   ticketId?: string;
   /** Injected in tests. */
@@ -51,8 +62,8 @@ export interface UseAttachmentUploadsOptions {
  * 25 MB each, 25 MB total, ≤ 10 files), parallel uploads with progress, cancel/remove, retry.
  * Pair it with `<AttachmentDropzone uploads={…} />`.
  */
-export function useAttachmentUploads(options: UseAttachmentUploadsOptions = {}): AttachmentUploads {
-  const { ticketId, upload = uploadAttachment, limits = UPLOAD_LIMITS } = options;
+export function useAttachmentUploads(options: UseAttachmentUploadsOptions): AttachmentUploads {
+  const { visibility, ticketId, upload = uploadAttachment, limits = UPLOAD_LIMITS } = options;
   const [items, setItems] = useState<UploadItem[]>([]);
   // Mirror of `items` for synchronous reads in callbacks (several adds in one tick).
   const itemsRef = useRef<UploadItem[]>([]);
@@ -76,6 +87,7 @@ export function useAttachmentUploads(options: UseAttachmentUploadsOptions = {}):
       controllers.current.set(item.id, controller);
       let lastPercent = -1;
       upload(item.file, {
+        visibility,
         ticketId,
         signal: controller.signal,
         onProgress: (fraction) => {
@@ -87,19 +99,28 @@ export function useAttachmentUploads(options: UseAttachmentUploadsOptions = {}):
       })
         .then((attachment) => {
           if (controller.signal.aborted) return;
-          patch(item.id, { status: 'done', progress: 1, attachment, error: null });
+          // The chip shows what was stored (a corrected image's name, type and icon).
+          patch(item.id, {
+            status: 'done',
+            progress: 1,
+            attachment,
+            error: null,
+            name: attachment.fileName,
+            mimeType: attachment.mimeType,
+          });
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
           const reason = isUploadError(error) ? error.reason : 'network';
           if (reason === 'aborted') return;
-          patch(item.id, { status: 'error', error: reason });
+          const retryAfterSeconds = isUploadError(error) ? error.retryAfterSeconds : null;
+          patch(item.id, { status: 'error', error: reason, retryAfterSeconds });
         })
         .finally(() => {
           if (controllers.current.get(item.id) === controller) controllers.current.delete(item.id);
         });
     },
-    [upload, ticketId, patch],
+    [upload, visibility, ticketId, patch],
   );
 
   const add = useCallback(
@@ -121,6 +142,7 @@ export function useAttachmentUploads(options: UseAttachmentUploadsOptions = {}):
         status: 'uploading',
         attachment: null,
         error: null,
+        retryAfterSeconds: null,
       }));
       if (created.length) {
         commit((prev) => [...prev, ...created]);
@@ -144,7 +166,13 @@ export function useAttachmentUploads(options: UseAttachmentUploadsOptions = {}):
     (id: string) => {
       const item = itemsRef.current.find((i) => i.id === id);
       if (!item || item.status !== 'error') return;
-      const next: UploadItem = { ...item, status: 'uploading', progress: 0, error: null };
+      const next: UploadItem = {
+        ...item,
+        status: 'uploading',
+        progress: 0,
+        error: null,
+        retryAfterSeconds: null,
+      };
       patch(id, next);
       start(next);
     },

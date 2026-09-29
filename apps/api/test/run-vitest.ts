@@ -1,6 +1,7 @@
-// `pnpm test` for the API: runs `vitest run`, and reruns the test files whose worker was killed by
-// the Windows fail-fast 0xC0000409 while nothing else failed — once, or twice on a Node release
-// known to have the bug below (with a hint to upgrade).
+// `pnpm test` for the API: runs `vitest run` (dropping the `--` that `pnpm test -- <files>` passes
+// on). Only on a Node release known to have the bug below (with a hint to upgrade) it reruns, up to
+// twice, the test files whose worker was killed by the Windows fail-fast 0xC0000409 while nothing
+// else failed. The repo requires Node >= 24.16.0 (`engines`), where such a crash is a real failure.
 //
 // Why (review F8): on Windows, Node 24.15 and older vendor libuv 1.51, whose
 // uv__is_fast_loopback_fail_supported() (src/win/tcp.c) passes an uninitialised OSVERSIONINFOW to
@@ -11,8 +12,7 @@
 // affected Node most full runs lose a worker. It is not this code base: it also happened with no
 // native addon loaded in the workers. A crashed file's tests never reported, so running that file
 // again is a complete, honest result; any assertion failure, any other error, another exit code
-// or a crash beyond the allowed reruns still fails the run. Drop this wrapper once every machine
-// runs Node >= 24.16.0.
+// or a crash beyond the allowed reruns still fails the run.
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -52,9 +52,9 @@ export function hasLoopbackCrashBug(
   return major === 24 && (minor ?? 0) < 16;
 }
 
-/** How many times a crashed file may run again: twice where the bug is known, else once. */
+/** How many times a crashed file may run again: twice where the bug is known, else never. */
 export function maxReruns(affected: boolean = hasLoopbackCrashBug()): number {
-  return affected ? 2 : 1;
+  return affected ? 2 : 0;
 }
 
 export const UPGRADE_HINT =

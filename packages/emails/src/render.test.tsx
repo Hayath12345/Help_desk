@@ -284,13 +284,23 @@ describe('GOOGLE_LINKED default template', () => {
 });
 
 describe('Arabic product name (UI-RR-2)', () => {
-  it('no Arabic subject or body of a built-in template says "Loons Help Desk"', () => {
+  it('no Arabic subject or body of a built-in template uses the Latin name', () => {
     for (const key of EMAIL_TEMPLATE_KEYS) {
       const template = DEFAULT_EMAIL_TEMPLATES[key];
       expect(template.subjectAr, key).not.toContain('Loons Help Desk');
       expect(template.bodyAr, key).not.toContain('Loons Help Desk');
-      // Every Arabic text that names the product uses the Arabic name.
-      expect(`${template.subjectAr}\n${template.bodyAr}`, key).toContain('مكتب دعم لونز');
+      // Not "Loons Support" either: Arabic text writes لونز.
+      expect(`${template.subjectAr}\n${template.bodyAr}`, key).not.toMatch(/Loons/i);
+    }
+  });
+
+  it('where the English names the product or the team, the Arabic uses the Arabic name', () => {
+    for (const key of EMAIL_TEMPLATE_KEYS) {
+      const template = DEFAULT_EMAIL_TEMPLATES[key];
+      const en = `${template.subjectEn}\n${template.bodyEn}`;
+      const ar = `${template.subjectAr}\n${template.bodyAr}`;
+      if (en.includes('Loons Help Desk')) expect(ar, key).toContain('مكتب دعم لونز');
+      if (en.includes('Loons Support')) expect(ar, key).toContain('دعم لونز');
     }
   });
 });

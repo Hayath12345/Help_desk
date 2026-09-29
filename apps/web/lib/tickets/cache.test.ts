@@ -128,6 +128,7 @@ describe('ticket caches', () => {
     const summary = toSummary(makeDetail());
     expect(summary).not.toHaveProperty('description');
     expect(summary).not.toHaveProperty('requesterCard');
+    expect(summary).not.toHaveProperty('p1Chain');
     expect(summary).toEqual(makeSummary());
   });
 

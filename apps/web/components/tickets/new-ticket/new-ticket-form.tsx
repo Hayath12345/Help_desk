@@ -142,7 +142,8 @@ export function NewTicketForm({
   const formatWindow = useSlaWindowFormatter();
   const assetPlaceholder = useAssetPlaceholder();
   const createTicket = useCreateTicket();
-  const uploads = useAttachmentUploads();
+  // Files of the ticket's description are public (the requester can download them).
+  const uploads = useAttachmentUploads({ visibility: 'public' });
   const idPrefix = useId();
   const fid = (name: string) => `${idPrefix}-${name}`;
   const [formError, setFormError] = useState<string | null>(null);

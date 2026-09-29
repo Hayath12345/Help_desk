@@ -6,7 +6,7 @@ import {
   presignAttachmentResponseSchema,
   presignAttachmentSchema,
 } from '@loons/shared';
-import { errorResponses } from '../lib/errors.ts';
+import { AppError, errorResponses } from '../lib/errors.ts';
 import { MINUTE, limitGuard } from '../lib/rate-limit.ts';
 import { actorOf, requireAuth } from '../plugins/auth.ts';
 
@@ -40,7 +40,7 @@ export const attachmentRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['attachments'],
         summary: 'Reserve an upload: returns a pre-signed POST (15 min) for the browser',
         description:
-          'The browser POSTs multipart form data (the returned fields, then the file last) to `upload.url`, then calls `/attachments/{id}/complete`. Allowed: images, video, PDF, text/log and zip up to 25 MB.',
+          'The browser POSTs multipart form data (the returned fields, then the file last) to `upload.url`, then calls `/attachments/{id}/complete`. Allowed: images, video, PDF, text/log and zip up to 25 MB. `visibility` (default `public`) fixes which messages the file can be linked to: `public` — a public reply or a new ticket; `internal` — an internal note (staff only, 403 for clients). Each user may reserve UPLOAD_DAILY_BYTES_PER_USER bytes (declared sizes) over a rolling 24 hours; beyond it 429 RATE_LIMITED with `details = { reason: "daily-quota", limitBytes, retryAfterSeconds }` and a `Retry-After` header.',
         security,
         body: presignAttachmentSchema,
         response: {
@@ -50,8 +50,18 @@ export const attachmentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req, reply) => {
-      const result = await app.services.attachments.presign(actorOf(req), req.body);
-      return reply.code(201).send(result);
+      try {
+        const result = await app.services.attachments.presign(actorOf(req), req.body);
+        return reply.code(201).send(result);
+      } catch (err) {
+        // The daily budget's 429 carries Retry-After like the request limits do.
+        if (err instanceof AppError && err.statusCode === 429) {
+          const retryAfter = (err.details as { retryAfterSeconds?: unknown } | undefined)
+            ?.retryAfterSeconds;
+          if (typeof retryAfter === 'number') reply.header('retry-after', retryAfter);
+        }
+        throw err;
+      }
     },
   );
 

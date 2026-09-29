@@ -23,12 +23,18 @@
 //                         reorder, prefetch the ticket on hover.
 //   ConversationPane      Selected ticket: header, thread (yellow internal notes, typing incl. the
 //                         staff room), composer, right panel; not-found / loading states.
-//   ConversationHeader    `LG-n · Category › Sub-type · via channel · Site`, subject + priority.
+//   ConversationHeader    `LG-n · Category › Sub-type · via channel · Site`, subject + priority,
+//                         and the P1 banner.
+//   P1Banner, p1BannerModel, isUnacknowledgedP1
+//                         Phase 3 (D5/D16): "P1 not acknowledged · escalation step N · P1 for X" +
+//                         Acknowledge (server-confirmed, POST /tickets/:id/acknowledge), then
+//                         "Acknowledged by X · time". Rows mark unacknowledged P1s.
 //   Composer              Public reply / Internal note (yellow), per-mode drafts, attachments,
 //                         macros ({{requesterFirstName}} / {{siteName}}, setStatus), Send & solve.
 //   TicketPanel           SLA card, status segmented control, property editors (all optimistic),
 //                         Assign to me, requester card.
-//   SlaCard, slaCardModel The SLA countdown card and its pure model.
+//   SlaCard, slaCardModel The SLA countdown card and its pure model; per target (D1/D16) an
+//                         "At risk" / "Breached" pill (first reply) and words on the resolution line.
 //   RequesterCard         Client, contract, AMC expiry, sites, account manager, other tickets.
 //   PropertySelect, AssetIdEditor, TagsEditor, PropertyLabel
 //
@@ -79,6 +85,7 @@ export {
   type PropertyOption,
   type PropertySelectProps,
 } from './property-editors';
+export { P1Banner, isUnacknowledgedP1, p1BannerModel, type P1BannerModel } from './p1-banner';
 export { RequesterCard } from './requester-card';
 export { SlaCard, slaCardModel, type SlaCardModel } from './sla-card';
 export { normalizeTag, tagProblem, type TagProblem } from './tags';

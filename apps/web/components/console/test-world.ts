@@ -9,6 +9,7 @@ import {
   isSlaAtRiskOrBreached,
   parseTicketNumber,
   statusAfterMessage,
+  type AcknowledgeTicketResponse,
   type CreateMessageInput,
   type FormContext,
   type MacroDto,
@@ -507,6 +508,8 @@ export interface InboxWorld {
     input: CreateMessageInput,
   ) => { message: MessageDto; ticket: TicketSummaryDto };
   updateTicket: (ticketId: string, patch: UpdateTicketInput) => TicketDetailDto;
+  /** POST /tickets/:id/acknowledge, like the API: idempotent, P1 only (409 otherwise). */
+  acknowledge: (ticketId: string) => AcknowledgeTicketResponse;
   formContext: (requesterId: string) => FormContext;
   macros: MacroDto[];
   teams: TeamWithMembers[];
@@ -545,6 +548,11 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         ? created + policy.firstReplyMins * MIN
         : baseNow + seed.firstDueIn * MIN;
     const replied = seed.firstDueIn === null;
+    const resolveDueAt = created + policy.resolveMins * MIN;
+    // The API stores the instant at which atRiskPercent of each window has elapsed in SLA time
+    // (business minutes for P3/P4); this fake world approximates it in wall-clock time.
+    const atRisk = (due: number, windowMins: number) =>
+      iso(due - (windowMins * MIN * (100 - policy.atRiskPercent)) / 100);
     const thread = seed.thread.map<MessageDto>((m, i) => {
       const author =
         m.who === 'client'
@@ -592,12 +600,18 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
       tags: seed.tags,
       preview: (lastPublic?.body ?? '').replace(/\s+/g, ' ').slice(0, 140),
       firstReplyDueAt: iso(firstReplyDueAt),
-      resolveDueAt: iso(created + policy.resolveMins * MIN),
+      resolveDueAt: iso(resolveDueAt),
+      firstReplyAtRiskAt: atRisk(firstReplyDueAt, policy.firstReplyMins),
+      resolveAtRiskAt: atRisk(resolveDueAt, policy.resolveMins),
       firstRepliedAt: replied ? iso(created + 10 * MIN) : null,
       solvedAt: seed.status === 'SOLVED' ? iso(baseNow - 3900 * MIN) : null,
+      closedAt: null,
       slaBreached: false,
       slaPausedAt: seed.status === 'PENDING' ? iso(baseNow - 58 * MIN) : null,
+      p1Since: seed.priority === 'P1' ? iso(created) : null,
+      p1EscalationStep: 0,
       p1AckedAt: null,
+      p1AckedBy: null,
       lastMessageAt: thread.at(-1)?.createdAt ?? iso(created),
       createdAt: iso(created),
       updatedAt: iso(updated),
@@ -618,6 +632,12 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         otherTicketsCount: 0,
       },
       sla: policy,
+      // The seeded global chain (D3): on-call at 0, team leads at 5, operations manager at 15.
+      p1Chain: [
+        { step: 1, afterMins: 0 },
+        { step: 2, afterMins: 5 },
+        { step: 3, afterMins: 15 },
+      ],
     };
   };
 
@@ -805,6 +825,15 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
       touch(ticket);
       return { message, ticket: toSummary(ticket) };
     },
+    acknowledge(ticketId) {
+      const ticket = find(ticketId) ?? notFound();
+      if (ticket.priority !== 'P1') throw new ApiRequestError(409, 'CONFLICT', 'Not a P1');
+      if (ticket.p1AckedAt) return { ticket: structuredClone(ticket), alreadyAcknowledged: true };
+      ticket.p1AckedAt = iso(clock());
+      ticket.p1AckedBy = { id: viewer.id, name: viewer.name };
+      touch(ticket);
+      return { ticket: structuredClone(ticket), alreadyAcknowledged: false };
+    },
     updateTicket(ticketId, patch) {
       const ticket = find(ticketId) ?? notFound();
       if (patch.tags?.includes('fail')) {
@@ -815,6 +844,13 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         ticket.solvedAt = patch.status === 'SOLVED' ? iso(clock()) : null;
       }
       if (patch.priority) {
+        // Like the API: becoming P1 starts a P1 period, leaving P1 ends it.
+        if ((patch.priority === 'P1') !== (ticket.priority === 'P1')) {
+          ticket.p1Since = patch.priority === 'P1' ? iso(clock()) : null;
+          ticket.p1EscalationStep = 0;
+          ticket.p1AckedAt = null;
+          ticket.p1AckedBy = null;
+        }
         ticket.priority = patch.priority;
         ticket.sla = policies.get(patch.priority)!;
       }
@@ -893,6 +929,9 @@ export function worldRequest(
     if (parts[0] === 'tickets' && parts.length === 2) {
       return { ticket: clone(world.getTicket(decodeURIComponent(parts[1] ?? ''))) };
     }
+  }
+  if (method === 'POST' && parts[0] === 'tickets' && parts[2] === 'acknowledge') {
+    return world.acknowledge(parts[1] ?? '');
   }
   if (method === 'POST' && parts[0] === 'tickets' && parts[2] === 'messages') {
     return clone(world.postMessage(parts[1] ?? '', body as CreateMessageInput));

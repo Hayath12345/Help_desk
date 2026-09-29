@@ -35,22 +35,24 @@
 //   useTypingText(users)    The sentence alone.
 //
 // SLA
-//   SlaText                 List SLA cell: countdown / "Overdue 12m" / "Replied" / "Paused" / done status.
-//   slaTone(state), SLA_TONE_TEXT, SLA_TONE_BAR
+//   SlaText                 List SLA cell: countdown / "Overdue 12m" / "Replied" / "Paused" / done status;
+//                           after the first reply, a resolution target at risk / overdue replaces "Replied".
+//   slaTone(state), slaRowTone(state), rowResolutionClock(state), SLA_TONE_TEXT, SLA_TONE_BAR
 //                           Tone of a `slaState()` (ok | risk | overdue | done | paused | replied) and
 //                           its text / bar classes (for the console SLA card).
 //
 // Attachments
 //   AttachmentDropzone      Drag-and-drop / browse zone + upload chips (progress, remove, retry) and
-//                           inline rejection messages. Props: uploads (useAttachmentUploads()),
-//                           compact, disabled, id, onRejected.
+//                           inline rejection messages. Props: uploads
+//                           (useAttachmentUploads({ visibility })), compact, disabled, id, onRejected.
 //   UploadChip, UploadChipList
 //                           One upload's chip (size / progress, Retry / Remove, the failure reason
 //                           under it) and the list of them; `progress`: 'beside-size' (forms) or
 //                           'instead-of-size' (the console composer). Used by AttachmentDropzone
 //                           and the console composer.
-//   useNewestUploadFailure(items, scope?), useUploadFailureText()
-//                           The upload that failed last (what a status region announces) and why.
+//   useNewestUploadFailure(items, scope?), useUploadFailureText(), quotaWait(seconds)
+//                           The upload that failed last (what a status region announces) and why
+//                           (a daily-quota failure says when to retry, in minutes or hours).
 //   AttachmentChips         Read-only chips of stored attachments; click downloads (signed URL).
 //   FileTypeIcon, attachmentChipClass, fileSizeParts, useFileSizeFormatter
 //
@@ -69,6 +71,7 @@ export { AttachmentDropzone, type AttachmentDropzoneProps } from './attachment-d
 export {
   UploadChip,
   UploadChipList,
+  quotaWait,
   useNewestUploadFailure,
   useUploadFailureText,
   type UploadChipProgress,
@@ -111,6 +114,8 @@ export {
   SLA_TONE_BAR,
   SLA_TONE_TEXT,
   SlaText,
+  rowResolutionClock,
+  slaRowTone,
   slaTone,
   type SlaTextProps,
   type SlaTone,

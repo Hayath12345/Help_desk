@@ -10,7 +10,7 @@ import { PREVIEW_MAX_CHARS, messagePreview } from './ticket-dto.ts';
 import { encodeCursor } from './ticket-query.ts';
 import { slaPausesOf, statusChangeData } from './ticket-state.ts';
 import { changedKeys } from './tickets.service.ts';
-import type { SlaMath } from './sla.ts';
+import { sharedSlaMath, type SlaMath } from './sla.ts';
 
 describe('messagePreview', () => {
   it('collapses whitespace and trims', () => {
@@ -75,7 +75,7 @@ describe('allowTyping (per-socket throttle)', () => {
 describe('statusChangeData', () => {
   const now = new Date('2026-09-24T10:00:00Z');
   const math: SlaMath = {
-    computeDueDates: () => {
+    computeSlaTargets: () => {
       throw new Error('unused');
     },
     resumeDueDate: (due, paused, resumed) =>
@@ -85,6 +85,7 @@ describe('statusChangeData', () => {
   const base = {
     now,
     resolveDueAt: new Date('2026-09-24T12:00:00Z'),
+    resolveAtRiskAt: new Date('2026-09-24T11:00:00Z'),
     slaPausedAt: null,
     slaPauses: [],
     businessHoursOnly: false,
@@ -117,7 +118,29 @@ describe('statusChangeData', () => {
       slaPausedAt: null,
       slaPauses: [{ from: pausedAt.toISOString(), to: now.toISOString() }],
       resolveDueAt: new Date('2026-09-24T13:00:00Z'),
+      // The resolution at-risk instant moves with the due date (D2).
+      resolveAtRiskAt: new Date('2026-09-24T12:00:00Z'),
     });
+  });
+
+  it('resuming moves the at-risk instant like the due date; a passed or unknown one stays', async () => {
+    const calendar24 = async () => ({ timeZone: 'Asia/Qatar', hours: [], holidays: [] });
+    const pausedAt = new Date('2026-09-24T09:00:00Z');
+    const real = { ...base, math: sharedSlaMath, calendar: calendar24, slaPausedAt: pausedAt };
+    // 24/7: both shift by the paused hour.
+    expect(await statusChangeData({ ...real, from: 'PENDING', to: 'OPEN' })).toMatchObject({
+      resolveDueAt: new Date('2026-09-24T13:00:00Z'),
+      resolveAtRiskAt: new Date('2026-09-24T12:00:00Z'),
+    });
+    // The instant had already passed when the pause started: it stays; the due date moves.
+    const passed = new Date('2026-09-24T08:30:00Z');
+    expect(
+      await statusChangeData({ ...real, from: 'PENDING', to: 'OPEN', resolveAtRiskAt: passed }),
+    ).toMatchObject({ resolveDueAt: new Date('2026-09-24T13:00:00Z'), resolveAtRiskAt: passed });
+    // Not known yet (a ticket from before Phase 3): left for the SLA scan to backfill.
+    expect(
+      await statusChangeData({ ...real, from: 'PENDING', to: 'OPEN', resolveAtRiskAt: null }),
+    ).not.toHaveProperty('resolveAtRiskAt');
   });
 
   it('each finished pause is appended to slaPauses (malformed stored entries are dropped)', async () => {

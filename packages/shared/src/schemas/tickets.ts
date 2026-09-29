@@ -75,6 +75,31 @@ export const uploadRejectionDetailsSchema = z.object({ reason: z.enum(UPLOAD_REJ
 export type UploadRejectionDetails = z.infer<typeof uploadRejectionDetailsSchema>;
 
 /**
+ * Who an upload is for — chosen at presign and enforced when the file is linked: `public` files
+ * can only be attached to a PUBLIC message or a new ticket's description, `internal` files only to
+ * an INTERNAL note. Only staff may reserve `internal` uploads (a client gets 403). Linking a file to
+ * a message of the other kind is refused (400), so a note's file can never be published, even by
+ * a hand-written API call.
+ */
+export const ATTACHMENT_VISIBILITIES = ['public', 'internal'] as const;
+export type AttachmentVisibility = (typeof ATTACHMENT_VISIBILITIES)[number];
+
+/**
+ * Upload budget per user over a rolling 24 hours, counted in declared bytes at presign (API env
+ * `UPLOAD_DAILY_BYTES_PER_USER`, default 2 GiB). Beyond it presign answers 429 RATE_LIMITED with
+ * `error.details` matching `uploadQuotaDetailsSchema`.
+ */
+export const DEFAULT_UPLOAD_DAILY_BYTES_PER_USER = 2 * 1024 * 1024 * 1024;
+export const uploadQuotaDetailsSchema = z.object({
+  reason: z.literal('daily-quota'),
+  /** The configured budget in bytes. */
+  limitBytes: z.number().int().positive(),
+  /** When enough of the budget frees up for this file. */
+  retryAfterSeconds: z.number().int().nonnegative(),
+});
+export type UploadQuotaDetails = z.infer<typeof uploadQuotaDetailsSchema>;
+
+/**
  * File extensions that belong to each allowed MIME type (lower case; the first is canonical). The
  * API keeps an upload's extension only when it belongs to the declared type and otherwise appends
  * the canonical one ("Invoice.pdf.exe" declared as a PDF is stored as "Invoice.pdf.exe.pdf"), so
@@ -222,6 +247,8 @@ export const slaPolicyDtoSchema = z.object({
   firstReplyMins: z.number().int(),
   resolveMins: z.number().int(),
   businessHoursOnly: z.boolean(),
+  /** Share of each window (percent, SLA time) after which a target is "at risk" (spec §7). */
+  atRiskPercent: z.number().int().min(0).max(100),
 });
 
 /** GET /config/ticket-form — active categories (sorted), their sub-types and fields, SLA policies. */
@@ -347,11 +374,26 @@ export const ticketSummaryDtoSchema = z.object({
   preview: z.string(),
   firstReplyDueAt: nullableIso,
   resolveDueAt: nullableIso,
+  /**
+   * When `atRiskPercent` of each window has elapsed in SLA time (D1/D2), computed by the API with
+   * the due dates. Compare with now (`slaState`); null = not known yet (never "at risk").
+   */
+  firstReplyAtRiskAt: nullableIso,
+  resolveAtRiskAt: nullableIso,
   firstRepliedAt: nullableIso,
   solvedAt: nullableIso,
+  /** Set by the auto-close job (SOLVED for tickets.autoCloseDays → CLOSED). */
+  closedAt: nullableIso,
+  /** A target has been breached (sticky: stays true after the target is met, for reporting). */
   slaBreached: z.boolean(),
   slaPausedAt: nullableIso,
+  /** When the ticket became P1 (creation or a later upgrade); null while it is not P1. */
+  p1Since: nullableIso,
+  /** Last escalation step fired in the current P1 period (0 = none). */
+  p1EscalationStep: z.number().int().nonnegative(),
   p1AckedAt: nullableIso,
+  /** Who acknowledged the P1 (null when not acknowledged, or the user was removed). */
+  p1AckedBy: userRefSchema.nullable(),
   /** Latest PUBLIC message (or the creation time). Internal notes don't move it. */
   lastMessageAt: nullableIso,
   createdAt: isoDate,
@@ -379,6 +421,13 @@ export const requesterCardSchema = z.object({
   otherTicketsCount: z.number().int(),
 });
 
+/** One step of a P1 escalation chain: it fires `afterMins` after the ticket became P1 (D3). */
+export const p1ChainStepSchema = z.object({
+  step: z.number().int().positive(),
+  afterMins: z.number().int().nonnegative(),
+});
+export type P1ChainStep = z.infer<typeof p1ChainStepSchema>;
+
 export const ticketDetailDtoSchema = ticketSummaryDtoSchema.extend({
   description: z.string(),
   assetId: z.string().nullable(),
@@ -387,6 +436,13 @@ export const ticketDetailDtoSchema = ticketSummaryDtoSchema.extend({
   requesterCard: requesterCardSchema,
   /** Policy windows used by the SLA card ("First reply due · 15 min", "Resolution target"). */
   sla: slaPolicyDtoSchema,
+  /**
+   * The active P1 escalation chain of the ticket's team (its own rules replace the global chain,
+   * D3), ordered by step; staff only (null for clients). With `p1Since` and `p1EscalationStep`
+   * the P1 banner shows "step N of M" and when the next step fires. Read when the detail is
+   * loaded (the chain only changes with the Phase 4 admin).
+   */
+  p1Chain: z.array(p1ChainStepSchema).nullable(),
 });
 export type TicketDetailDto = z.infer<typeof ticketDetailDtoSchema>;
 
@@ -476,9 +532,11 @@ export const createMessageResponseSchema = z.object({
  * `{ status: 'SOLVED' }` (active → solved) or `{ status: 'OPEN' }` (solved → reopen).
  * Every change writes a TicketEvent. `assigneeId` must be active staff on the ticket's team (or a
  * super admin); `null` unassigns. Changing the category re-routes to its team and requires a
- * matching `subtypeId`. Changing the priority recomputes the SLA due dates from `createdAt`
- * with the new policy; time the ticket already spent PENDING stays credited to the resolution
- * target (`computeDueDates` with the ticket's finished pauses).
+ * matching `subtypeId`. Changing the priority recomputes the SLA due dates and at-risk instants
+ * from `createdAt` with the new policy; time the ticket already spent PENDING stays credited to
+ * the resolution target (`computeSlaTargets` with the ticket's finished pauses). Becoming P1
+ * starts a new P1 period (`p1Since` = now, escalation step 0, not acknowledged); leaving P1 clears
+ * it.
  */
 export const updateTicketSchema = z
   .object({
@@ -508,6 +566,19 @@ export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;
 
 export const ticketResponseSchema = z.object({ ticket: ticketDetailDtoSchema });
 
+// ───────────── P1 acknowledge ─────────────
+
+/**
+ * POST /tickets/:id/acknowledge (staff who can view the ticket; body-less). Idempotent: when the
+ * P1 was already acknowledged the answer is still 200 with `alreadyAcknowledged: true`, and the
+ * ticket shows the first acknowledger (`p1AckedBy` / `p1AckedAt`), never the caller.
+ */
+export const acknowledgeTicketResponseSchema = z.object({
+  ticket: ticketDetailDtoSchema,
+  alreadyAcknowledged: z.boolean(),
+});
+export type AcknowledgeTicketResponse = z.infer<typeof acknowledgeTicketResponseSchema>;
+
 // ───────────── Attachments ─────────────
 
 /**
@@ -524,6 +595,8 @@ export const presignAttachmentSchema = z.object({
   sizeBytes: z.number().int().min(1).max(TICKET_LIMITS.attachmentMaxBytes),
   /** Set when adding to an existing ticket (reply); omit while creating a ticket. */
   ticketId: z.uuid().optional(),
+  /** `internal` for a staff member's note (see ATTACHMENT_VISIBILITIES). */
+  visibility: z.enum(ATTACHMENT_VISIBILITIES).default('public'),
 });
 export const presignAttachmentResponseSchema = z.object({
   attachmentId: z.uuid(),
@@ -535,6 +608,9 @@ export const presignAttachmentResponseSchema = z.object({
 /**
  * POST /attachments/:id/complete — storage verified (size/type), the checked object copied to a
  * key only the API writes, its first bytes matched against the type, scan hook run on the copy.
+ * An image whose bytes are a different allowed image type (a JPEG named .png) is accepted as what
+ * it really is: the returned attachment carries the detected `mimeType` and a matching extension
+ * in `fileName`. Content that is no allowed image is still refused (`content`).
  */
 export const completeAttachmentResponseSchema = z.object({ attachment: attachmentDtoSchema });
 

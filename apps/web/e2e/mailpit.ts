@@ -6,21 +6,56 @@ const MAILPIT_API_URL = (process.env.MAILPIT_API_URL || 'http://localhost:8025/a
   '',
 );
 
-interface MailpitSummary {
+export interface MailpitSummary {
   ID: string;
   Subject: string;
   Created: string;
 }
 
-/** Messages to `address`, newest first. */
-async function messagesTo(request: APIRequestContext, address: string): Promise<MailpitSummary[]> {
-  const url = `${MAILPIT_API_URL}/search?query=${encodeURIComponent(`to:"${address}"`)}`;
+/** Messages to `address` (and whose subject contains `subject`, when given), newest first. */
+async function messagesTo(
+  request: APIRequestContext,
+  address: string,
+  subject?: string,
+): Promise<MailpitSummary[]> {
+  const query = subject ? `to:"${address}" subject:"${subject}"` : `to:"${address}"`;
+  const url = `${MAILPIT_API_URL}/search?query=${encodeURIComponent(query)}`;
   const response = await request.get(url);
   expect(response.ok(), `Mailpit search failed (${response.status()}): is Mailpit running?`).toBe(
     true,
   );
   const body = (await response.json()) as { messages?: MailpitSummary[] };
   return body.messages ?? [];
+}
+
+/**
+ * Waits for an email to `address` whose subject contains `subject` (e.g. the ticket number
+ * "LG-4821", which every ticket template puts in its subject) and returns its summary. The API
+ * sends mail through the BullMQ worker, so this can take a few seconds.
+ */
+export async function waitForEmail(
+  request: APIRequestContext,
+  address: string,
+  subject: string,
+  timeout = 45_000,
+): Promise<MailpitSummary> {
+  let found: MailpitSummary | undefined;
+  await expect
+    .poll(
+      async () => {
+        found = (await messagesTo(request, address, subject)).find((m) =>
+          m.Subject.includes(subject),
+        );
+        return found !== undefined;
+      },
+      {
+        message: `No email about "${subject}" reached ${address} (is the API worker running?)`,
+        timeout,
+        intervals: [500, 1_000, 2_000],
+      },
+    )
+    .toBe(true);
+  return found!;
 }
 
 /**

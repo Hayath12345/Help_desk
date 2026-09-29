@@ -1,4 +1,4 @@
-// Qatar public holidays for 2026 and 2027. Fixed-date holidays are exact; Eid dates follow the
+// Qatar public holidays for 2026–2028. Fixed-date holidays are exact; Eid dates follow the
 // Hijri calendar and depend on moon sighting, so they are astronomical estimates and are labelled
 // "(estimated)" — admins confirm or move them in Admin → Business hours & holidays.
 
@@ -17,6 +17,8 @@ const EID_ESTIMATES: Record<number, { fitr: Date; adha: Date }> = {
   2026: { fitr: utcDate(2026, 3, 20), adha: utcDate(2026, 5, 27) },
   // 1 Shawwal 1448 / 10 Dhu al-Hijjah 1448
   2027: { fitr: utcDate(2027, 3, 9), adha: utcDate(2027, 5, 16) },
+  // 1 Shawwal 1449 / 10 Dhu al-Hijjah 1449
+  2028: { fitr: utcDate(2028, 2, 26), adha: utcDate(2028, 5, 5) },
 };
 
 /** Eid holidays in Qatar's private sector span three days. */
@@ -53,6 +55,6 @@ export function qatarHolidays(year: number): HolidaySeed[] {
   ];
 }
 
-export const HOLIDAY_YEARS = [2026, 2027] as const;
+export const HOLIDAY_YEARS = [2026, 2027, 2028] as const;
 
 export const HOLIDAYS: readonly HolidaySeed[] = HOLIDAY_YEARS.flatMap(qatarHolidays);

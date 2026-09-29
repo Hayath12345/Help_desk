@@ -83,10 +83,12 @@ export function Composer({
   });
   const [dragging, setDragging] = useState(false);
   // One upload set per mode (like the drafts): a file dropped on the Internal note tab must never
-  // ride along with a Public reply — the API links any finished upload to whichever message
-  // names it, and files of a public message are downloadable by the client.
-  const publicUploads = useAttachmentUploads({ ticketId: ticket.id });
-  const noteUploads = useAttachmentUploads({ ticketId: ticket.id });
+  // ride along with a Public reply — files of a public message are downloadable by the client.
+  // Each set presigns with its visibility, and the API links an `internal` upload only to an
+  // INTERNAL note (and a `public` one only to a PUBLIC reply), so even a hand-written request
+  // can't publish a note's file (SEC-WEB-1).
+  const publicUploads = useAttachmentUploads({ visibility: 'public', ticketId: ticket.id });
+  const noteUploads = useAttachmentUploads({ visibility: 'internal', ticketId: ticket.id });
   const update = useUpdateTicket();
   const macros = useMacros();
 

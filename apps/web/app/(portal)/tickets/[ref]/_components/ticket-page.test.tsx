@@ -29,6 +29,25 @@ vi.mock('@/lib/uploads/upload', async (importOriginal) => ({
   ...uploads,
 }));
 
+// Presign bodies are recorded (and never answered) when a test lets the real upload run.
+const presigns = vi.hoisted(() => ({ bodies: [] as unknown[] }));
+vi.mock('@/lib/api/browser', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/browser')>();
+  return {
+    ...actual,
+    apiClient: {
+      ...actual.apiClient,
+      post: (path: string, ...rest: unknown[]) => {
+        if (path !== '/attachments/presign') {
+          return (actual.apiClient.post as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+        }
+        presigns.bodies.push(rest[0]);
+        return new Promise(() => undefined);
+      },
+    },
+  };
+});
+
 const holder = vi.hoisted(() => ({ client: null as RealtimeClient | null }));
 vi.mock('@/lib/realtime/client', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -265,6 +284,28 @@ describe('Ticket thread page', () => {
     expect(replyBox().getAttribute('aria-invalid')).toBeNull();
   });
 
+  it('presigns the files of a reply as public (SEC-WEB-1)', async () => {
+    await renderPage();
+    const actual =
+      await vi.importActual<typeof import('@/lib/uploads/upload')>('@/lib/uploads/upload');
+    uploads.uploadAttachment.mockImplementationOnce(actual.uploadAttachment);
+    presigns.bodies = [];
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }));
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [new File(['png'], 'camera-14.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(presigns.bodies).toHaveLength(1));
+    expect(presigns.bodies[0]).toEqual({
+      fileName: 'camera-14.png',
+      mimeType: 'image/png',
+      sizeBytes: 3,
+      ticketId: TICKET.id,
+      visibility: 'public',
+    });
+  });
+
   it('attaches files to a reply once they have uploaded', async () => {
     await renderPage();
     const upload = deferred<AttachmentDto>();
@@ -280,7 +321,7 @@ describe('Ticket thread page', () => {
     await waitFor(() =>
       expect(uploads.uploadAttachment).toHaveBeenCalledWith(
         file,
-        expect.objectContaining({ ticketId: TICKET.id }),
+        expect.objectContaining({ ticketId: TICKET.id, visibility: 'public' }),
       ),
     );
 

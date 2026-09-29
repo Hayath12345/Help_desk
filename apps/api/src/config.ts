@@ -1,6 +1,7 @@
 import proxyAddr from '@fastify/proxy-addr';
 import { z } from 'zod';
 import {
+  DEFAULT_UPLOAD_DAILY_BYTES_PER_USER,
   isPlaceholderSecret,
   parseApiTokenTtl,
   parseBooleanEnv,
@@ -157,6 +158,45 @@ export function fastifyTrustProxy(
   return (_address, hop) => hop < trust;
 }
 
+/** Default of SMS_MAX_PER_RECIPIENT_PER_HOUR (decision D11). */
+export const DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR = 20;
+/** Default of TEAMS_TIMEOUT_MS. */
+export const DEFAULT_TEAMS_TIMEOUT_MS = 10_000;
+/**
+ * Hosts a Teams webhook may point at when TEAMS_WEBHOOK_HOSTS is blank: Office 365 connector
+ * incoming webhooks and Power Automate / Logic Apps workflow URLs.
+ */
+export const DEFAULT_TEAMS_WEBHOOK_HOSTS = [
+  '*.webhook.office.com',
+  '*.logic.azure.com',
+  '*.environment.api.powerplatform.com',
+] as const;
+
+/** `example.com` or `*.example.com` (a wildcard covers sub-domains only, never the bare domain). */
+const HOST_PATTERN =
+  /^(\*\.)?(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Comma-separated host patterns (lower-cased); blank → the Microsoft defaults. */
+const webhookHostsSchema = z
+  .string()
+  .optional()
+  .transform((value, ctx): string[] => {
+    const list = (value ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+    if (list.length === 0) return [...DEFAULT_TEAMS_WEBHOOK_HOSTS];
+    const invalid = list.findIndex((entry) => !HOST_PATTERN.test(entry));
+    if (invalid !== -1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `entry ${invalid + 1} is not a host name or *.domain pattern`,
+      });
+      return z.NEVER;
+    }
+    return list;
+  });
+
 const envSchema = z.object({
   // Unset means production (fail safe); the dev and test scripts set development / test.
   NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
@@ -208,6 +248,12 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: optionalString,
   S3_SECRET_ACCESS_KEY: optionalString,
   UPLOAD_MAX_BYTES: envInt(25 * 1024 * 1024, 1, 5 * 1024 * 1024 * 1024),
+  // Rolling 24 h upload budget per user, in declared bytes (lib/upload-quota.ts).
+  UPLOAD_DAILY_BYTES_PER_USER: envInt(
+    DEFAULT_UPLOAD_DAILY_BYTES_PER_USER,
+    1,
+    Number.MAX_SAFE_INTEGER,
+  ),
 
   EMAIL_PROVIDER: z.enum(['smtp', 'ses']).default('smtp'),
   EMAIL_FROM: requiredString(),
@@ -221,6 +267,16 @@ const envSchema = z.object({
   SMS_PROVIDER: z.enum(['console', 'sns']).default('console'),
   SNS_REGION: optionalString,
   SMS_SENDER_ID: optionalString,
+  // Texts per phone number per rolling hour (decision D11); beyond it the SMS is SKIPPED.
+  SMS_MAX_PER_RECIPIENT_PER_HOUR: envInt(DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR, 1, 1000),
+
+  // Microsoft Teams (decision D12): console (logs one redacted line) | webhook (HTTPS POST).
+  TEAMS_PROVIDER: z.enum(['console', 'webhook']).default('console'),
+  TEAMS_WEBHOOK_HOSTS: webhookHostsSchema,
+  TEAMS_TIMEOUT_MS: envInt(DEFAULT_TEAMS_TIMEOUT_MS, 1_000, 60_000),
+
+  // false: this worker only consumes jobs (no SLA scan / auto-close / digest / sweep schedulers).
+  WORKER_SCHEDULERS: envBool('WORKER_SCHEDULERS', true),
 });
 
 type Env = z.infer<typeof envSchema>;
@@ -283,6 +339,13 @@ export interface AppConfig {
     secretAccessKey: string | undefined;
     uploadMaxBytes: number;
   };
+  uploads: {
+    /**
+     * Bytes one user may reserve at presign over a rolling 24 hours (UPLOAD_DAILY_BYTES_PER_USER,
+     * default DEFAULT_UPLOAD_DAILY_BYTES_PER_USER); beyond it presign answers 429.
+     */
+    dailyBytesPerUser: number;
+  };
   email: {
     provider: 'smtp' | 'ses';
     from: string;
@@ -295,7 +358,24 @@ export interface AppConfig {
     };
     sesRegion: string | undefined;
   };
-  sms: { provider: 'console' | 'sns'; snsRegion: string | undefined; senderId: string | undefined };
+  sms: {
+    provider: 'console' | 'sns';
+    snsRegion: string | undefined;
+    senderId: string | undefined;
+    /** Texts one phone number may receive per rolling hour (D11). */
+    maxPerRecipientPerHour: number;
+  };
+  /** Microsoft Teams channel posts (D12). The webhook URLs themselves live on `Team` (secrets). */
+  teams: {
+    provider: 'console' | 'webhook';
+    /** Host patterns a webhook URL must match (`host` or `*.domain`); HTTPS only. */
+    webhookHosts: string[];
+    timeoutMs: number;
+  };
+  worker: {
+    /** Register the repeatable jobs (SLA scan, auto-close, digest, sweep, retention) at start. */
+    schedulers: boolean;
+  };
 }
 
 export class ConfigError extends Error {
@@ -389,6 +469,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       secretAccessKey: env.S3_SECRET_ACCESS_KEY,
       uploadMaxBytes: env.UPLOAD_MAX_BYTES,
     },
+    uploads: { dailyBytesPerUser: env.UPLOAD_DAILY_BYTES_PER_USER },
     email: {
       provider: env.EMAIL_PROVIDER,
       from: env.EMAIL_FROM,
@@ -401,6 +482,17 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       },
       sesRegion: env.SES_REGION,
     },
-    sms: { provider: env.SMS_PROVIDER, snsRegion: env.SNS_REGION, senderId: env.SMS_SENDER_ID },
+    sms: {
+      provider: env.SMS_PROVIDER,
+      snsRegion: env.SNS_REGION,
+      senderId: env.SMS_SENDER_ID,
+      maxPerRecipientPerHour: env.SMS_MAX_PER_RECIPIENT_PER_HOUR,
+    },
+    teams: {
+      provider: env.TEAMS_PROVIDER,
+      webhookHosts: env.TEAMS_WEBHOOK_HOSTS,
+      timeoutMs: env.TEAMS_TIMEOUT_MS,
+    },
+    worker: { schedulers: env.WORKER_SCHEDULERS },
   };
 }

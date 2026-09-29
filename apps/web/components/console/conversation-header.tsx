@@ -6,6 +6,7 @@ import { PriorityLabel } from '@/components/common/priority';
 import { localizedLabel, placeName } from '@/lib/tickets/labels';
 import type { AnyTicketDto } from '@/lib/tickets/types';
 import { cn } from '@/lib/utils';
+import { P1Banner } from './p1-banner';
 
 export interface ConversationHeaderProps {
   ticket: AnyTicketDto;
@@ -18,7 +19,8 @@ export interface ConversationHeaderProps {
 
 /**
  * Conversation header (design 772–780): back link on phones, the mono line
- * `LG-4817 · Category › Sub-type · via portal · Site`, then the subject and its priority.
+ * `LG-4817 · Category › Sub-type · via portal · Site`, then the subject and its priority, and for a
+ * P1 the acknowledgement banner (Phase 3: escalation step, Acknowledge, "Acknowledged by X · time").
  */
 export function ConversationHeader({
   ticket,
@@ -76,6 +78,7 @@ export function ConversationHeader({
         </h2>
         <PriorityLabel priority={ticket.priority} />
       </div>
+      <P1Banner ticket={ticket} className="mt-1.5" focusFallbackId={headingId} />
     </header>
   );
 }

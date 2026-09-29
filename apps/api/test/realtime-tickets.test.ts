@@ -507,6 +507,8 @@ describe('realtime ticket rooms', () => {
           mimeType: 'text/plain',
           sizeBytes: 5,
           status: 'CLEAN',
+          // Uploaded for a note (an INTERNAL file can only go on an internal note).
+          visibility: 'INTERNAL',
         },
       });
       const note = await postMessage(ctx, w.agentA, t.id, {

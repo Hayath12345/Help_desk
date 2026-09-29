@@ -98,7 +98,12 @@
       "resolutionTarget": "Resolution target: {window}",
       "resolutionLeft": "{duration} left",
       "resolutionOverdue": "overdue by {duration}",
-      "resolutionPaused": "paused while waiting on the client"
+      "resolutionPaused": "paused while waiting on the client",
+      "atRisk": "At risk",
+      "breached": "Breached",
+      "resolutionAtRisk": "at risk",
+      "resolutionBreached": "breached",
+      "breachedEarlier": "an SLA target was breached"
     },
     "status": "Status",
     "closedNote": "Closed tickets can’t be changed.",
@@ -188,5 +193,51 @@
     },
     "byCategory": "Open tickets by category",
     "loading": "Loading reports…"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "label": "{count, plural, =0 {Notifications} other {Notifications, {n} unread}}",
+    "markAllRead": "Mark all as read",
+    "markRead": "Mark as read",
+    "unreadPrefix": "Unread:",
+    "empty": "No notifications yet.",
+    "loading": "Loading notifications…",
+    "loadFailed": "Notifications couldn’t be loaded.",
+    "retry": "Try again",
+    "loadMore": "Show older notifications",
+    "loadingMore": "Loading older notifications…",
+    "announce": "New notification: {text}",
+    "markReadFailed": "Couldn’t mark notifications as read. {reason}",
+    "aTicket": "a ticket",
+    "types": {
+      "TICKET_CREATED": "New ticket <ticket>{ref}</ticket>",
+      "TICKET_ASSIGNED": "{hasActor, select, yes {{actor} assigned <ticket>{ref}</ticket> to you} other {<ticket>{ref}</ticket> was assigned to you}}",
+      "CLIENT_REPLY": "{hasActor, select, yes {{actor} replied on <ticket>{ref}</ticket>} other {New client reply on <ticket>{ref}</ticket>}}",
+      "AGENT_REPLY": "{hasActor, select, yes {{actor} replied on <ticket>{ref}</ticket>} other {New reply on <ticket>{ref}</ticket>}}",
+      "STATUS_CHANGED": "{hasStatus, select, yes {<ticket>{ref}</ticket> is now {status}} other {<ticket>{ref}</ticket> changed status}}",
+      "SLA_AT_RISK": "{target, select, FIRST_REPLY {First-reply SLA at risk on <ticket>{ref}</ticket>} RESOLUTION {Resolution SLA at risk on <ticket>{ref}</ticket>} other {SLA at risk on <ticket>{ref}</ticket>}}",
+      "SLA_BREACHED": "{target, select, FIRST_REPLY {First-reply SLA breached on <ticket>{ref}</ticket>} RESOLUTION {Resolution SLA breached on <ticket>{ref}</ticket>} other {SLA breached on <ticket>{ref}</ticket>}}",
+      "P1_CREATED": "New P1 ticket <ticket>{ref}</ticket>",
+      "P1_ESCALATED": "{hasStep, select, yes {P1 <ticket>{ref}</ticket> escalated · step {step}} other {P1 <ticket>{ref}</ticket> escalated}}",
+      "P1_ACKNOWLEDGED": "{hasActor, select, yes {{actor} acknowledged P1 <ticket>{ref}</ticket>} other {P1 <ticket>{ref}</ticket> acknowledged}}",
+      "generic": "Update on <ticket>{ref}</ticket>"
+    }
+  },
+  "p1": {
+    "title": "P1 not acknowledged",
+    "step": "escalation step {step}",
+    "notEscalated": "escalation not started",
+    "since": "P1 for {duration}",
+    "acknowledge": "Acknowledge",
+    "acknowledging": "Acknowledging…",
+    "acknowledged": "Acknowledged by {name} · {time}",
+    "acknowledgedNoName": "Acknowledged · {time}",
+    "alreadyAcknowledged": "{name} had already acknowledged this P1.",
+    "alreadyAcknowledgedNoName": "This P1 had already been acknowledged.",
+    "failed": "The P1 wasn’t acknowledged. {reason}",
+    "marker": "Not acknowledged",
+    "stepOf": "escalation step {step} of {count}",
+    "nextIn": "next step in {duration} ({time})",
+    "nextDue": "next step due now"
   }
 }

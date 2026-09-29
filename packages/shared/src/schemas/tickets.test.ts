@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_UPLOAD_MIME_TYPES,
+  ATTACHMENT_VISIBILITIES,
+  DEFAULT_UPLOAD_DAILY_BYTES_PER_USER,
   UPLOAD_MIME_EXTENSIONS,
   createMessageSchema,
   createTicketSchema,
   listTicketsQuerySchema,
+  p1ChainStepSchema,
   presignAttachmentSchema,
   requesterSearchQuerySchema,
   stripControlChars,
+  ticketDetailDtoSchema,
   toWellFormed,
   updateTicketSchema,
+  uploadQuotaDetailsSchema,
 } from './tickets.ts';
 
 const UUID = '00000000-0000-4000-8000-000000000001';
@@ -41,6 +46,35 @@ describe('presignAttachmentSchema: the file name is cleaned (review RR-SEC-3)', 
     expect(parse('\u0000 ')).toBe(false);
     expect(parse('a'.repeat(256))).toBe(false);
     expect(parse('a'.repeat(255))).toBe(true);
+  });
+});
+
+describe('upload visibility and the daily budget (contract)', () => {
+  const body = { fileName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 3 };
+
+  it('presign visibility: public by default, public or internal only', () => {
+    expect(ATTACHMENT_VISIBILITIES).toEqual(['public', 'internal']);
+    expect(presignAttachmentSchema.parse(body).visibility).toBe('public');
+    expect(presignAttachmentSchema.parse({ ...body, visibility: 'internal' }).visibility).toBe(
+      'internal',
+    );
+    for (const visibility of ['INTERNAL', 'staff', '', null]) {
+      expect(presignAttachmentSchema.safeParse({ ...body, visibility }).success).toBe(false);
+    }
+  });
+
+  it('429 details of the daily budget', () => {
+    expect(DEFAULT_UPLOAD_DAILY_BYTES_PER_USER).toBe(2 * 1024 ** 3);
+    const details = { reason: 'daily-quota', limitBytes: 1000, retryAfterSeconds: 60 };
+    expect(uploadQuotaDetailsSchema.parse(details)).toEqual(details);
+    for (const bad of [
+      { ...details, reason: 'mismatch' },
+      { ...details, limitBytes: 0 },
+      { ...details, retryAfterSeconds: -1 },
+      { ...details, retryAfterSeconds: 1.5 },
+    ]) {
+      expect(uploadQuotaDetailsSchema.safeParse(bad).success).toBe(false);
+    }
   });
 });
 
@@ -135,5 +169,22 @@ describe('UPLOAD_MIME_EXTENSIONS (review SEC-ATT-2)', () => {
     }
     expect(UPLOAD_MIME_EXTENSIONS['application/pdf'][0]).toBe('pdf');
     expect(UPLOAD_MIME_EXTENSIONS['text/plain']).toContain('log');
+  });
+});
+
+describe('p1ChainStepSchema (P1 banner "step N of M", D3)', () => {
+  it('a step fires afterMins (≥ 0, whole) after p1Since; steps are positive', () => {
+    expect(p1ChainStepSchema.parse({ step: 1, afterMins: 0 })).toEqual({ step: 1, afterMins: 0 });
+    for (const bad of [
+      { step: 0, afterMins: 0 },
+      { step: 1, afterMins: -1 },
+      { step: 1.5, afterMins: 5 },
+      { step: 2 },
+    ]) {
+      expect(p1ChainStepSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+    // The detail's chain is nullable (clients get null).
+    expect(ticketDetailDtoSchema.shape.p1Chain.safeParse(null).success).toBe(true);
+    expect(ticketDetailDtoSchema.shape.p1Chain.safeParse(undefined).success).toBe(false);
   });
 });

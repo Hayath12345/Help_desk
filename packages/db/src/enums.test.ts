@@ -16,6 +16,21 @@ const pairs: Array<[string, readonly string[], Record<string, string>]> = [
   ['CustomFieldType', shared.CUSTOM_FIELD_TYPES, db.CustomFieldType],
   ['ContractType', shared.CONTRACT_TYPES, db.ContractType],
   ['TeamMemberRole', shared.TEAM_MEMBER_ROLES, db.TeamMemberRole],
+  ['SlaTarget', shared.SLA_TARGETS, db.SlaTarget],
+  ['SlaSignalKind', shared.SLA_SIGNAL_KINDS, db.SlaSignalKind],
+  ['NotificationType', shared.NOTIFICATION_TYPES, db.NotificationType],
+  ['NotificationChannel', shared.NOTIFICATION_CHANNELS, db.NotificationChannel],
+  [
+    'NotificationDeliveryStatus',
+    shared.NOTIFICATION_DELIVERY_STATUSES,
+    db.NotificationDeliveryStatus,
+  ],
+  // The API contract spells upload visibilities in lower case ('public' → PUBLIC).
+  [
+    'AttachmentVisibility',
+    shared.ATTACHMENT_VISIBILITIES.map((v) => v.toUpperCase()),
+    db.AttachmentVisibility,
+  ],
 ];
 
 describe('shared enum mirrors match the Prisma schema', () => {

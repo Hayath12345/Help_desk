@@ -59,19 +59,20 @@ export function visibleSql(actor: Actor): Sql {
 const FIRST_REPLY_RUNNING = sql`(t."firstRepliedAt" IS NULL AND t."firstReplyDueAt" IS NOT NULL)`;
 
 /**
- * SQL twin of `isSlaAtRiskOrBreached`: the running clock (first reply while unanswered — also
- * while PENDING, which only pauses the resolution clock — else resolution) has less than
- * min(1 h, half its window) left, or has passed. Done tickets, and PENDING ones whose first reply
- * was sent, are never at risk.
+ * SQL twin of `isSlaAtRiskOrBreached` (decisions D1/D2): the running clock (first reply while
+ * unanswered — also while PENDING, which only pauses the resolution clock — else resolution) has
+ * reached its stored at-risk instant, or its due date has passed. A NULL instant (a ticket from
+ * before Phase 3, until the SLA scan backfills it) never matches as "at risk"; overdue still
+ * does. Done tickets, and PENDING ones whose first reply was sent, are never at risk.
  */
 export function atRiskSql(now: Date): Sql {
   const nowTs = sqlTimestamp(now);
-  const clock = (due: Sql) =>
-    sql`(${due} - ${nowTs} < LEAST(interval '1 hour', GREATEST(interval '1 millisecond', ${due} - t."createdAt") / 2))`;
+  const clock = (due: Sql, atRiskAt: Sql) =>
+    sql`(${due} < ${nowTs} OR COALESCE(${atRiskAt} <= ${nowTs}, FALSE))`;
   return sql`(${ACTIVE_SQL} AND (CASE
-    WHEN ${FIRST_REPLY_RUNNING} THEN ${clock(sql`t."firstReplyDueAt"`)}
+    WHEN ${FIRST_REPLY_RUNNING} THEN ${clock(sql`t."firstReplyDueAt"`, sql`t."firstReplyAtRiskAt"`)}
     WHEN t."status" = 'PENDING'::"TicketStatus" THEN FALSE
-    ELSE (t."resolveDueAt" IS NOT NULL AND ${clock(sql`t."resolveDueAt"`)})
+    ELSE (t."resolveDueAt" IS NOT NULL AND ${clock(sql`t."resolveDueAt"`, sql`t."resolveAtRiskAt"`)})
   END))`;
 }
 

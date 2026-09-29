@@ -150,9 +150,32 @@ export function UploadChipList({
 }
 
 /** Why an upload failed, in words (the chip shows it; the live regions announce it). */
-export function useUploadFailureText(): (item: UploadItem) => string {
+export function useUploadFailureText(): (
+  item: Pick<UploadItem, 'error' | 'retryAfterSeconds'>,
+) => string {
   const t = useTranslations('tickets.attachments');
-  return (item) => t(uploadErrorKey(item.error));
+  const locale = useLocale();
+  return (item) => {
+    if (item.error === 'quota') {
+      const wait = quotaWait(item.retryAfterSeconds ?? 0);
+      const values = { count: wait.n, n: formatNumber(wait.n, locale) };
+      return wait.unit === 'hours'
+        ? t('error.quotaHours', values)
+        : t('error.quotaMinutes', values);
+    }
+    return t(uploadErrorKey(item.error));
+  };
+}
+
+/**
+ * How long until a file over the daily upload budget fits, rounded up: whole minutes under an
+ * hour (at least 1), whole hours from there on (3 601 s → 2 hours; 3 540 s → 59 minutes).
+ */
+export function quotaWait(retryAfterSeconds: number): { unit: 'hours' | 'minutes'; n: number } {
+  const seconds = Math.max(0, retryAfterSeconds);
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  if (minutes < 60) return { unit: 'minutes', n: minutes };
+  return { unit: 'hours', n: Math.ceil(seconds / 3600) };
 }
 
 /** `tickets.attachments.*` text for a failed upload (unknown reasons read as a storage failure). */
@@ -166,7 +189,9 @@ function uploadErrorKey(
   | 'error.network'
   | 'error.type'
   | 'error.size'
-  | 'error.empty' {
+  | 'error.empty'
+  | 'error.busy'
+  | 'error.allowance' {
   switch (reason) {
     case null:
       return 'failed';
@@ -176,6 +201,8 @@ function uploadErrorKey(
     case 'type':
     case 'size':
     case 'empty':
+    case 'busy':
+    case 'allowance':
       return `error.${reason}`;
     default:
       return 'error.storage';

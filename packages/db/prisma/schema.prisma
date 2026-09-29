@@ -128,6 +128,14 @@ enum AttachmentStatus {
   REJECTED
 }
 
+/// Who an upload is for, fixed at presign (API contract ATTACHMENT_VISIBILITIES): PUBLIC files can
+/// only be linked to a PUBLIC message (or a new ticket's description), INTERNAL files only to an
+/// INTERNAL note (staff only).
+enum AttachmentVisibility {
+  PUBLIC
+  INTERNAL
+}
+
 enum CustomFieldType {
   TEXT
   NUMBER
@@ -161,6 +169,33 @@ enum NotificationType {
   P1_CREATED
   P1_ESCALATED
   P1_ACKNOWLEDGED
+}
+
+/// The two SLA targets of a ticket (spec §7).
+enum SlaTarget {
+  FIRST_REPLY
+  RESOLUTION
+}
+
+/// An SLA threshold crossed by a target: `atRiskPercent` of its window (AT_RISK) or 100 % (BREACHED).
+enum SlaSignalKind {
+  AT_RISK
+  BREACHED
+}
+
+/// Outbound notification channels logged in NotificationDelivery (in-app notifications are the
+/// Notification table).
+enum NotificationChannel {
+  EMAIL
+  TEAMS
+  SMS
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED // recorded, not sent yet (or being retried)
+  SENT // accepted by the provider (SMTP / SES, the Teams webhook or console, SNS or console)
+  FAILED // gave up after the last attempt (the dead-letter record)
+  SKIPPED // deliberately not sent (e.g. SMS cap, no phone number, no webhook)
 }
 
 enum AuditAction {
@@ -260,6 +295,7 @@ model User {
   attachments             Attachment[]
   ticketEvents            TicketEvent[]
   notifications           Notification[]
+  notificationDeliveries  NotificationDelivery[]
   macrosCreated           Macro[]
   escalationTargets       EscalationRule[]
   auditLogs               AdminAuditLog[]
@@ -331,12 +367,13 @@ model Team {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  onCallUser      User?            @relation("TeamOnCall", fields: [onCallUserId], references: [id], onDelete: SetNull)
+  onCallUser      User?                  @relation("TeamOnCall", fields: [onCallUserId], references: [id], onDelete: SetNull)
   members         TeamMember[]
   categories      Category[]
   tickets         Ticket[]
   macros          Macro[]
   escalationRules EscalationRule[]
+  deliveries      NotificationDelivery[]
 }
 
 model TeamMember {
@@ -377,39 +414,60 @@ model Ticket {
   /// Values for configured custom fields, keyed by CustomField.key.
   customFields Json          @default("{}")
 
-  firstReplyDueAt DateTime?
-  resolveDueAt    DateTime?
-  firstRepliedAt  DateTime?
-  solvedAt        DateTime?
-  closedAt        DateTime?
-  slaAtRiskAt     DateTime?
-  slaBreached     Boolean   @default(false)
-  slaBreachedAt   DateTime?
+  firstReplyDueAt     DateTime?
+  resolveDueAt        DateTime?
+  firstRepliedAt      DateTime?
+  solvedAt            DateTime?
+  closedAt            DateTime?
+  slaAtRiskAt         DateTime?
+  slaBreached         Boolean   @default(false)
+  slaBreachedAt       DateTime?
   /// Set while the ticket is PENDING (resolution clock paused); cleared on resume.
-  slaPausedAt     DateTime?
+  slaPausedAt         DateTime?
   /// Finished PENDING pauses, oldest first: [{ "from": ISO, "to": ISO }]. A priority change
   /// recomputes resolveDueAt from createdAt and replays them, so waiting on the client stays credited.
-  slaPauses       Json      @default("[]")
-  p1AckedAt       DateTime?
-  p1AckedById     String?   @db.Uuid
-  lastMessageAt   DateTime?
+  slaPauses           Json      @default("[]")
+  /// When `SlaPolicy.atRiskPercent` of the first-reply window has elapsed in SLA time (business
+  /// minutes for business-hours policies, wall-clock for 24/7). Stored with the due dates wherever
+  /// they are computed (create, priority change); the web, the SQL views and the SLA worker only
+  /// compare `now` with it. Null on tickets created before Phase 3 until the SLA scan backfills it
+  /// (a null instant is never "at risk").
+  firstReplyAtRiskAt  DateTime?
+  /// Same for the resolution window; a PENDING pause shifts it like `resolveDueAt` (an instant
+  /// that had already passed when the pause started stays where it was).
+  resolveAtRiskAt     DateTime?
+  p1AckedAt           DateTime?
+  p1AckedById         String?   @db.Uuid
+  /// When the ticket became P1 (creation, or a later upgrade to P1); null while it is not P1.
+  /// Escalation steps fire `EscalationRule.afterMins` after it. Starting or ending a P1 period
+  /// also resets `p1EscalationStep` and the acknowledgement.
+  p1Since             DateTime?
+  /// Last escalation step fired in the current P1 period (0 = none yet).
+  p1EscalationStep    Int       @default(0)
+  /// When a priority change last moved the due dates / at-risk instants. The SLA scan measures the
+  /// freshness of a crossing (D10) from the later of this and the crossing itself, so a crossing
+  /// that a priority change puts in the past is still announced. Null: never re-targeted.
+  slaTargetsChangedAt DateTime?
+  lastMessageAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  category      Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  subtype       Subtype?       @relation(fields: [subtypeId], references: [id], onDelete: Restrict)
-  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Restrict)
-  site          Site?          @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  requester     User           @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  assignee      User?          @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  team          Team           @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  p1AckedBy     User?          @relation("TicketP1Ack", fields: [p1AckedById], references: [id], onDelete: SetNull)
+  category      Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  subtype       Subtype?               @relation(fields: [subtypeId], references: [id], onDelete: Restrict)
+  org           Organization           @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  site          Site?                  @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  requester     User                   @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assignee      User?                  @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team          Team                   @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  p1AckedBy     User?                  @relation("TicketP1Ack", fields: [p1AckedById], references: [id], onDelete: SetNull)
   messages      Message[]
   attachments   Attachment[]
   tags          TicketTag[]
   events        TicketEvent[]
   notifications Notification[]
+  slaSignals    TicketSlaSignal[]
+  deliveries    NotificationDelivery[]
 
   @@index([status])
   @@index([priority])
@@ -420,6 +478,9 @@ model Ticket {
   @@index([firstReplyDueAt])
   @@index([resolveDueAt])
   @@index([createdAt])
+  /// SLA scan: active tickets whose at-risk instant has passed (or is missing: backfill).
+  @@index([status, firstReplyAtRiskAt])
+  @@index([status, resolveAtRiskAt])
 }
 
 model Message {
@@ -442,16 +503,17 @@ model Message {
 }
 
 model Attachment {
-  id         String           @id @default(uuid()) @db.Uuid
-  ticketId   String?          @db.Uuid
-  messageId  String?          @db.Uuid
-  uploaderId String           @db.Uuid
-  storageKey String           @unique
+  id         String               @id @default(uuid()) @db.Uuid
+  ticketId   String?              @db.Uuid
+  messageId  String?              @db.Uuid
+  uploaderId String               @db.Uuid
+  storageKey String               @unique
   fileName   String
   mimeType   String
   sizeBytes  Int
-  status     AttachmentStatus @default(PENDING)
-  createdAt  DateTime         @default(now())
+  status     AttachmentStatus     @default(PENDING)
+  visibility AttachmentVisibility @default(PUBLIC)
+  createdAt  DateTime             @default(now())
 
   ticket   Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   message  Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
@@ -499,6 +561,32 @@ model TicketEvent {
 
   @@index([ticketId, createdAt])
   @@index([type, createdAt])
+}
+
+/// Exactly-once SLA alerts across workers: the SLA scan inserts the signal first, and only the
+/// worker whose insert succeeded writes the TicketEvent, updates the summary flags
+/// (`Ticket.slaAtRiskAt` / `slaBreached` / `slaBreachedAt`) and sends notifications. `dueAt` is
+/// the target's due date when the threshold was crossed, so a moved due date (priority change,
+/// PENDING resume) is a new signal.
+model TicketSlaSignal {
+  id         String        @id @default(uuid()) @db.Uuid
+  ticketId   String        @db.Uuid
+  target     SlaTarget
+  kind       SlaSignalKind
+  dueAt      DateTime
+  createdAt  DateTime      @default(now())
+  /// A fresh crossing (D10) that must be announced; set in the inserting transaction.
+  notify     Boolean       @default(false)
+  /// When its announcement was enqueued. A `notify` signal still null here after the commit
+  /// (Redis down, worker killed) is re-enqueued by later scans for up to 60 minutes (the job id
+  /// is deterministic, so a double enqueue is a no-op).
+  enqueuedAt DateTime?
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, target, kind, dueAt])
+  /// SLA scan: announcements still to enqueue.
+  @@index([notify, enqueuedAt, createdAt])
 }
 
 // ───────────────────────────── Configuration ─────────────────────────────
@@ -611,6 +699,8 @@ model Holiday {
   createdAt DateTime @default(now())
 }
 
+/// P1 escalation chain (spec §9). Team-scoped rules (teamId set), when a team has any active ones,
+/// replace the global chain (teamId = null) for that team.
 model EscalationRule {
   id           String               @id @default(uuid()) @db.Uuid
   priority     Priority
@@ -620,7 +710,9 @@ model EscalationRule {
   targetType   EscalationTargetType
   targetRole   Role?
   targetUserId String?              @db.Uuid
-  /// Minutes after ticket creation (unacknowledged) before this step fires.
+  /// Minutes after the ticket became P1 (`Ticket.p1Since`: creation, or a later upgrade), counted
+  /// cumulatively — not from the previous step (seeded chain: 0, 5, 15). Steps only fire while the
+  /// ticket is still P1, active and unacknowledged. Downgrading from P1 cancels the chain.
   afterMins    Int
   channels     EscalationChannel[]
   isActive     Boolean              @default(true)
@@ -630,6 +722,9 @@ model EscalationRule {
   team       Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
   targetUser User? @relation(fields: [targetUserId], references: [id], onDelete: SetNull)
 
+  /// One rule per step of a chain. The migration creates it NULLS NOT DISTINCT (hand-written SQL),
+  /// so the global chain (teamId = null) can't have two rules for the same step either.
+  @@unique([priority, teamId, step])
   @@index([priority, isActive])
 }
 
@@ -703,16 +798,53 @@ model Notification {
   userId    String           @db.Uuid
   type      NotificationType
   ticketId  String?          @db.Uuid
-  title     String
+  /// Optional: the web renders notifications in the viewer's language from `type` + `data`.
+  title     String?
   body      String?
   data      Json?
   readAt    DateTime?
+  /// Idempotency key of the producing job (one per event × recipient): a retry that finds it taken
+  /// creates nothing. Read notifications older than 90 days are deleted.
+  dedupeKey String?          @unique
   createdAt DateTime         @default(now())
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
+  @@index([ticketId])
+}
+
+/// Log of outbound email / Teams / SMS notifications (spec §9 "dead-letter logging"): one row per
+/// channel × recipient × event, keyed by `dedupeKey` so a retried job updates its own row and never
+/// sends twice. Recipients are stored masked: e-mail addresses as is, phone numbers masked, Teams
+/// webhooks as their host only (the URL is a secret). `error` is redacted. Kept 90 days.
+model NotificationDelivery {
+  id                String                     @id @default(uuid()) @db.Uuid
+  channel           NotificationChannel
+  /// EmailTemplate key (or the Teams / SMS message kind, e.g. P1_ALERT).
+  templateKey       String
+  ticketId          String?                    @db.Uuid
+  userId            String?                    @db.Uuid
+  /// Set for team-level deliveries (distribution list, Teams channel, digest).
+  teamId            String?                    @db.Uuid
+  recipientMasked   String
+  status            NotificationDeliveryStatus @default(QUEUED)
+  providerMessageId String?
+  error             String?
+  dedupeKey         String                     @unique
+  attempts          Int                        @default(0)
+  createdAt         DateTime                   @default(now())
+  sentAt            DateTime?
+
+  ticket Ticket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([createdAt])
 }
 
 model AdminAuditLog {

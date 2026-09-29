@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { ConsoleSearchBox } from './console-search';
 import { LanguageToggle } from './language-toggle';
 import { TopNavLink } from './nav-link';
+import { NotificationBell } from './notification-bell';
 import { PresenceToggle } from './presence-toggle';
 import type { ShellUser } from './types';
 import { UserMenu } from './user-menu';
@@ -44,7 +45,8 @@ export interface ConsoleTopBarProps {
 
 /**
  * Agent console top bar (design 676–705): logo, Inbox / Team queue / Customers / Reports
- * (+ Admin for super admins and team leads), ticket search, Online/Away, language, account menu.
+ * (+ Admin for super admins and team leads), ticket search, Online/Away, the notification bell
+ * (Phase 3), language, account menu.
  * Below `lg` the section links collapse into a menu button.
  */
 export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
@@ -114,6 +116,7 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
       <div className="flex-1" />
 
       <PresenceToggle />
+      <NotificationBell />
       <LanguageToggle />
       <UserMenu name={user.name} email={user.email} initials={user.initials} showNewTicket />
     </header>

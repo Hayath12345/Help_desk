@@ -6,10 +6,12 @@ import {
   attachmentDownloadSchema,
   completeAttachmentResponseSchema,
   presignAttachmentResponseSchema,
+  uploadQuotaDetailsSchema,
   uploadRejectionDetailsSchema,
   type AttachmentDto,
+  type AttachmentVisibility,
 } from '@loons/shared';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { apiClient } from '@/lib/api/browser';
 import { isApiRequestError } from '@/lib/api/errors';
 import { UPLOAD_LIMITS, resolveUploadMimeType } from './limits';
@@ -31,18 +33,34 @@ export type UploadErrorReason =
   | 'rejected'
   /** The file's bytes are not a file of its type (API `details.reason: 'content'`, REJECTED). */
   | 'content'
+  /**
+   * The user's rolling 24-hour upload budget is used up (presign 429 with `details.reason:
+   * 'daily-quota'`); `UploadError.retryAfterSeconds` says when this file would fit.
+   */
+  | 'quota'
+  /** Any other 429 (e.g. the presign request limit): too many uploads in a short time. */
+  | 'busy'
+  /**
+   * The file is larger than the whole daily upload budget (presign 400, issue code
+   * `file_too_large`, when the budget is set below 25 MB): it can never be uploaded.
+   */
+  | 'allowance'
   /** Network failure or the API/storage being unreachable. */
   | 'network'
   | 'aborted';
 
 export class UploadError extends Error {
+  /** Set for `quota`: seconds until enough of the daily budget frees up for this file. */
+  readonly retryAfterSeconds: number | null;
+
   constructor(
     readonly reason: UploadErrorReason,
     message: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; retryAfterSeconds?: number },
   ) {
     super(message, options);
     this.name = 'UploadError';
+    this.retryAfterSeconds = options?.retryAfterSeconds ?? null;
   }
 }
 
@@ -57,6 +75,8 @@ export async function presignAttachment(input: {
   mimeType: string;
   sizeBytes: number;
   ticketId?: string;
+  /** Required here (the API defaults to `public`): every call site says who the file is for. */
+  visibility: AttachmentVisibility;
 }): Promise<PresignResponse> {
   const data = await apiClient.post<unknown>('/attachments/presign', input);
   return parse(presignAttachmentResponseSchema, data);
@@ -148,6 +168,11 @@ export function postToStorage(
 // ───────────── The whole flow ─────────────
 
 export interface UploadAttachmentOptions {
+  /**
+   * Who the file is for, fixed at presign: `public` for a public reply or a new ticket, `internal`
+   * for a staff member's note. The API links a file only to a message of the same kind.
+   */
+  visibility: AttachmentVisibility;
   /** Set when adding to an existing ticket (reply); omit while creating one. */
   ticketId?: string;
   /** 0…1; the storage POST is ~all of the time, presign/complete are reported as 0 and 1. */
@@ -155,11 +180,31 @@ export interface UploadAttachmentOptions {
   signal?: AbortSignal;
 }
 
+/** A presign 400 whose issues say the file is larger than the caller may upload at all. */
+const fileTooLargeIssuesSchema = z
+  .array(z.object({ code: z.string() }))
+  .refine((issues) => issues.some((issue) => issue.code === 'file_too_large'));
+const isFileTooLargeForBudget = (details: unknown): boolean =>
+  fileTooLargeIssuesSchema.safeParse(details).success;
+
 function fromApiError(error: unknown, fallback: UploadErrorReason): UploadError {
   if (isUploadError(error)) return error;
   if (isApiRequestError(error)) {
     if (error.status === 0 || error.status >= 500) {
       return new UploadError('network', error.message, { cause: error });
+    }
+    // presign refuses a file beyond the rolling 24-hour budget and says when it would fit.
+    const quota = error.status === 429 ? uploadQuotaDetailsSchema.safeParse(error.details) : null;
+    if (quota?.success) {
+      return new UploadError('quota', error.message, {
+        cause: error,
+        retryAfterSeconds: quota.data.retryAfterSeconds,
+      });
+    }
+    // Any other 429 is a request limit, not something wrong with the file.
+    if (error.status === 429) return new UploadError('busy', error.message, { cause: error });
+    if (isFileTooLargeForBudget(error.details)) {
+      return new UploadError('allowance', error.message, { cause: error });
     }
     // complete says why it refused a file: a type mismatch reads differently from the scan.
     const refusal = uploadRejectionDetailsSchema.safeParse(error.details);
@@ -183,10 +228,12 @@ function fromApiError(error: unknown, fallback: UploadErrorReason): UploadError 
 /**
  * Uploads one file and returns the stored attachment (status CLEAN). Throws `UploadError`.
  * Pass the resulting `attachment.id` in `attachmentIds` when creating the ticket / message.
+ * The returned `fileName` / `mimeType` can differ from the picked file's: an image whose bytes
+ * are another allowed image type (a JPEG named .png) is stored as what it really is.
  */
 export async function uploadAttachment(
   file: File,
-  options: UploadAttachmentOptions = {},
+  options: UploadAttachmentOptions,
 ): Promise<AttachmentDto> {
   const mimeType = resolveUploadMimeType(file);
   if (!mimeType) throw new UploadError('type', 'File type not allowed');
@@ -205,6 +252,7 @@ export async function uploadAttachment(
       mimeType,
       sizeBytes: file.size,
       ...(options.ticketId ? { ticketId: options.ticketId } : {}),
+      visibility: options.visibility,
     });
   } catch (error) {
     throw fromApiError(error, 'rejected');

@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@loons/db';
 import {
   STAFF_ROLES,
+  canAcknowledgeP1,
   canCreateTicketForOrg,
   canMarkSolved,
   canSeeInternalNotes,
@@ -14,6 +15,7 @@ import {
   type CreateTicketInput,
   type ListTicketsQuery,
   type Priority,
+  type AcknowledgeTicketResponse,
   type TicketCounts,
   type TicketDetailDto,
   type TicketFormConfig,
@@ -22,9 +24,11 @@ import {
   type UpdateTicketInput,
 } from '@loons/shared';
 import { errors, type ValidationIssue } from '../lib/errors.ts';
+import { loadP1Chain } from '../lib/escalation.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import { attachmentLinkIssues, linkAttachments } from './attachments.service.ts';
 import { validateCustomFields } from './custom-fields.ts';
+import type { Notifier } from './notifier.ts';
 import { REQUESTER_WHERE } from './directory.service.ts';
 import type { SlaMath } from './sla.ts';
 import {
@@ -71,6 +75,11 @@ export interface TicketsService {
   /** By uuid or LG number; 404 when the caller can't see it. */
   get(actor: Actor, ref: string): Promise<TicketDetailDto>;
   update(actor: Actor, ticketId: string, input: UpdateTicketInput): Promise<TicketDetailDto>;
+  /**
+   * Acknowledges a P1 (staff who can see it, D5). Idempotent: a second call changes nothing and
+   * answers with the first acknowledger (`alreadyAcknowledged: true`). Not a P1 / closed ⇒ 409.
+   */
+  acknowledge(actor: Actor, ticketId: string): Promise<AcknowledgeTicketResponse>;
   /** Summary DTO (no visibility check: callers have checked it already). */
   summary(ticketId: string): Promise<TicketSummaryDto>;
 }
@@ -129,9 +138,11 @@ export function createTicketsService(deps: {
   ticketConfig: TicketConfigService;
   sla: SlaMath;
   realtime: TicketRealtime;
+  /** Notification producers, called after each commit (D15). */
+  notifier: Notifier;
   logger: Logger;
 }): TicketsService {
-  const { prisma, ticketConfig, sla, realtime, logger } = deps;
+  const { prisma, ticketConfig, sla, realtime, notifier, logger } = deps;
 
   /** Realtime failures never fail a request whose changes have committed. */
   function emit(what: string, fn: () => void): void {
@@ -167,38 +178,41 @@ export function createTicketsService(deps: {
     });
     const values = jsonObject(row.customFields);
     const keys = Object.keys(values);
-    const [config, attachments, fields, links, sitesCount, otherTicketsCount] = await Promise.all([
-      ticketConfig.getFormConfig(),
-      prisma.attachment.findMany({
-        where: {
-          ticketId,
-          status: { in: [...VISIBLE_ATTACHMENT_STATUSES] },
-          messageId: { not: null },
-          // Files of internal notes are staff-only.
-          ...(staffView ? {} : { message: { type: { not: 'INTERNAL' } } }),
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: attachmentSelect,
-      }),
-      keys.length
-        ? prisma.customField.findMany({
-            where: { key: { in: keys } },
-            select: { id: true, key: true, labelEn: true, labelAr: true, type: true },
-          })
-        : Promise.resolve([]),
-      keys.length
-        ? prisma.categoryField.findMany({
-            where: { categoryId: row.categoryId },
-            select: { fieldId: true, sortOrder: true },
-          })
-        : Promise.resolve([]),
-      prisma.site.count({ where: { orgId: row.orgId, isActive: true } }),
-      staffView
-        ? prisma.ticket.count({
-            where: { AND: [visibleWhere(actor), { orgId: row.orgId, id: { not: row.id } }] },
-          })
-        : Promise.resolve(0),
-    ]);
+    const [config, attachments, fields, links, sitesCount, otherTicketsCount, chain] =
+      await Promise.all([
+        ticketConfig.getFormConfig(),
+        prisma.attachment.findMany({
+          where: {
+            ticketId,
+            status: { in: [...VISIBLE_ATTACHMENT_STATUSES] },
+            messageId: { not: null },
+            // Files of internal notes are staff-only.
+            ...(staffView ? {} : { message: { type: { not: 'INTERNAL' } } }),
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: attachmentSelect,
+        }),
+        keys.length
+          ? prisma.customField.findMany({
+              where: { key: { in: keys } },
+              select: { id: true, key: true, labelEn: true, labelAr: true, type: true },
+            })
+          : Promise.resolve([]),
+        keys.length
+          ? prisma.categoryField.findMany({
+              where: { categoryId: row.categoryId },
+              select: { fieldId: true, sortOrder: true },
+            })
+          : Promise.resolve([]),
+        prisma.site.count({ where: { orgId: row.orgId, isActive: true } }),
+        staffView
+          ? prisma.ticket.count({
+              where: { AND: [visibleWhere(actor), { orgId: row.orgId, id: { not: row.id } }] },
+            })
+          : Promise.resolve(0),
+        // The P1 banner's "step N of M · next at …" (staff only; D3 team rules replace global).
+        staffView ? loadP1Chain(prisma, row.teamId) : Promise.resolve(null),
+      ]);
     const order = new Map(links.map((l) => [l.fieldId, l.sortOrder]));
     const customFields = fields
       .slice()
@@ -234,6 +248,7 @@ export function createTicketsService(deps: {
         otherTicketsCount,
       },
       sla: policyFor(config, row.priority),
+      p1Chain: chain ? chain.map((r) => ({ step: r.step, afterMins: r.afterMins })) : null,
     };
   }
 
@@ -297,12 +312,15 @@ export function createTicketsService(deps: {
       select: { id: true },
     });
     if (!site) issues.push(bodyIssue(['siteId'], 'site'));
-    issues.push(...(await attachmentLinkIssues(prisma, actor, input.attachmentIds, null)));
+    issues.push(
+      ...(await attachmentLinkIssues(prisma, actor, input.attachmentIds, null, 'PUBLIC')),
+    );
     if (issues.length || !category || !subtype || !site) throw errors.validation(issues);
 
     const priority = input.priority ?? subtype.defaultPriority;
     const createdAt = new Date();
-    const due = sla.computeDueDates(
+    // Due dates and at-risk instants (D1/D2) are stored together.
+    const due = sla.computeSlaTargets(
       createdAt,
       policyFor(config, priority),
       await ticketConfig.getCalendar(),
@@ -337,6 +355,10 @@ export function createTicketsService(deps: {
           customFields: customFields as Prisma.InputJsonObject,
           firstReplyDueAt: due.firstReplyDueAt,
           resolveDueAt: due.resolveDueAt,
+          firstReplyAtRiskAt: due.firstReplyAtRiskAt,
+          resolveAtRiskAt: due.resolveAtRiskAt,
+          // A P1 period starts at creation (the escalation chain counts from here, D3).
+          p1Since: priority === 'P1' ? createdAt : null,
           lastMessageAt: createdAt,
           createdAt,
           tags: { create: [...tagIds.values()].map((tagId) => ({ tagId })) },
@@ -355,7 +377,7 @@ export function createTicketsService(deps: {
         },
         select: { id: true },
       });
-      await linkAttachments(tx, actor, input.attachmentIds, ticket.id, message.id);
+      await linkAttachments(tx, actor, input.attachmentIds, ticket.id, message.id, 'PUBLIC');
       const events: EventInput[] = [
         {
           type: 'CREATED',
@@ -389,6 +411,11 @@ export function createTicketsService(deps: {
 
     const result = await detail(actor, ticketId);
     emit('queue:updated', () => realtime.queueUpdated([teamId], ticketId, 'created'));
+    await notifier.ticketCreated({
+      id: ticketId,
+      teamId,
+      p1Since: priority === 'P1' ? createdAt : null,
+    });
     return result;
   }
 
@@ -438,8 +465,11 @@ export function createTicketsService(deps: {
           firstRepliedAt: true,
           firstReplyDueAt: true,
           resolveDueAt: true,
+          firstReplyAtRiskAt: true,
+          resolveAtRiskAt: true,
           slaPausedAt: true,
           slaPauses: true,
+          p1Since: true,
           tags: { select: { tag: { select: { key: true } } } },
         },
       });
@@ -506,22 +536,39 @@ export function createTicketsService(deps: {
         }
       }
 
-      // Priority: SLA targets recomputed from createdAt with the new policy, replaying the
-      // finished PENDING pauses (time spent waiting on the client stays credited; a pause still
-      // running is credited when it ends). A first reply already sent keeps its due date.
+      // Priority: SLA targets (due dates and at-risk instants) recomputed from createdAt with the
+      // new policy, replaying the finished PENDING pauses (time spent waiting on the client stays
+      // credited; a pause still running is credited when it ends). A first reply already sent
+      // keeps its due date and at-risk instant.
       let priority = t.priority;
+      let p1Since = t.p1Since;
       let resolveDueAt = t.resolveDueAt;
+      let resolveAtRiskAt = t.resolveAtRiskAt;
       if (input.priority !== undefined && input.priority !== t.priority) {
         priority = input.priority;
-        const due = sla.computeDueDates(
+        const due = sla.computeSlaTargets(
           t.createdAt,
           policyFor(config, priority),
           await getCalendar(),
           slaPausesOf(t.slaPauses),
         );
         data.priority = priority;
-        data.firstReplyDueAt = t.firstRepliedAt ? t.firstReplyDueAt : due.firstReplyDueAt;
+        if (!t.firstRepliedAt) {
+          data.firstReplyDueAt = due.firstReplyDueAt;
+          data.firstReplyAtRiskAt = due.firstReplyAtRiskAt;
+        }
         data.resolveDueAt = resolveDueAt = due.resolveDueAt;
+        data.resolveAtRiskAt = resolveAtRiskAt = due.resolveAtRiskAt;
+        // A crossing the new targets put in the past is announced as fresh from now (D10).
+        data.slaTargetsChangedAt = now;
+        // Becoming P1 starts a new P1 period (the escalation chain counts from now, D3); leaving
+        // P1 ends it. Either way the escalation progress and the acknowledgement start over.
+        if ((priority === 'P1') !== (t.priority === 'P1')) {
+          data.p1Since = p1Since = priority === 'P1' ? now : null;
+          data.p1EscalationStep = 0;
+          data.p1AckedAt = null;
+          data.p1AckedById = null;
+        }
         event('PRIORITY_CHANGED', t.priority, priority);
       }
 
@@ -540,6 +587,7 @@ export function createTicketsService(deps: {
             to: input.status,
             now,
             resolveDueAt,
+            resolveAtRiskAt,
             slaPausedAt: t.slaPausedAt,
             slaPauses: t.slaPauses,
             businessHoursOnly: policyFor(config, priority).businessHoursOnly,
@@ -658,7 +706,11 @@ export function createTicketsService(deps: {
       if (issues.length) throw errors.validation(issues);
       const changed = Object.keys(data).length > 0 || tagChange !== null;
       const before = { orgId: t.orgId, teamId: t.teamId, assigneeId: t.assigneeId };
-      if (!changed) return { changed: false as const, before, teamId: t.teamId };
+      const priorityChange = {
+        before: { priority: t.priority, p1Since: t.p1Since },
+        after: { priority, p1Since },
+      };
+      if (!changed) return { changed: false as const, before, teamId: t.teamId, priorityChange };
       if (isClosed(t.status)) throw errors.conflict('This ticket is closed');
 
       if (tagChange) {
@@ -680,7 +732,7 @@ export function createTicketsService(deps: {
       if (events.length) {
         await tx.ticketEvent.createMany({ data: events.map((e) => ({ ...e, ticketId: t.id })) });
       }
-      return { changed: true as const, before, teamId };
+      return { changed: true as const, before, teamId, priorityChange };
     });
 
     const result = await detail(actor, scope.id);
@@ -690,8 +742,69 @@ export function createTicketsService(deps: {
       );
       const teams = [...new Set([outcome.before.teamId, outcome.teamId])];
       emit('queue:updated', () => realtime.queueUpdated(teams, scope.id, 'updated'));
+      await notifier.priorityChanged({
+        id: scope.id,
+        teamId: outcome.teamId,
+        ...outcome.priorityChange,
+      });
     }
     return result;
+  }
+
+  // ───────────── P1 acknowledge (D5) ─────────────
+
+  async function acknowledge(actor: Actor, ticketId: string): Promise<AcknowledgeTicketResponse> {
+    const scope = await loadVisibleTicket(prisma, actor, ticketId);
+    if (!canAcknowledgeP1(actor, scope)) {
+      throw errors.forbidden('Only Loons staff can acknowledge a P1 ticket');
+    }
+    const outcome = await prisma.$transaction(async (tx) => {
+      await lockTicket(tx, scope.id);
+      const t = await tx.ticket.findUniqueOrThrow({
+        where: { id: scope.id },
+        select: {
+          priority: true,
+          status: true,
+          p1Since: true,
+          p1AckedAt: true,
+          p1EscalationStep: true,
+        },
+      });
+      if (t.priority !== 'P1') throw errors.conflict('This ticket is not a P1');
+      if (t.p1AckedAt) return { acknowledged: false as const };
+      if (isClosed(t.status)) throw errors.conflict('This ticket is closed');
+      const now = new Date();
+      await tx.ticket.update({
+        where: { id: scope.id },
+        data: { p1AckedAt: now, p1AckedById: actor.id, updatedAt: now },
+      });
+      await tx.ticketEvent.create({
+        data: {
+          ticketId: scope.id,
+          type: 'P1_ACKNOWLEDGED',
+          actorId: actor.id,
+          fromValue: null,
+          toValue: actor.id,
+          meta: {
+            step: t.p1EscalationStep,
+            p1Since: t.p1Since ? t.p1Since.toISOString() : null,
+            minutesToAcknowledge: t.p1Since
+              ? Math.round((now.getTime() - t.p1Since.getTime()) / 60_000)
+              : null,
+          },
+          createdAt: now,
+        },
+      });
+      return { acknowledged: true as const, p1Since: t.p1Since };
+    });
+
+    const result = await detail(actor, scope.id);
+    if (outcome.acknowledged) {
+      await emitAsync('ticket:updated', () => realtime.ticketUpdated(summaryOf(result)));
+      emit('queue:updated', () => realtime.queueUpdated([scope.teamId], scope.id, 'updated'));
+      await notifier.acknowledged({ id: scope.id, p1Since: outcome.p1Since, actorId: actor.id });
+    }
+    return { ticket: result, alreadyAcknowledged: !outcome.acknowledged };
   }
 
   // ───────────── Read ─────────────
@@ -699,6 +812,7 @@ export function createTicketsService(deps: {
   return {
     create,
     update,
+    acknowledge,
     summary,
 
     async get(actor, ref) {

@@ -37,9 +37,11 @@ export default defineConfig({
     {
       // Sends the emails (BullMQ `email` queue) the verification test reads from Mailpit. It has
       // no port to probe, so one is always started; an extra worker next to a running
-      // `pnpm dev` is harmless (both consume the same queues).
+      // `pnpm dev` is harmless (both consume the same queues; this one registers no schedulers).
       name: 'worker',
       command: 'pnpm --filter @loons/api dev:worker',
+      // Consume only: the running stack's worker (or the next `pnpm dev`) owns the schedulers.
+      env: { WORKER_SCHEDULERS: 'false' },
       wait: { stdout: /worker ready/ },
       cwd: repoRoot,
       timeout: 120_000,

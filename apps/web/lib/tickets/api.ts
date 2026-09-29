@@ -4,6 +4,7 @@
 // and the web app fails loudly in development and tests instead of rendering garbage.
 
 import {
+  acknowledgeTicketResponseSchema,
   createMessageResponseSchema,
   formContextSchema,
   macroListSchema,
@@ -14,6 +15,7 @@ import {
   ticketFormConfigSchema,
   ticketListSchema,
   ticketResponseSchema,
+  type AcknowledgeTicketResponse,
   type CreateMessageInput,
   type CreateTicketInput,
   type FormContext,
@@ -118,6 +120,15 @@ export async function createTicket(input: CreateTicketInput): Promise<TicketDeta
 export async function updateTicket(id: string, patch: UpdateTicketInput): Promise<TicketDetailDto> {
   const data = await apiClient.patch<unknown>(`/tickets/${seg(id)}`, patch);
   return parseResponse(ticketResponseSchema, data).ticket;
+}
+
+/**
+ * POST /tickets/:id/acknowledge (staff; body-less, idempotent): acknowledges the P1. A repeat
+ * answers 200 with `alreadyAcknowledged: true` and the first acknowledger on the ticket.
+ */
+export async function acknowledgeTicket(id: string): Promise<AcknowledgeTicketResponse> {
+  const data = await apiClient.post<unknown>(`/tickets/${seg(id)}/acknowledge`);
+  return parseResponse(acknowledgeTicketResponseSchema, data);
 }
 
 // ───────────── Messages ─────────────

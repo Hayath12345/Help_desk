@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   addSlaMinutes,
   computeDueDates,
+  computeSlaTargets,
   resumeDueDate,
   slaMinutesBetween,
   type BusinessCalendar,
   type BusinessDayHours,
   type SlaPolicyLike,
+  type SlaPolicyRiskLike,
 } from './sla.ts';
 
 const MIN = 60_000;
@@ -795,5 +797,193 @@ describe('validation', () => {
     expect(() => between(start, new Date(Number.NaN), QATAR, false)).toThrow(
       /to is not a valid Date/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// At-risk instants (Phase 3, decisions D1/D2)
+
+describe('computeSlaTargets: at-risk instants in SLA time', () => {
+  const risk = (policy: SlaPolicyLike, atRiskPercent = 75): SlaPolicyRiskLike => ({
+    ...policy,
+    atRiskPercent,
+  });
+  const created = qa('2026-10-01T15:00'); // Thursday afternoon
+
+  it('keeps the due dates of computeDueDates', () => {
+    for (const policy of [P1, P2, P3, P4]) {
+      const targets = computeSlaTargets(created, risk(policy), QATAR);
+      expect({
+        firstReplyDueAt: targets.firstReplyDueAt,
+        resolveDueAt: targets.resolveDueAt,
+      }).toEqual(computeDueDates(created, policy, QATAR));
+    }
+  });
+
+  it('24/7 policies: 75 % of the wall-clock window, to the millisecond', () => {
+    const p1 = computeSlaTargets(created, risk(P1), QATAR);
+    expect(p1.firstReplyAtRiskAt).toEqual(qa('2026-10-01T15:11:15')); // 11.25 of 15 minutes
+    expect(p1.resolveAtRiskAt).toEqual(qa('2026-10-01T18:00')); // 180 of 240 minutes
+    const p2 = computeSlaTargets(created, risk(P2), QATAR);
+    expect(p2.firstReplyAtRiskAt).toEqual(qa('2026-10-01T15:45'));
+    expect(p2.resolveAtRiskAt).toEqual(qa('2026-10-01T21:00'));
+    // Weekends and holidays don't matter to a 24/7 clock.
+    const friday = qa('2026-10-02T10:00:00.250');
+    const onHoliday = computeSlaTargets(friday, risk(P1), withHolidays(QATAR, '2026-10-02'));
+    expect(onHoliday.firstReplyAtRiskAt.getTime() - friday.getTime()).toBe(675_000);
+  });
+
+  it('business-hours policies count business minutes (nights and the weekend are skipped)', () => {
+    // P3: 180 of 240 first-reply minutes: Thu 15:00–16:30 (90) + Sun 07:30–09:00 (90).
+    const p3 = computeSlaTargets(created, risk(P3), QATAR);
+    expect(p3.firstReplyAtRiskAt).toEqual(qa('2026-10-04T09:00'));
+    // 810 of 1080 resolution minutes: Thu 90 + Sun 540 + Mon 180.
+    expect(p3.resolveAtRiskAt).toEqual(qa('2026-10-05T10:30'));
+    // P4: 405 of 540 (Thu 90 + Sun 315) and 2025 of 2700 (Thu 90 + 3 × 540 + Wed 315).
+    const p4 = computeSlaTargets(created, risk(P4), QATAR);
+    expect(p4.firstReplyAtRiskAt).toEqual(qa('2026-10-04T12:45'));
+    expect(p4.resolveAtRiskAt).toEqual(qa('2026-10-07T12:45'));
+    // The instant is exactly that share of the window in business minutes.
+    for (const policy of [P3, P4]) {
+      const t = computeSlaTargets(created, risk(policy), QATAR);
+      expect(between(created, t.firstReplyAtRiskAt)).toBe((policy.firstReplyMins * 3) / 4);
+      expect(between(created, t.resolveAtRiskAt)).toBe((policy.resolveMins * 3) / 4);
+      expect(t.firstReplyAtRiskAt.getTime()).toBeLessThan(t.firstReplyDueAt.getTime());
+      expect(t.resolveAtRiskAt.getTime()).toBeLessThan(t.resolveDueAt.getTime());
+    }
+  });
+
+  it('holidays are skipped like in the due dates', () => {
+    // Sunday 4 Oct is a holiday: the P3 first reply resumes on Monday.
+    const p3 = computeSlaTargets(created, risk(P3), withHolidays(QATAR, '2026-10-04'));
+    expect(p3.firstReplyAtRiskAt).toEqual(qa('2026-10-05T09:00'));
+    expect(p3.firstReplyDueAt).toEqual(qa('2026-10-05T10:00'));
+  });
+
+  it('a clock started outside business hours measures from the next opening', () => {
+    const saturday = qa('2026-10-03T20:00');
+    const p3 = computeSlaTargets(saturday, risk(P3), QATAR);
+    expect(p3.firstReplyAtRiskAt).toEqual(qa('2026-10-04T10:30')); // Sun 07:30 + 180
+  });
+
+  it('honours the policy percentage (0 = clock start, 100 = the due date)', () => {
+    const p1Half = computeSlaTargets(created, risk(P1, 50), QATAR);
+    expect(p1Half.firstReplyAtRiskAt).toEqual(qa('2026-10-01T15:07:30'));
+    expect(p1Half.resolveAtRiskAt).toEqual(qa('2026-10-01T17:00'));
+    const full = computeSlaTargets(created, risk(P3, 100), QATAR);
+    expect(full.firstReplyAtRiskAt).toEqual(full.firstReplyDueAt);
+    expect(full.resolveAtRiskAt).toEqual(full.resolveDueAt);
+    const zero = computeSlaTargets(qa('2026-10-03T20:00'), risk(P3, 0), QATAR);
+    expect(zero.firstReplyAtRiskAt).toEqual(qa('2026-10-04T07:30'));
+    // An odd percentage rounds to the millisecond (33 % of 15 min = 4 min 57 s).
+    const odd = computeSlaTargets(created, risk(P1, 33), QATAR);
+    expect(odd.firstReplyAtRiskAt.getTime() - created.getTime()).toBe(297_000);
+  });
+
+  it('rejects a percentage outside 0–100', () => {
+    for (const bad of [-1, 101, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => computeSlaTargets(created, risk(P1, bad), QATAR), String(bad)).toThrow(
+        /atRiskPercent must be a number from 0 to 100/,
+      );
+    }
+  });
+
+  it('pauses shift the resolution instant like the due date; a passed instant stays', () => {
+    const morning = qa('2026-10-04T08:00');
+    // P2 (24/7): at risk 14:00, due 16:00.
+    const plain = computeSlaTargets(morning, risk(P2), QATAR);
+    expect([plain.resolveAtRiskAt, plain.resolveDueAt]).toEqual([
+      qa('2026-10-04T14:00'),
+      qa('2026-10-04T16:00'),
+    ]);
+    // A 2 h pause before both: both move by 2 h. The first-reply instant never pauses.
+    const early = computeSlaTargets(morning, risk(P2), QATAR, [
+      { from: qa('2026-10-04T09:00'), to: qa('2026-10-04T11:00') },
+    ]);
+    expect([early.resolveAtRiskAt, early.resolveDueAt]).toEqual([
+      qa('2026-10-04T16:00'),
+      qa('2026-10-04T18:00'),
+    ]);
+    expect(early.firstReplyAtRiskAt).toEqual(plain.firstReplyAtRiskAt);
+    // A pause that starts after the instant had passed (but before the due date): the instant
+    // stays, the due date moves.
+    const late = computeSlaTargets(morning, risk(P2), QATAR, [
+      { from: qa('2026-10-04T15:00'), to: qa('2026-10-04T17:00') },
+    ]);
+    expect([late.resolveAtRiskAt, late.resolveDueAt]).toEqual([
+      qa('2026-10-04T14:00'),
+      qa('2026-10-04T18:00'),
+    ]);
+  });
+
+  it('business-hours pauses are measured in business time (weekend pause)', () => {
+    // P3 from Thu 08:00: resolution at risk after 810 business minutes = Sun 12:30. Paused
+    // Thu 15:00 → Sun 07:30 with 390 of those minutes left: at risk Sun 14:00.
+    const thursday = qa('2026-10-01T08:00');
+    expect(computeSlaTargets(thursday, risk(P3), QATAR).resolveAtRiskAt).toEqual(
+      qa('2026-10-04T12:30'),
+    );
+    const weekend = [{ from: qa('2026-10-01T15:00'), to: qa('2026-10-04T07:30') }];
+    const paused = computeSlaTargets(thursday, risk(P3), QATAR, weekend);
+    expect(paused.resolveAtRiskAt).toEqual(qa('2026-10-04T14:00'));
+    expect(paused.resolveDueAt).toEqual(qa('2026-10-05T09:30'));
+  });
+
+  it('resumeDueDate moves a stored instant exactly like replaying the pause (PENDING resume)', () => {
+    const morning = qa('2026-10-04T08:00');
+    const pause = { from: qa('2026-10-04T09:00:00.500'), to: qa('2026-10-05T10:15:30.125') };
+    for (const policy of [P1, P2, P3, P4]) {
+      const before = computeSlaTargets(morning, risk(policy), QATAR);
+      const resumed = resumeDueDate(
+        before.resolveAtRiskAt,
+        pause.from,
+        pause.to,
+        QATAR,
+        policy.businessHoursOnly,
+      );
+      expect(resumed).toEqual(
+        computeSlaTargets(morning, risk(policy), QATAR, [pause]).resolveAtRiskAt,
+      );
+    }
+  });
+
+  it('priority replay: the instants survive a round trip through another priority', () => {
+    const old = qa('2026-10-01T08:00');
+    const pauses = [{ from: qa('2026-10-01T10:00'), to: qa('2026-10-03T10:00') }];
+    const p2 = computeSlaTargets(old, risk(P2), QATAR, pauses);
+    computeSlaTargets(old, risk(P1), QATAR, pauses);
+    expect(computeSlaTargets(old, risk(P2), QATAR, pauses)).toEqual(p2);
+    // 50 h old, paused 48 h of it, raised to P1 (4 h): at risk after 3 h of SLA time — 2 h
+    // were used before the pause, so 1 h after it ended; due 1 h later.
+    const p1 = computeSlaTargets(old, risk(P1), QATAR, pauses);
+    expect(p1.resolveAtRiskAt).toEqual(qa('2026-10-03T11:00'));
+    expect(p1.resolveDueAt).toEqual(qa('2026-10-03T12:00'));
+    // …and the first-reply instant is long past (it never pauses).
+    expect(p1.firstReplyAtRiskAt).toEqual(qa('2026-10-01T08:11:15'));
+  });
+
+  it('matches a brute-force oracle for random Qatar business-hours cases', () => {
+    const random = seededRandom(20260929);
+    for (let i = 0; i < 40; i++) {
+      const start = new Date(YEAR_2026_START + Math.floor(random() * 360 * 24 * 60) * MIN);
+      const minutes = 1 + Math.floor(random() * 3000);
+      const percent = 1 + Math.floor(random() * 99);
+      const policy: SlaPolicyRiskLike = {
+        firstReplyMins: minutes,
+        resolveMins: minutes,
+        businessHoursOnly: true,
+        atRiskPercent: percent,
+      };
+      const t = computeSlaTargets(start, policy, QATAR);
+      const shareMs = Math.round((minutes * percent * MIN) / 100);
+      // Whole minutes of the share via the oracle, then the remaining milliseconds inside hours.
+      const whole = Math.floor(shareMs / MIN);
+      const expected = oracleAdd(start.getTime(), whole, new Set());
+      const rest = shareMs - whole * MIN;
+      const label = `${start.toISOString()} ${minutes} ${percent}%`;
+      if (rest === 0) expect(t.firstReplyAtRiskAt.getTime(), label).toBe(expected);
+      else expect(between(start, t.firstReplyAtRiskAt), label).toBe(whole);
+      expect(t.resolveAtRiskAt, label).toEqual(t.firstReplyAtRiskAt);
+    }
   });
 });

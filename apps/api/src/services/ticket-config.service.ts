@@ -178,6 +178,7 @@ export function createTicketConfigService(deps: {
         firstReplyMins: p.firstReplyMins,
         resolveMins: p.resolveMins,
         businessHoursOnly: p.businessHoursOnly,
+        atRiskPercent: p.atRiskPercent,
       })),
       securityCategoryKey: setting('tickets.securityCategoryKey') ?? DEFAULT_SECURITY_CATEGORY_KEY,
       socPhone: setting('support.socPhone'),

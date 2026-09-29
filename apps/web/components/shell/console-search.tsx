@@ -116,7 +116,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
     <div
       role="search"
       className={cn(
-        'flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface-muted px-2.5 transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-brand focus-within:ring-3 focus-within:ring-brand-tint',
+        'flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface-muted px-2.5 transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-brand focus-within:ring-3 focus-within:ring-brand-tint focus-within:outline-hidden',
         className,
       )}
     >

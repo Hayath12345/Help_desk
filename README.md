@@ -9,11 +9,12 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 
-> **Status:** Phase 2 (Tickets & chat) — on top of the Phase 1 foundation (monorepo, infrastructure, schema + seed,
-> authentication, design tokens, EN/AR + RTL shells): the New ticket modal driven by the database configuration, My
-> tickets and the ticket thread for clients, the agent Inbox with conversation, internal notes and the right panel,
-> attachments through pre-signed uploads, and realtime chat over Socket.IO. SLA worker + notifications, admin, reports
-> and AWS packaging arrive in phases 3–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md).
+> **Status:** Phase 3 (SLA & notifications) — on top of Phase 1 (monorepo, infrastructure, schema + seed,
+> authentication, design tokens, EN/AR + RTL shells) and Phase 2 (tickets, realtime chat, internal notes,
+> attachments): the SLA worker (at risk / breached, auto-close), email notifications, Microsoft Teams posts and SMS,
+> P1 acknowledge and the escalation chain, the daily P4 digest and the in-app notification bell. Admin, reports and
+> AWS packaging arrive in phases 4–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md),
+> [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md).
 
 ---
 
@@ -171,13 +172,16 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - The attachment tests (API suite and E2E) expect the bucket's upload-expiry lifecycle rule. A fresh
   `docker compose up -d` adds it; an existing local MinIO needs `docker compose up minio-init` once after pulling.
 - Playwright reuses a running API (:4000) and web app (:3000) — e.g. from `pnpm dev` — or starts them, and always starts
-  its own worker next to them (harmless: workers share the queues).
+  its own worker next to them (harmless: workers share the queues; the extra one runs with `WORKER_SCHEDULERS=false`).
 - Each run signs up one `e2e-<timestamp>@hamad.qa` client and raises tickets whose subject starts with
   `[e2e:<timestamp>]` as a seeded client; a global teardown deletes those accounts, tickets and their MinIO objects
   (`db:cleanup-e2e`), so don't run two E2E suites against the same database at once. A failed cleanup fails the run.
 - The ticket spec opens two browser contexts: a client raises a ticket with an attachment, the agent sees it appear in
   the Inbox without reloading, replies publicly and adds an internal note, and the client sees the reply in realtime
   but never the note (page and network are both checked).
+- The notifications spec raises a P1: it checks the team and on-call emails in Mailpit and the sent Teams and SMS
+  records, then the agent acknowledges from the P1 banner and bell. It texts one demo number per run, so more than 5
+  runs in an hour hit the SMS cap (see Troubleshooting).
 
 ---
 
@@ -220,7 +224,8 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - **SLA:** first-reply and resolution targets come from the priority's policy over the business calendar
   (`Asia/Qatar` business hours and holidays from the seed). PENDING pauses the resolution clock only; the first-reply
   clock never pauses. A priority change recomputes the targets and replays the ticket's pauses. The console sorts by
-  SLA and shows the _SLA at risk_ view (remaining time under 1 hour or under half the window).
+  SLA and shows the _SLA at risk_ view: a target is at risk once 75 % of its window has passed (the policy's
+  `atRiskPercent`, counted in business time where the policy uses business hours) and breached at its due date.
 - **Conversation:** public replies and internal notes (staff only, yellow). Messages are delivered over Socket.IO to
   the ticket's room after the database commit; internal notes, staff typing and note attachments only ever reach the
   staff room. Sending is optimistic with retry; a reconnect catches up from the last known message.
@@ -239,6 +244,31 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
   Details: `docs/PHASE2_HANDOFF.md` → Realtime.
 - **Macros:** team macros fill the composer (`{{requesterFirstName}}`, `{{siteName}}`) and can arm a status that is
   applied when the reply is sent.
+
+## SLA & notifications
+
+The **worker** (`pnpm dev` starts it) runs the scheduled jobs and sends every notification; details and the rules as
+built are in [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md).
+
+| Event                    | Who hears about it                                                                                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ticket created           | The client (acknowledgement with the target response time) and the team's distribution list                                                                                             |
+| P4 ticket created        | The client; the team gets it in the next daily P4 digest (07:30 Qatar time on business days)                                                                                            |
+| Ticket becomes P1        | Team list email, one Teams card, then the escalation chain: on-call engineer (email + SMS) at once, team leads after 5 min, operations manager after 15 min, until someone acknowledges |
+| Agent public reply       | The client, by email with a link to the portal                                                                                                                                          |
+| Client reply             | The assignee (bell + email); if unassigned, the team leads (bell) and the team list (email)                                                                                             |
+| SLA at risk / breached   | The assignee and the team leads (bell + email)                                                                                                                                          |
+| Ticket solved for 5 days | Closed automatically                                                                                                                                                                    |
+
+- **Acknowledge** a P1 with the button in the console's red P1 banner. Links in emails, Teams and texts only open
+  the ticket (mail scanners and link previews must not be able to stop an escalation).
+- **Locally**, emails land in Mailpit (http://localhost:8025). Teams cards and texts are not sent
+  (`TEAMS_PROVIDER=console`, `SMS_PROVIDER=console`): each is one redacted line in the worker log and a row in the
+  `NotificationDelivery` table. Production uses `TEAMS_PROVIDER=webhook` with each team's webhook URL and
+  `SMS_PROVIDER=sns`.
+- **Limits:** a phone number receives at most 20 texts an hour (`SMS_MAX_PER_RECIPIENT_PER_HOUR`), and one
+  organisation's P1s may use at most a quarter of that; skipped texts are recorded, and the email and bell still go.
+- The console **bell** shows staff their notifications live; clients are notified by email.
 
 ### Enabling Google (clients)
 
@@ -293,8 +323,16 @@ Enforce MFA with Entra Conditional Access.
 - **Uploads fail in the browser** — the upload goes straight to MinIO: check that `NEXT_PUBLIC_UPLOAD_ORIGIN` matches
   `S3_ENDPOINT` as the browser sees it and that the `minio-init` container finished (`docker compose logs minio-init`
   ends with `bucket ready`). _"The file's content doesn't match its type"_ means the bytes are not what the file
-  extension says (for example a JPEG renamed `.png`); rename the file to its real type.
+  extension says, and not an allowed image either (a JPEG renamed `.png` is simply stored as `.jpg`); rename the file
+  to its real type. _"This file doesn't fit in what's left of your upload allowance…"_ is the per-user budget over
+  the last 24 hours (`UPLOAD_DAILY_BYTES_PER_USER`, default 2 GiB); to reset it locally:
+  `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:upload-quota:*' | xargs -r redis-cli del"`.
 - **A test worker exited with `0xC0000409`** — see the Windows note under Scripts; run `pnpm test` again.
+- **An SMS shows as `SKIPPED`** (or the notifications E2E fails after many runs) — the hourly SMS cap was reached for
+  that number or organisation. The counters expire after an hour; to reset them locally:
+  `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:sms-cap*' | xargs -r redis-cli del"`.
+- **A P1 paged the team leads** — escalation step 2 fires 5 real minutes after a ticket becomes P1 unless someone
+  acknowledges it in the console. Demo tickets created before Phase 3 never page anyone.
 
 ---
 

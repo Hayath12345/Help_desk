@@ -9,6 +9,7 @@ import { useAttachmentUploads } from '@/lib/uploads/use-attachment-uploads';
 import arTickets from '@/messages/ar/tickets.json';
 import enTickets from '@/messages/en/tickets.json';
 import { AttachmentDropzone } from './attachment-dropzone';
+import { quotaWait } from './upload-chip';
 
 const FSI = '⁨';
 const PDI = '⁩';
@@ -21,9 +22,9 @@ afterEach(cleanup);
 function Harness({
   upload,
 }: {
-  upload: (file: File, options?: UploadAttachmentOptions) => Promise<AttachmentDto>;
+  upload: (file: File, options: UploadAttachmentOptions) => Promise<AttachmentDto>;
 }) {
-  const uploads = useAttachmentUploads({ upload });
+  const uploads = useAttachmentUploads({ visibility: 'public', upload });
   return <AttachmentDropzone uploads={uploads} />;
 }
 
@@ -213,5 +214,136 @@ describe('AttachmentDropzone', () => {
     const remove = screen.getByRole('button', { name: 'Remove switch.log' });
     expect(remove.hasAttribute('aria-describedby')).toBe(false);
     expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
+  });
+});
+
+describe('Upload over the daily budget', () => {
+  it('rounds the wait up to whole minutes under an hour, whole hours from there', () => {
+    expect(quotaWait(0)).toEqual({ unit: 'minutes', n: 1 });
+    expect(quotaWait(1)).toEqual({ unit: 'minutes', n: 1 });
+    expect(quotaWait(61)).toEqual({ unit: 'minutes', n: 2 });
+    expect(quotaWait(3540)).toEqual({ unit: 'minutes', n: 59 });
+    expect(quotaWait(3541)).toEqual({ unit: 'hours', n: 1 });
+    expect(quotaWait(3600)).toEqual({ unit: 'hours', n: 1 });
+    expect(quotaWait(3601)).toEqual({ unit: 'hours', n: 2 });
+    expect(quotaWait(86_400)).toEqual({ unit: 'hours', n: 24 });
+  });
+
+  // Says that THIS file does not fit (a smaller one may still go through), not that nothing can.
+  const EN =
+    "This file doesn't fit in what's left of your upload allowance for the last 24 hours. Try again in ";
+  const AR = 'هذا الملف أكبر مما تبقى من حد الرفع المسموح به خلال آخر 24 ساعة. حاول مرة أخرى بعد ';
+  const cases = [
+    // [locale, retryAfterSeconds, reason text]
+    ['en', 5400, `${EN}2 hours.`],
+    ['en', 3600, `${EN}1 hour.`],
+    ['en', 30, `${EN}1 minute.`],
+    ['en', 1500, `${EN}25 minutes.`],
+    ['ar', 7200, `${AR}ساعتين.`],
+    ['ar', 3 * 3600, `${AR}3 ساعات.`],
+    ['ar', 11 * 3600, `${AR}11 ساعة.`],
+    ['ar', 600, `${AR}10 دقائق.`],
+    ['ar', 45, `${AR}دقيقة واحدة.`],
+  ] as const;
+  const words = {
+    en: { failed: "Couldn't upload", retry: 'Retry uploading' },
+    ar: { failed: 'تعذّر رفع', retry: 'إعادة رفع' },
+  };
+
+  it.each(cases)(
+    '%s, %i s: says when to retry, under the chip and in the announcement, and keeps Retry',
+    async (locale, seconds, reason) => {
+      const { upload, fail } = failingUpload();
+      const { add } = renderZone(locale, upload);
+      add(new File(['log'], 'nvr-export.log', { type: 'text/plain' }));
+      await fail(new UploadError('quota', 'limit', { retryAfterSeconds: seconds }));
+
+      const { chip, item } = chipOf('nvr-export.log');
+      expect(item.textContent).toContain(reason);
+      expect(screen.getByRole('status').textContent?.trim()).toBe(
+        `${words[locale].failed} ${FSI}nvr-export.log${PDI}. ${reason}`,
+      );
+      const retry = within(chip).getByRole('button', {
+        name: `${words[locale].retry} nvr-export.log`,
+      });
+      const described = retry.getAttribute('aria-describedby')?.split(' ') ?? [];
+      expect(described.map((id) => document.getElementById(id)?.textContent)).toEqual([reason]);
+
+      // Retry starts the upload again.
+      fireEvent.click(retry);
+      expect(upload).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText(reason)).toBeNull();
+    },
+  );
+});
+
+describe('Other presign refusals are not read as the security scan', () => {
+  it.each([
+    ['en', 'busy', 'Too many uploads in a short time. Wait a few minutes, then retry.'],
+    ['ar', 'busy', 'عدد كبير من عمليات الرفع خلال وقت قصير. انتظر بضع دقائق ثم أعد المحاولة.'],
+    ['en', 'allowance', 'The file is larger than your daily upload allowance.'],
+    ['ar', 'allowance', 'حجم الملف أكبر من حد الرفع اليومي المسموح لك.'],
+  ] as const)('%s, %s: its own text under the chip', async (locale, reason, text) => {
+    const { upload, fail } = failingUpload();
+    const { add } = renderZone(locale, upload);
+    add(new File(['log'], 'nvr-export.log', { type: 'text/plain' }));
+    await fail(new UploadError(reason, 'refused'));
+    const { item } = chipOf('nvr-export.log');
+    expect(item.textContent).toContain(text);
+    expect(item.textContent).not.toContain(
+      (locale === 'en' ? enTickets : arTickets).attachments.error.rejected,
+    );
+  });
+});
+
+describe('An image stored as its real type', () => {
+  /** An upload the test finishes on demand with the stored attachment. */
+  function finishingUpload() {
+    let finish!: (attachment: AttachmentDto) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<AttachmentDto>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    return {
+      upload,
+      finish: (fileName: string, mimeType: string) =>
+        act(async () =>
+          finish({
+            id: '00000000-0000-4000-8000-000000000042',
+            fileName,
+            mimeType,
+            sizeBytes: 3,
+            createdAt: '2026-09-23T12:00:00.000Z',
+          }),
+        ),
+    };
+  }
+
+  it('the chip shows the stored name once the upload completed (a JPEG named .png)', async () => {
+    const { upload, finish } = finishingUpload();
+    const { add } = renderZone('en', upload);
+    add(new File([new Uint8Array([0xff, 0xd8, 0xff])], 'camera-14.png', { type: 'image/png' }));
+    expect(screen.getByTitle('camera-14.png')).toBeTruthy();
+
+    await finish('camera-14.jpg', 'image/jpeg');
+    expect(screen.queryByTitle('camera-14.png')).toBeNull();
+    const { chip } = chipOf('camera-14.jpg');
+    expect(chip.textContent).toContain('camera-14.jpg');
+    expect(chip.querySelector('svg.lucide-file-image')).toBeTruthy();
+    expect(within(chip).getByRole('button', { name: 'Remove camera-14.jpg' })).toBeTruthy();
+  });
+
+  it('the chip icon follows the stored type', async () => {
+    const { upload, finish } = finishingUpload();
+    const { add } = renderZone('en', upload);
+    add(new File(['x'], 'scan.txt', { type: 'text/plain' }));
+    expect(chipOf('scan.txt').chip.querySelector('svg.lucide-file-text')).toBeTruthy();
+
+    await finish('scan.png', 'image/png');
+    const { chip } = chipOf('scan.png');
+    expect(chip.querySelector('svg.lucide-file-image')).toBeTruthy();
+    expect(chip.querySelector('svg.lucide-file-text')).toBeNull();
   });
 });

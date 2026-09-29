@@ -24,6 +24,7 @@ import {
   type TicketRealtime,
 } from './ticket-access.ts';
 import type { TicketConfigService } from './ticket-config.service.ts';
+import type { Notifier } from './notifier.ts';
 import { messageSelect, toMessageDto } from './ticket-dto.ts';
 import { statusChangeData } from './ticket-state.ts';
 import type { TicketsService } from './tickets.service.ts';
@@ -65,9 +66,11 @@ export function createMessagesService(deps: {
   ticketConfig: TicketConfigService;
   sla: SlaMath;
   realtime: TicketRealtime;
+  /** Notification producers, called after each commit (D15). */
+  notifier: Notifier;
   logger: Logger;
 }): MessagesService {
-  const { prisma, tickets, ticketConfig, sla, realtime, logger } = deps;
+  const { prisma, tickets, ticketConfig, sla, realtime, notifier, logger } = deps;
 
   async function emit(what: string, fn: () => Promise<void> | void): Promise<void> {
     try {
@@ -140,7 +143,13 @@ export function createMessagesService(deps: {
       await assertClientCanWrite(prisma, actor);
       if (isClosed(scope.status)) throw errors.conflict('This ticket is closed');
 
-      const issues = await attachmentLinkIssues(prisma, actor, input.attachmentIds, scope.id);
+      const issues = await attachmentLinkIssues(
+        prisma,
+        actor,
+        input.attachmentIds,
+        scope.id,
+        input.type,
+      );
       if (issues.length) throw errors.validation(issues);
 
       let calendar: BusinessCalendar | null = null;
@@ -161,6 +170,7 @@ export function createMessagesService(deps: {
               createdAt: true,
               firstRepliedAt: true,
               resolveDueAt: true,
+              resolveAtRiskAt: true,
               slaPausedAt: true,
               slaPauses: true,
             },
@@ -178,7 +188,7 @@ export function createMessagesService(deps: {
             },
             select: { id: true },
           });
-          await linkAttachments(tx, actor, input.attachmentIds, t.id, message.id);
+          await linkAttachments(tx, actor, input.attachmentIds, t.id, message.id, input.type);
 
           const data: Prisma.TicketUncheckedUpdateInput = {};
           const events: EventInput[] = [];
@@ -232,6 +242,7 @@ export function createMessagesService(deps: {
                 to: next,
                 now,
                 resolveDueAt: t.resolveDueAt,
+                resolveAtRiskAt: t.resolveAtRiskAt,
                 slaPausedAt: t.slaPausedAt,
                 slaPauses: t.slaPauses,
                 businessHoursOnly: policy?.businessHoursOnly ?? false,
@@ -283,6 +294,11 @@ export function createMessagesService(deps: {
       await emit('queue:updated', () =>
         realtime.queueUpdated([outcome.teamId], scope.id, 'message'),
       );
+      // Email / in-app for PUBLIC messages only: an internal note never notifies anyone outside
+      // the console (and never reaches a client).
+      if (input.type === 'PUBLIC') {
+        await notifier.publicReply(scope.id, outcome.messageId, staff ? 'staff' : 'client');
+      }
       return { created: true, message, ticket };
     },
   };

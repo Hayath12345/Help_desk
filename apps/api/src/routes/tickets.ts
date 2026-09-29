@@ -1,5 +1,6 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
+  acknowledgeTicketResponseSchema,
   createMessageResponseSchema,
   createMessageSchema,
   createTicketSchema,
@@ -23,6 +24,7 @@ import { actorOf, requireAuth } from '../plugins/auth.ts';
 export const TICKET_RATE_LIMITS = {
   create: { max: 30, windowMs: 10 * MINUTE },
   message: { max: 120, windowMs: MINUTE },
+  acknowledge: { max: 60, windowMs: MINUTE },
 } as const;
 
 const perUser: LimitRule['key'] = (req) => (req.actor ? `user:${req.actor.id}` : null);
@@ -38,6 +40,11 @@ export const ticketRoutes: FastifyPluginAsyncZod = async (app) => {
   const createLimit = limitGuard(
     app,
     [{ name: 'tickets:create:user', ...TICKET_RATE_LIMITS.create, key: perUser }],
+    { onStoreError: 'allow' },
+  );
+  const acknowledgeLimit = limitGuard(
+    app,
+    [{ name: 'tickets:ack:user', ...TICKET_RATE_LIMITS.acknowledge, key: perUser }],
     { onStoreError: 'allow' },
   );
   const messageLimit = limitGuard(
@@ -150,6 +157,26 @@ export const ticketRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => ({
       ticket: await app.services.tickets.update(actorOf(req), req.params.id, req.body),
     }),
+  );
+
+  app.post(
+    '/tickets/:id/acknowledge',
+    {
+      preHandler: [auth, acknowledgeLimit],
+      schema: {
+        tags: ['tickets'],
+        summary: 'Acknowledge a P1 ticket (stops its escalation chain)',
+        description:
+          'Staff who can see the ticket; no body. Idempotent: when the P1 was already acknowledged the answer is 200 with `alreadyAcknowledged: true` and the first acknowledger (`p1AckedBy` / `p1AckedAt`). A ticket that is not P1, or a closed one, is 409 CONFLICT; clients get 403. Nothing acknowledges on GET (links in emails, Teams and SMS open the console).',
+        security,
+        params: idParamSchema,
+        response: {
+          200: acknowledgeTicketResponseSchema,
+          ...errorResponses(400, 401, 403, 404, 409, 429),
+        },
+      },
+    },
+    async (req) => app.services.tickets.acknowledge(actorOf(req), req.params.id),
   );
 
   app.get(

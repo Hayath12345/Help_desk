@@ -98,7 +98,12 @@
       "resolutionTarget": "هدف الحل: {window}",
       "resolutionLeft": "متبقٍ {duration}",
       "resolutionOverdue": "متأخرة {duration}",
-      "resolutionPaused": "متوقف بانتظار العميل"
+      "resolutionPaused": "متوقف بانتظار العميل",
+      "atRisk": "معرضة للخطر",
+      "breached": "متجاوزة",
+      "resolutionAtRisk": "معرضة للخطر",
+      "resolutionBreached": "تم تجاوزها",
+      "breachedEarlier": "تم تجاوز أحد أهداف مهلة الخدمة"
     },
     "status": "الحالة",
     "closedNote": "لا يمكن تعديل التذاكر المغلقة.",
@@ -188,5 +193,51 @@
     },
     "byCategory": "التذاكر المفتوحة حسب الفئة",
     "loading": "جارٍ تحميل التقارير…"
+  },
+  "notifications": {
+    "title": "الإشعارات",
+    "label": "{count, plural, =0 {الإشعارات} other {الإشعارات، {n} غير مقروءة}}",
+    "markAllRead": "تعليم الكل كمقروء",
+    "markRead": "تعليم كمقروء",
+    "unreadPrefix": "غير مقروء:",
+    "empty": "لا توجد إشعارات بعد.",
+    "loading": "جارٍ تحميل الإشعارات…",
+    "loadFailed": "تعذّر تحميل الإشعارات.",
+    "retry": "حاول مرة أخرى",
+    "loadMore": "عرض الإشعارات الأقدم",
+    "loadingMore": "جارٍ تحميل الإشعارات الأقدم…",
+    "announce": "إشعار جديد: {text}",
+    "markReadFailed": "تعذّر تعليم الإشعارات كمقروءة. {reason}",
+    "aTicket": "تذكرة",
+    "types": {
+      "TICKET_CREATED": "تذكرة جديدة <ticket>{ref}</ticket>",
+      "TICKET_ASSIGNED": "{hasActor, select, yes {أسند {actor} التذكرة <ticket>{ref}</ticket> إليك} other {أُسندت التذكرة <ticket>{ref}</ticket> إليك}}",
+      "CLIENT_REPLY": "{hasActor, select, yes {ردّ {actor} على <ticket>{ref}</ticket>} other {ردّ جديد من العميل على <ticket>{ref}</ticket>}}",
+      "AGENT_REPLY": "{hasActor, select, yes {ردّ {actor} على <ticket>{ref}</ticket>} other {ردّ جديد على <ticket>{ref}</ticket>}}",
+      "STATUS_CHANGED": "{hasStatus, select, yes {أصبحت حالة <ticket>{ref}</ticket>: {status}} other {تغيّرت حالة <ticket>{ref}</ticket>}}",
+      "SLA_AT_RISK": "{target, select, FIRST_REPLY {مهلة الرد الأول معرضة للخطر في <ticket>{ref}</ticket>} RESOLUTION {مهلة الحل معرضة للخطر في <ticket>{ref}</ticket>} other {مهلة الخدمة معرضة للخطر في <ticket>{ref}</ticket>}}",
+      "SLA_BREACHED": "{target, select, FIRST_REPLY {تم تجاوز مهلة الرد الأول في <ticket>{ref}</ticket>} RESOLUTION {تم تجاوز مهلة الحل في <ticket>{ref}</ticket>} other {تم تجاوز مهلة الخدمة في <ticket>{ref}</ticket>}}",
+      "P1_CREATED": "تذكرة P1 جديدة <ticket>{ref}</ticket>",
+      "P1_ESCALATED": "{hasStep, select, yes {تم تصعيد تذكرة P1 <ticket>{ref}</ticket> · المرحلة {step}} other {تم تصعيد تذكرة P1 <ticket>{ref}</ticket>}}",
+      "P1_ACKNOWLEDGED": "{hasActor, select, yes {أكّد {actor} استلام تذكرة P1 <ticket>{ref}</ticket>} other {تم تأكيد استلام تذكرة P1 <ticket>{ref}</ticket>}}",
+      "generic": "تحديث على <ticket>{ref}</ticket>"
+    }
+  },
+  "p1": {
+    "title": "لم يتم تأكيد استلام P1",
+    "step": "مرحلة التصعيد {step}",
+    "notEscalated": "لم يبدأ التصعيد",
+    "since": "P1 منذ {duration}",
+    "acknowledge": "تأكيد الاستلام",
+    "acknowledging": "جارٍ تأكيد الاستلام…",
+    "acknowledged": "أكّد الاستلام {name} · {time}",
+    "acknowledgedNoName": "تم تأكيد الاستلام · {time}",
+    "alreadyAcknowledged": "سبق أن أكّد {name} استلام هذه التذكرة.",
+    "alreadyAcknowledgedNoName": "سبق تأكيد استلام هذه التذكرة.",
+    "failed": "لم يتم تأكيد الاستلام. {reason}",
+    "marker": "لم يُؤكَّد الاستلام",
+    "stepOf": "مرحلة التصعيد {step} من {count}",
+    "nextIn": "المرحلة التالية خلال {duration} ({time})",
+    "nextDue": "المرحلة التالية مستحقة الآن"
   }
 }

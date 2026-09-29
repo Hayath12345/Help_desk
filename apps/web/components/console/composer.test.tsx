@@ -13,14 +13,25 @@ import enTickets from '@/messages/en/tickets.json';
 import { Composer, type ComposerMode, type ComposerProps } from './composer';
 import { createInboxWorld } from './test-world';
 
-// ── The API (macros) comes from the in-memory world. ──
+// ── The API (macros) comes from the in-memory world; presign bodies are recorded. ──
+const presigns = vi.hoisted(() => ({ bodies: [] as unknown[] }));
 vi.mock('@/lib/api/browser', async () => {
   const { createInboxWorld: create, worldRequest } = await import('./test-world');
   const world = create();
   const call = (method: 'GET' | 'POST' | 'PATCH') => async (path: string, body?: unknown) =>
     worldRequest(world, method, path, body);
+  const post = call('POST');
   return {
-    apiClient: { get: call('GET'), post: call('POST'), patch: call('PATCH') },
+    apiClient: {
+      get: call('GET'),
+      // A presign is recorded and never answers (the upload stays in progress).
+      post: (path: string, body?: unknown) => {
+        if (path !== '/attachments/presign') return post(path, body);
+        presigns.bodies.push(body);
+        return new Promise(() => undefined);
+      },
+      patch: call('PATCH'),
+    },
     getApiToken: vi.fn(async () => 'token'),
     clearApiToken: vi.fn(),
   };
@@ -29,14 +40,21 @@ vi.mock('@/lib/api/browser', async () => {
 // ── Storage uploads: each test decides how an upload ends. ──
 const uploads = vi.hoisted(() => ({
   impl: null as null | typeof uploadAttachment,
-  calls: [] as { name: string; ticketId?: string }[],
+  /** The real upload (presign through the recorded API above). */
+  actual: null as null | typeof uploadAttachment,
+  calls: [] as { name: string; ticketId?: string; visibility: string }[],
 }));
 vi.mock('@/lib/uploads/upload', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/uploads/upload')>();
+  uploads.actual = actual.uploadAttachment;
   return {
     ...actual,
-    uploadAttachment: (file: File, options: Parameters<typeof uploadAttachment>[1] = {}) => {
-      uploads.calls.push({ name: file.name, ticketId: options.ticketId });
+    uploadAttachment: (file: File, options: Parameters<typeof uploadAttachment>[1]) => {
+      uploads.calls.push({
+        name: file.name,
+        ticketId: options.ticketId,
+        visibility: options.visibility,
+      });
       return uploads.impl!(file, options);
     },
   };
@@ -60,6 +78,7 @@ beforeAll(() => {
 beforeEach(() => {
   uploads.calls = [];
   uploads.impl = async (file) => attachmentFor(file);
+  presigns.bodies = [];
 });
 afterEach(cleanup);
 
@@ -118,7 +137,9 @@ describe('Composer attachments are kept per mode', () => {
     switchTo('Internal note');
     attach(file('internal-network-diagram.png', 'image/png'));
     const chip = await screen.findByText('internal-network-diagram.png');
-    expect(uploads.calls).toEqual([{ name: 'internal-network-diagram.png', ticketId: ticket.id }]);
+    expect(uploads.calls).toEqual([
+      { name: 'internal-network-diagram.png', ticketId: ticket.id, visibility: 'internal' },
+    ]);
     // Uploaded: the size replaces the progress.
     await waitFor(() => expect(chip.parentElement?.textContent).toContain('KB'));
 
@@ -166,6 +187,29 @@ describe('Composer attachments are kept per mode', () => {
 
     switchTo('Public reply');
     expect(await screen.findByText('site-photo.jpg')).toBeTruthy();
+  });
+
+  it('presigns note files as internal and reply files as public (SEC-WEB-1)', async () => {
+    uploads.impl = uploads.actual;
+    const { attach } = renderComposer();
+    switchTo('Internal note');
+    attach(file('firewall-rules.txt', 'text/plain'));
+    await waitFor(() => expect(presigns.bodies).toHaveLength(1));
+    switchTo('Public reply');
+    attach(file('site-photo.jpg', 'image/jpeg'));
+    await waitFor(() => expect(presigns.bodies).toHaveLength(2));
+    expect(presigns.bodies).toEqual([
+      expect.objectContaining({
+        fileName: 'firewall-rules.txt',
+        ticketId: ticket.id,
+        visibility: 'internal',
+      }),
+      expect.objectContaining({
+        fileName: 'site-photo.jpg',
+        ticketId: ticket.id,
+        visibility: 'public',
+      }),
+    ]);
   });
 
   it('keeps a macro’s armed status with the draft it filled', async () => {

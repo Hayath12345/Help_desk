@@ -4,9 +4,10 @@ import type { SlaMath } from './sla.ts';
 
 // Side effects of a status change on the SLA clocks (spec §7): SOLVED stamps `solvedAt`
 // (reopening clears it); entering PENDING pauses the resolution clock (`slaPausedAt`), leaving it
-// resumes the clock with the SLA time that was left (`resumeDueDate`) and records the finished
-// pause in `slaPauses`, so a later priority change can recompute the target with the same credit.
-// The first-reply clock is never paused.
+// resumes the clock with the SLA time that was left (`resumeDueDate`, applied to the due date and
+// to the resolution at-risk instant alike) and records the finished pause in `slaPauses`, so a
+// later priority change can recompute the targets with the same credit. The first-reply clock is
+// never paused.
 
 export interface StatusChangeContext {
   from: TicketStatus;
@@ -14,6 +15,8 @@ export interface StatusChangeContext {
   now: Date;
   /** The resolution due date in force (after any priority change in the same update). */
   resolveDueAt: Date | null;
+  /** The resolution at-risk instant in force (same rule; null = not known yet, left as is). */
+  resolveAtRiskAt: Date | null;
   slaPausedAt: Date | null;
   /** The ticket's finished pauses (`Ticket.slaPauses`). */
   slaPauses: Prisma.JsonValue;
@@ -24,7 +27,7 @@ export interface StatusChangeContext {
 
 export type StatusChangeData = Pick<
   Prisma.TicketUncheckedUpdateInput,
-  'status' | 'solvedAt' | 'slaPausedAt' | 'resolveDueAt' | 'slaPauses'
+  'status' | 'solvedAt' | 'slaPausedAt' | 'resolveDueAt' | 'resolveAtRiskAt' | 'slaPauses'
 >;
 
 /** Stored form of one finished pause. */
@@ -71,17 +74,14 @@ export async function statusChangeData(ctx: StatusChangeContext): Promise<Status
     data.slaPausedAt = now;
   } else if (from === 'PENDING' && to !== 'PENDING') {
     data.slaPausedAt = null;
-    if (ctx.slaPausedAt) {
-      data.slaPauses = withPause(ctx.slaPauses, ctx.slaPausedAt, now);
-      if (ctx.resolveDueAt) {
-        data.resolveDueAt = ctx.math.resumeDueDate(
-          ctx.resolveDueAt,
-          ctx.slaPausedAt,
-          now,
-          await ctx.calendar(),
-          ctx.businessHoursOnly,
-        );
-      }
+    const pausedAt = ctx.slaPausedAt;
+    if (pausedAt) {
+      data.slaPauses = withPause(ctx.slaPauses, pausedAt, now);
+      // An instant that had already passed when the pause started stays where it was.
+      const resume = async (instant: Date) =>
+        ctx.math.resumeDueDate(instant, pausedAt, now, await ctx.calendar(), ctx.businessHoursOnly);
+      if (ctx.resolveDueAt) data.resolveDueAt = await resume(ctx.resolveDueAt);
+      if (ctx.resolveAtRiskAt) data.resolveAtRiskAt = await resume(ctx.resolveAtRiskAt);
     }
   }
   return data;

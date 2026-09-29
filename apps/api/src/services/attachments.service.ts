@@ -1,17 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
-import type { PrismaClient } from '@loons/db';
+import type { AttachmentVisibility as DbAttachmentVisibility, PrismaClient } from '@loons/db';
 import {
   TICKET_LIMITS,
   canSeeInternalNotes,
   canViewTicket,
   type Actor,
   type AttachmentDto,
+  type AttachmentVisibility,
+  type UploadQuotaDetails,
   type UploadRejectionDetails,
   type UploadRejectionReason,
 } from '@loons/shared';
 import type { AppConfig } from '../config.ts';
-import { errors, type ValidationIssue } from '../lib/errors.ts';
+import { AppError, errors, type ValidationIssue } from '../lib/errors.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import { withTimeout } from '../lib/redis.ts';
 import {
@@ -20,13 +22,17 @@ import {
   buildStoredKey,
   buildUploadKey,
   contentMatchesMimeType,
+  detectAllowedImageType,
+  fileNameForDetectedType,
   fileNameForMimeType,
+  isAllowedImageMimeType,
   isAllowedMimeType,
   normalizeMimeType,
   s3Status,
   type ObjectHead,
   type Storage,
 } from '../lib/storage.ts';
+import { createUploadQuota, type UploadQuotaOptions } from '../lib/upload-quota.ts';
 import {
   assertClientCanWrite,
   bodyIssue,
@@ -71,11 +77,34 @@ const RELEASE_LOCK =
 /** Linkable: uploaded by the caller, confirmed (and not rejected by the scan), not yet linked. */
 const LINKABLE_STATUSES = ['UPLOADED', 'CLEAN'] as const;
 
+/**
+ * The kind of message files are linked to (a new ticket's description is PUBLIC): PUBLIC uploads
+ * only to PUBLIC messages, INTERNAL uploads only to INTERNAL notes (review SEC-WEB-1).
+ */
+export type LinkTarget = 'PUBLIC' | 'INTERNAL';
+
+const DB_VISIBILITY = {
+  public: 'PUBLIC',
+  internal: 'INTERNAL',
+} as const satisfies Record<AttachmentVisibility, DbAttachmentVisibility>;
+
+/** 429 answer to a presign over the rolling daily budget (`uploadQuotaDetailsSchema`). */
+export function uploadQuotaExceeded(details: Omit<UploadQuotaDetails, 'reason'>): AppError {
+  return new AppError(
+    429,
+    'RATE_LIMITED',
+    `Daily upload limit reached. Try again in ${details.retryAfterSeconds} seconds.`,
+    { reason: 'daily-quota', ...details } satisfies UploadQuotaDetails,
+  );
+}
+
 export interface PresignInput {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
   ticketId?: string | undefined;
+  /** Omitted: `public`. */
+  visibility?: AttachmentVisibility | undefined;
 }
 
 export interface PresignResult {
@@ -92,14 +121,16 @@ export interface AttachmentsService {
 
 /**
  * Validation issues for linking `ids` (request order) to a new message of `ticketId` (null
- * while the ticket is being created): each must exist, be the caller's, be confirmed and not
- * linked elsewhere; at most 25 MB in total.
+ * while the ticket is being created) of type `target`: each must exist, be the caller's, be
+ * confirmed and not linked elsewhere (code `attachment`), and have been uploaded for that kind of
+ * message (code `attachment_visibility`); at most 25 MB in total.
  */
 export async function attachmentLinkIssues(
   db: PrismaClient | Tx,
   actor: Actor,
   ids: readonly string[],
   ticketId: string | null,
+  target: LinkTarget,
 ): Promise<ValidationIssue[]> {
   if (ids.length === 0) return [];
   const rows = await db.attachment.findMany({
@@ -111,6 +142,7 @@ export async function attachmentLinkIssues(
       messageId: true,
       ticketId: true,
       sizeBytes: true,
+      visibility: true,
     },
   });
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -131,6 +163,10 @@ export async function attachmentLinkIssues(
       issues.push(bodyIssue(['attachmentIds', index], 'attachment'));
       return;
     }
+    if (row.visibility !== target) {
+      issues.push(bodyIssue(['attachmentIds', index], 'attachment_visibility'));
+      return;
+    }
     total += row.sizeBytes;
   });
   if (total > TICKET_LIMITS.attachmentsTotalMaxBytes) {
@@ -139,13 +175,18 @@ export async function attachmentLinkIssues(
   return issues;
 }
 
-/** Links checked attachments to a message; fails (rolling the transaction back) on a race. */
+/**
+ * Links checked attachments to a message of type `target`; fails (rolling the transaction back,
+ * so the message is not created either) on a race or a file uploaded for the other kind of
+ * message. Callers check `attachmentLinkIssues` first for per-file issues; this is the guard.
+ */
 export async function linkAttachments(
   tx: Tx,
   actor: Actor,
   ids: readonly string[],
   ticketId: string,
   messageId: string,
+  target: LinkTarget,
 ): Promise<void> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return;
@@ -155,6 +196,7 @@ export async function linkAttachments(
       uploaderId: actor.id,
       messageId: null,
       status: { in: [...LINKABLE_STATUSES] },
+      visibility: target,
       OR: [{ ticketId: null }, { ticketId }],
     },
     data: { ticketId, messageId },
@@ -171,8 +213,17 @@ export function createAttachmentsService(deps: {
   storage: Storage;
   config: AppConfig;
   logger: Logger;
+  /** Rolling daily byte budget: window / clock overrides for tests (limit: config.uploads). */
+  uploadQuota?: Pick<UploadQuotaOptions, 'windowMs' | 'now'> | undefined;
 }): AttachmentsService {
   const { prisma, redis, storage, config, logger } = deps;
+  const uploadQuota = createUploadQuota({
+    redis,
+    prefix: config.redisPrefix,
+    limitBytes: config.uploads.dailyBytesPerUser,
+    logger,
+    ...deps.uploadQuota,
+  });
 
   /**
    * Runs `fn` while holding the upload's confirmation lock (Redis SET NX PX, released only by its
@@ -305,13 +356,24 @@ export function createAttachmentsService(deps: {
   return {
     async presign(actor, input) {
       const mimeType = normalizeMimeType(input.mimeType);
+      const visibility = input.visibility ?? 'public';
       const issues: ValidationIssue[] = [];
       if (!isAllowedMimeType(mimeType)) issues.push(bodyIssue(['mimeType'], 'file_type'));
-      const maxBytes = Math.min(TICKET_LIMITS.attachmentMaxBytes, config.s3.uploadMaxBytes);
+      // A file larger than the whole daily budget could never be uploaded: refused like any
+      // other file that is too large, not with a retry time.
+      const maxBytes = Math.min(
+        TICKET_LIMITS.attachmentMaxBytes,
+        config.s3.uploadMaxBytes,
+        uploadQuota.limitBytes,
+      );
       if (input.sizeBytes > maxBytes) {
         issues.push(bodyIssue(['sizeBytes'], 'file_too_large', 'validation.tooLong'));
       }
       if (issues.length) throw errors.validation(issues);
+      // Files for internal notes: staff only (review SEC-WEB-1).
+      if (visibility === 'internal' && !canSeeInternalNotes(actor)) {
+        throw errors.forbidden('Only Loons staff can upload files for internal notes');
+      }
       await assertClientCanWrite(prisma, actor);
 
       if (input.ticketId) {
@@ -323,26 +385,44 @@ export function createAttachmentsService(deps: {
       const fileName = fileNameForMimeType(input.fileName, mimeType);
       const attachmentId = randomUUID();
       const storageKey = buildUploadKey(attachmentId, fileName);
-      const post = await storage.createUploadPost({
-        key: storageKey,
-        contentType: mimeType,
-        maxBytes: input.sizeBytes,
-        expiresIn: UPLOAD_URL_TTL_SECONDS,
-      });
+
+      // The rolling daily budget, recorded before anything is handed out (atomic in Redis).
+      const quota = await uploadQuota.reserve(actor.id, attachmentId, input.sizeBytes);
+      if (!quota.allowed) {
+        throw uploadQuotaExceeded({
+          limitBytes: quota.limitBytes,
+          retryAfterSeconds: quota.retryAfterSeconds,
+        });
+      }
+      let post: Awaited<ReturnType<Storage['createUploadPost']>>;
+      let row: { id: string };
+      try {
+        post = await storage.createUploadPost({
+          key: storageKey,
+          contentType: mimeType,
+          maxBytes: input.sizeBytes,
+          expiresIn: UPLOAD_URL_TTL_SECONDS,
+        });
+        row = await prisma.attachment.create({
+          data: {
+            id: attachmentId,
+            ticketId: input.ticketId ?? null,
+            uploaderId: actor.id,
+            storageKey,
+            fileName,
+            mimeType,
+            sizeBytes: input.sizeBytes,
+            status: 'PENDING',
+            visibility: DB_VISIBILITY[visibility],
+          },
+          select: { id: true },
+        });
+      } catch (err) {
+        // Nothing was handed out: the bytes go back to the budget.
+        await uploadQuota.release(actor.id, attachmentId, input.sizeBytes);
+        throw err;
+      }
       const expiresAt = new Date(Date.now() + UPLOAD_URL_TTL_SECONDS * 1000);
-      const row = await prisma.attachment.create({
-        data: {
-          id: attachmentId,
-          ticketId: input.ticketId ?? null,
-          uploaderId: actor.id,
-          storageKey,
-          fileName,
-          mimeType,
-          sizeBytes: input.sizeBytes,
-          status: 'PENDING',
-        },
-        select: { id: true },
-      });
       return {
         attachmentId: row.id,
         upload: { url: post.url, fields: post.fields },
@@ -380,22 +460,45 @@ export function createAttachmentsService(deps: {
 
         const head = await storage.readObjectStart(key, SNIFF_BYTES);
         if (!head) throw errors.conflict('The file has not been uploaded yet');
+        // What the file is stored as: the declared type, or — for an image whose bytes are
+        // another allowed image type (a JPEG named .png) — the detected one with a matching
+        // extension, so downloads carry the right type and name. Nothing else is corrected.
+        let accepted = { mimeType: row.mimeType, fileName: row.fileName };
         if (!contentMatchesMimeType(row.mimeType, head)) {
-          logger.warn({ attachmentId: row.id, mimeType: row.mimeType }, 'upload content mismatch');
-          return reject(row.id, key, 'content', 'The file content does not match its type');
+          const detected = isAllowedImageMimeType(row.mimeType)
+            ? detectAllowedImageType(head)
+            : null;
+          if (!detected) {
+            logger.warn(
+              { attachmentId: row.id, mimeType: row.mimeType },
+              'upload content mismatch',
+            );
+            return reject(row.id, key, 'content', 'The file content does not match its type');
+          }
+          logger.info(
+            { attachmentId: row.id, declared: row.mimeType, detected },
+            'image accepted as its detected type',
+          );
+          accepted = {
+            mimeType: detected,
+            fileName: fileNameForDetectedType(row.fileName, detected),
+          };
         }
 
         const scan = await storage.scanHook.scan({
           bucket: storage.bucket,
           key,
-          contentType: row.mimeType,
+          contentType: accepted.mimeType,
           sizeBytes: row.sizeBytes,
         });
         switch (scan.verdict) {
           case 'CLEAN':
           case 'NOT_SCANNED':
-            await prisma.attachment.update({ where: { id: row.id }, data: { status: 'CLEAN' } });
-            return toAttachmentDto(row);
+            await prisma.attachment.update({
+              where: { id: row.id },
+              data: { status: 'CLEAN', ...accepted },
+            });
+            return toAttachmentDto({ ...row, ...accepted });
           case 'INFECTED':
             logger.warn({ attachmentId: row.id }, 'upload rejected by the virus scan');
             return reject(row.id, key, 'infected', 'This file was rejected by the virus scan');
@@ -413,6 +516,7 @@ export function createAttachmentsService(deps: {
         select: {
           id: true,
           fileName: true,
+          mimeType: true,
           storageKey: true,
           status: true,
           uploaderId: true,
@@ -435,6 +539,8 @@ export function createAttachmentsService(deps: {
 
       const url = await storage.getDownloadUrl(row.storageKey, {
         fileName: row.fileName,
+        // The row's type, which may be the detected one (the object keeps the declared type).
+        contentType: row.mimeType,
         expiresIn: DOWNLOAD_URL_TTL_SECONDS,
       });
       return {

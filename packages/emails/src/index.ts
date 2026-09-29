@@ -14,7 +14,9 @@ export {
   emailColors,
   emailFontStacks,
   layoutStrings,
+  type LayoutStrings,
   type TextDirection,
+  type TruncationSurface,
 } from './theme.ts';
 export { EmailLayout, type EmailLayoutProps } from './layout.tsx';
 export {
@@ -25,12 +27,81 @@ export {
   type RenderedEmail,
 } from './render.tsx';
 export {
+  BLOCK_MAX_CHARS,
+  BLOCK_VARIABLES,
+  blockParagraphs,
+  isBlockVariable,
+  truncateBlockText,
+  type BlockVariable,
+  type TruncatedText,
+} from './blocks.ts';
+export {
+  AUTH_EMAIL_TEMPLATE_KEYS,
   DEFAULT_EMAIL_TEMPLATES,
   EMAIL_TEMPLATE_KEYS,
+  TICKET_EMAIL_TEMPLATE_KEYS,
   defaultCtaLabel,
+  isEmailTemplateKey,
   pickTemplateText,
+  type CtaUrlVariable,
   type DefaultEmailTemplate,
   type EmailTemplateKey,
   type EmailTemplateText,
   type LocalizedTemplateText,
+  type TemplateAudience,
+  type TemplateSurface,
+  type TicketEmailTemplateKey,
 } from './defaults.ts';
+export {
+  renderEmailTemplate,
+  resolveTemplateText,
+  type RenderEmailTemplateInput,
+  type StoredEmailTemplate,
+} from './templates.ts';
+export {
+  BUSINESS_DAY_MINUTES,
+  EMPTY_VALUE,
+  buildTicketList,
+  formatCount,
+  formatDurationMinutes,
+  formatEmailDate,
+  formatEmailDateTime,
+  formatShortDateTime,
+  formatTargetDuration,
+  intlLocale,
+  localizedName,
+  orEmpty,
+  priorityLabel,
+  slaTargetLabel,
+  ticketLinks,
+  ticketStatusLabel,
+  ticketTemplateVariables,
+  ticketTypeLabel,
+  unassignedLabel,
+  type FormatOptions,
+  type LocalizedName,
+  type SlaTarget,
+  type TicketFacts,
+  type TicketListItem,
+} from './format.ts';
+export {
+  ADAPTIVE_CARD_CONTENT_TYPE,
+  ADAPTIVE_CARD_VERSION,
+  buildTeamsCard,
+  escapeTeamsMarkdown,
+  type AdaptiveCard,
+  type AdaptiveFactSet,
+  type AdaptiveOpenUrlAction,
+  type AdaptiveTextBlock,
+  type TeamsCardInput,
+  type TeamsCardKind,
+  type TeamsMessage,
+} from './teams.ts';
+export {
+  buildSmsText,
+  smsEncoding,
+  smsLength,
+  smsSegments,
+  type SmsEncoding,
+  type SmsTextInput,
+} from './sms.ts';

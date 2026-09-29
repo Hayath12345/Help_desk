@@ -25,6 +25,25 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/tickets/api', async (importOriginal) => ({ ...(await importOriginal()), ...api }));
 
+// Presign bodies are recorded and never answered (the upload stays in progress).
+const presigns = vi.hoisted(() => ({ bodies: [] as unknown[] }));
+vi.mock('@/lib/api/browser', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/browser')>();
+  return {
+    ...actual,
+    apiClient: {
+      ...actual.apiClient,
+      post: (path: string, ...rest: unknown[]) => {
+        if (path !== '/attachments/presign') {
+          return (actual.apiClient.post as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+        }
+        presigns.bodies.push(rest[0]);
+        return new Promise(() => undefined);
+      },
+    },
+  };
+});
+
 const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router }));
 
@@ -466,6 +485,26 @@ describe('New ticket modal', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
     expect(await within(dialog()).findByText('Choose the site or location.')).toBeTruthy();
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['client', CLIENT],
+    ['staff', AGENT],
+  ] as const)('%s: presigns the description’s files as public (SEC-WEB-1)', async (_, viewer) => {
+    presigns.bodies = [];
+    const { dialog } = renderModal(viewer);
+    const input = dialog().querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [new File(['log'], 'firewall.log', { type: 'text/plain' })] },
+    });
+    await waitFor(() => expect(presigns.bodies).toHaveLength(1));
+    // A new ticket has no id yet, so no ticketId either.
+    expect(presigns.bodies[0]).toEqual({
+      fileName: 'firewall.log',
+      mimeType: 'text/plain',
+      sizeBytes: 3,
+      visibility: 'public',
+    });
   });
 
   it('staff pick the requester first; the org chip and sites follow', async () => {

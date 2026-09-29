@@ -20,7 +20,7 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-type Key = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j';
+type Key = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm';
 
 describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts', () => {
   let ctx: TestContext;
@@ -51,25 +51,36 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
 
     const now = Date.now();
     const at = (ms: number) => new Date(now + ms);
-    // [status, replied, createdAt offset, first-reply due, resolve due, P1?]
-    const specs: Record<Key, [string, boolean, number, number, number, boolean?]> = {
-      a: ['NEW', false, -10 * MIN, 2 * HOUR, 2 * DAY], // first reply comfortably ahead
-      b: ['OPEN', false, -60 * MIN, 10 * MIN, 2 * DAY], // first reply at risk
-      c: ['NEW', false, -30 * MIN, -5 * MIN, 2 * DAY], // first reply overdue
-      d: ['OPEN', true, -60 * MIN, -30 * MIN, 3 * HOUR], // replied, resolution fine
-      e: ['OPEN', true, -4 * HOUR, -3 * HOUR, 20 * MIN], // replied, resolution at risk
-      f: ['PENDING', true, -5 * HOUR, -4 * HOUR, -1 * HOUR], // paused (never at risk)
-      g: ['SOLVED', true, -3 * DAY, -3 * DAY, -2 * DAY],
-      h: ['CLOSED', true, -9 * DAY, -9 * DAY, -1 * DAY],
-      i: ['NEW', false, -5 * MIN, DAY, 2 * DAY, true], // P1 (due far ahead to keep the order)
+    // [status, replied, createdAt offset, first-reply due, resolve due, first-reply at-risk
+    //  instant, resolution at-risk instant (null = not known yet, e.g. pre-Phase 3), P1?]
+    // "At risk" is the stored instant having passed (D1/D2), whatever the time left.
+    type Spec = [string, boolean, number, number, number, number | null, number | null, boolean?];
+    const specs: Record<Key, Spec> = {
+      a: ['NEW', false, -10 * MIN, 2 * HOUR, 2 * DAY, 80 * MIN, DAY], // first reply comfortably ahead
+      b: ['OPEN', false, -60 * MIN, 10 * MIN, 2 * DAY, -5 * MIN, DAY], // first reply at risk
+      c: ['NEW', false, -30 * MIN, -5 * MIN, 2 * DAY, -10 * MIN, DAY], // first reply overdue
+      d: ['OPEN', true, -60 * MIN, -30 * MIN, 3 * HOUR, -40 * MIN, 2 * HOUR], // replied, resolution fine
+      e: ['OPEN', true, -4 * HOUR, -3 * HOUR, 20 * MIN, -3.5 * HOUR, -40 * MIN], // resolution at risk
+      f: ['PENDING', true, -5 * HOUR, -4 * HOUR, -1 * HOUR, -4.5 * HOUR, -2 * HOUR], // paused (never at risk)
+      g: ['SOLVED', true, -3 * DAY, -3 * DAY, -2 * DAY, -3 * DAY, -2 * DAY],
+      h: ['CLOSED', true, -9 * DAY, -9 * DAY, -1 * DAY, -9 * DAY, -2 * DAY],
+      i: ['NEW', false, -5 * MIN, DAY, 2 * DAY, 20 * HOUR, DAY, true], // P1 (due far ahead to keep the order)
       // PENDING without a first reply (e.g. a note with the "Awaiting client access" macro): the
       // first-reply clock keeps running — overdue here, so at risk and sorted by that due date.
-      j: ['PENDING', false, -40 * MIN, -10 * MIN, 2 * DAY],
+      j: ['PENDING', false, -40 * MIN, -10 * MIN, 2 * DAY, -20 * MIN, DAY],
+      // 12 of 72 minutes left: "at risk" under the Phase 2 rule (less than min(1 h, 50 %)), but
+      // the stored instant is still ahead, so not at risk now.
+      k: ['OPEN', false, -60 * MIN, 12 * MIN, 2 * DAY, 5 * MIN, DAY],
+      // No instants yet (created before Phase 3, not backfilled): never "at risk" ...
+      l: ['OPEN', false, -60 * MIN, 14 * MIN, 2 * DAY, null, null],
+      // ... but an overdue target is still in the view (overdue comes from the due date).
+      m: ['NEW', false, -60 * MIN, -2 * MIN, 2 * DAY, null, null],
     };
     let n = 0;
-    for (const [key, [status, replied, created, firstDue, resolveDue, p1]] of Object.entries(
-      specs,
-    ) as Array<[Key, (typeof specs)[Key]]>) {
+    for (const [
+      key,
+      [status, replied, created, firstDue, resolveDue, firstRisk, resolveRisk, p1],
+    ] of Object.entries(specs) as Array<[Key, Spec]>) {
       const t = await createTicket(
         ctx,
         requester,
@@ -89,6 +100,8 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
           createdAt: at(created),
           firstReplyDueAt: at(firstDue),
           resolveDueAt: at(resolveDue),
+          firstReplyAtRiskAt: firstRisk === null ? null : at(firstRisk),
+          resolveAtRiskAt: resolveRisk === null ? null : at(resolveRisk),
           firstRepliedAt: replied ? at(created + MIN) : null,
           slaPausedAt: status === 'PENDING' ? at(-30 * MIN) : null,
           solvedAt: status === 'SOLVED' || status === 'CLOSED' ? at(-DAY) : null,
@@ -130,8 +143,8 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
     return { items, pages };
   }
 
-  const SLA_ORDER: Key[] = ['j', 'c', 'b', 'a', 'i', 'e', 'd', 'f', 'g', 'h'];
-  const RECENT_ORDER: Key[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+  const SLA_ORDER: Key[] = ['j', 'c', 'm', 'b', 'k', 'l', 'a', 'i', 'e', 'd', 'f', 'g', 'h'];
+  const RECENT_ORDER: Key[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'];
 
   it('staff default sort is SLA: unanswered first by due, then replied, paused, done last', async () => {
     const { items } = await list(agentT, `teamId=${teamT.id}`);
@@ -194,11 +207,12 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
     const view = async (v: string) =>
       keysOf((await list(agentT, `teamId=${teamT.id}&view=${v}`)).items).sort();
     expect(await view('mine')).toEqual(['a', 'e']);
-    expect(await view('unassigned')).toEqual(['b', 'c', 'f', 'i', 'j']);
-    // j is PENDING but unanswered: its first reply is overdue (review DA-3).
-    expect(await view('risk')).toEqual(['b', 'c', 'e', 'j']);
+    expect(await view('unassigned')).toEqual(['b', 'c', 'f', 'i', 'j', 'k', 'l', 'm']);
+    // j is PENDING but unanswered: its first reply is overdue (review DA-3). The instant of k is
+    // still ahead (D1), l has no instant yet, m has none but is overdue.
+    expect(await view('risk')).toEqual(['b', 'c', 'e', 'j', 'm']);
     expect(await view('p1')).toEqual(['i']);
-    expect(await view('open')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'i', 'j']);
+    expect(await view('open')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'i', 'j', 'k', 'l', 'm']);
     expect(await view('solved')).toEqual(['g', 'h']);
   });
 
@@ -208,7 +222,10 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
     const inSql = keysOf((await list(agentT, `teamId=${teamT.id}&view=risk`)).items).sort();
     expect(inSql).toEqual(inJs);
     expect(inJs).toContain('j');
+    expect(inJs).toContain('m');
     expect(inJs).not.toContain('f');
+    expect(inJs).not.toContain('k');
+    expect(inJs).not.toContain('l');
   });
 
   it('search: subject (any case), LG number, bare number, requester name and email', async () => {
@@ -232,14 +249,14 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
     const counts = ticketCountsSchema.parse(res.json());
     expect(counts).toEqual({
       kind: 'staff',
-      views: { mine: 2, unassigned: 5, risk: 4, p1: 1, open: 8, solved: 2 },
+      views: { mine: 2, unassigned: 8, risk: 5, p1: 1, open: 11, solved: 2 },
       teams: [
         {
           id: teamT.id,
           key: expect.any(String),
           nameEn: expect.any(String),
           nameAr: expect.any(String),
-          count: 8,
+          count: 11,
         },
       ],
     });
@@ -248,7 +265,7 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
       (await apiAs(ctx, w.admin).get('/tickets/counts')).json(),
     );
     if (admin.kind !== 'staff') throw new Error('expected staff counts');
-    expect(admin.teams.find((t) => t.id === teamT.id)?.count).toBe(8);
+    expect(admin.teams.find((t) => t.id === teamT.id)?.count).toBe(11);
     expect(admin.teams.some((t) => t.id === w.inactiveTeam.id)).toBe(false);
     // Agent A sees d (assigned) but not team T in their team list.
     const a = ticketCountsSchema.parse((await apiAs(ctx, w.agentA).get('/tickets/counts')).json());
@@ -260,14 +277,14 @@ describe('GET /tickets (filters, SLA sort, cursors, search) and /tickets/counts'
     const tab = async (t: string) =>
       keysOf((await list(requester, `tab=${t}&limit=100`)).items).sort();
     expect(await tab('all')).toEqual([...SLA_ORDER].sort());
-    expect(await tab('active')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'i', 'j']);
+    expect(await tab('active')).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'i', 'j', 'k', 'l', 'm']);
     expect(await tab('solved')).toEqual(['g', 'h']);
     // Default client sort: recent.
     expect(keysOf((await list(requester, 'limit=100')).items)).toEqual(RECENT_ORDER);
     const counts = ticketCountsSchema.parse(
       (await apiAs(ctx, requester).get('/tickets/counts')).json(),
     );
-    expect(counts).toEqual({ kind: 'client', tabs: { all: 10, active: 8, solved: 2 } });
+    expect(counts).toEqual({ kind: 'client', tabs: { all: 13, active: 11, solved: 2 } });
     // Staff-only filters are ignored for clients (visibility still applies).
     expect(keysOf((await list(w.clientY, `teamId=${teamT.id}&view=open&scope=org`)).items)).toEqual(
       [],

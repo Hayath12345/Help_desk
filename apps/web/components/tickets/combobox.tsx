@@ -154,7 +154,7 @@ export function Combobox({
                     // trigger button, which would otherwise receive the same Enter and reopen.
                     setTimeout(() => changeOpen(false), 0);
                   }}
-                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-2 text-sm text-ink outline-hidden select-none data-[selected=true]:bg-surface-sunken"
+                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-2 text-sm text-ink outline-none select-none data-[selected=true]:bg-surface-sunken data-[selected=true]:outline-hidden forced-colors:data-[selected=true]:-outline-offset-2"
                 >
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate">{option.label}</span>

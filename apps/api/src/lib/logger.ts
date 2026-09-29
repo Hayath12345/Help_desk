@@ -8,8 +8,12 @@ import { redactPii } from './pii.ts';
 export type AppLogger = FastifyBaseLogger;
 
 // Structured JSON logs (pino). No PII: auth headers, cookies, the internal key and any field
-// named password / token / email are redacted; request bodies are never logged; query strings
-// are dropped from logged URLs; error messages are scrubbed of emails and phone numbers.
+// named password / token / email / phone / webhookUrl are redacted; request bodies are never
+// logged; query strings are dropped from logged URLs; error messages are scrubbed of emails,
+// phone numbers and URL paths (webhook secrets).
+
+/** Field names redacted at the top level and one or two objects deep. */
+const SECRET_FIELDS = ['password', 'token', 'email', 'phone', 'webhookUrl', 'teamsWebhookUrl'];
 
 export const REDACT_PATHS = [
   'req.headers.authorization',
@@ -21,15 +25,9 @@ export const REDACT_PATHS = [
   'headers["x-internal-api-key"]',
   'body',
   'req.body',
-  'password',
-  'token',
-  'email',
-  '*.password',
-  '*.token',
-  '*.email',
-  '*.*.password',
-  '*.*.token',
-  '*.*.email',
+  ...SECRET_FIELDS,
+  ...SECRET_FIELDS.map((field) => `*.${field}`),
+  ...SECRET_FIELDS.map((field) => `*.*.${field}`),
 ];
 
 function pathOnly(url: string | undefined): string | undefined {

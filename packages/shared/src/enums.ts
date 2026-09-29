@@ -54,3 +54,35 @@ export type ContractType = (typeof CONTRACT_TYPES)[number];
 
 export const TEAM_MEMBER_ROLES = ['MEMBER', 'LEAD'] as const;
 export type TeamMemberRole = (typeof TEAM_MEMBER_ROLES)[number];
+
+// ───────────── Phase 3: SLA signals and notifications ─────────────
+
+/** The two SLA targets of a ticket. */
+export const SLA_TARGETS = ['FIRST_REPLY', 'RESOLUTION'] as const;
+export type SlaTarget = (typeof SLA_TARGETS)[number];
+
+/** A crossed SLA threshold: `atRiskPercent` of the window (AT_RISK) or 100 % (BREACHED). */
+export const SLA_SIGNAL_KINDS = ['AT_RISK', 'BREACHED'] as const;
+export type SlaSignalKind = (typeof SLA_SIGNAL_KINDS)[number];
+
+/** In-app notification types (the web renders each from `type` + `data`, in the viewer's language). */
+export const NOTIFICATION_TYPES = [
+  'TICKET_CREATED',
+  'TICKET_ASSIGNED',
+  'CLIENT_REPLY',
+  'AGENT_REPLY',
+  'STATUS_CHANGED',
+  'SLA_AT_RISK',
+  'SLA_BREACHED',
+  'P1_CREATED',
+  'P1_ESCALATED',
+  'P1_ACKNOWLEDGED',
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/** Outbound channels logged in NotificationDelivery. */
+export const NOTIFICATION_CHANNELS = ['EMAIL', 'TEAMS', 'SMS'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_DELIVERY_STATUSES = ['QUEUED', 'SENT', 'FAILED', 'SKIPPED'] as const;
+export type NotificationDeliveryStatus = (typeof NOTIFICATION_DELIVERY_STATUSES)[number];

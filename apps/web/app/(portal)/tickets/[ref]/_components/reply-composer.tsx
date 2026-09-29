@@ -61,7 +61,8 @@ export function ReplyComposer({
   const t = useTranslations('portal.reply');
   const tAttachments = useTranslations('tickets.attachments');
   const validationMessage = useTicketValidationMessage();
-  const uploads = useAttachmentUploads({ ticketId });
+  // A client's reply is always public.
+  const uploads = useAttachmentUploads({ visibility: 'public', ticketId });
   const [body, setBody] = useState('');
   const [error, setError] = useState<ComposerError | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);

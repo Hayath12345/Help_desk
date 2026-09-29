@@ -1,7 +1,9 @@
 // Deletes the accounts and tickets the Playwright suite created (and the rows that depend on
 // them), so repeated `pnpm test:e2e` runs don't pile up clients or tickets in the seeded
-// organisations — and the stored files of their attachments (review P2-CC-6). Run by the
-// Playwright global teardown: `pnpm --filter @loons/db db:cleanup-e2e`.
+// organisations — and the stored files of their attachments (review P2-CC-6), their notification
+// deliveries / in-app notifications and their queued or delayed BullMQ jobs (Phase 3: nothing of
+// a removed ticket fires later). Run by the Playwright global teardown:
+// `pnpm --filter @loons/db db:cleanup-e2e`.
 // Development / test databases only.
 import { S3Client } from '@aws-sdk/client-s3';
 import { isNonProductionEnv } from '../prisma/seed-data/options.ts';
@@ -41,6 +43,15 @@ async function main(): Promise<void> {
             select: { id: true, storageKey: true },
           })
         : [];
+    // Queued / delayed notification and escalation jobs of those tickets (the worker would find
+    // the tickets gone and do nothing; this keeps the queues clean).
+    const userTicketIds = ids.length
+      ? (
+          await db.ticket.findMany({ where: { requesterId: { in: ids } }, select: { id: true } })
+        ).map((t) => t.id)
+      : [];
+    const jobs = await removeQueuedJobs([...e2eTicketIds, ...userTicketIds]);
+
     let objects = 0;
     if (attachments.length) {
       const s3 = s3FromEnv();
@@ -54,7 +65,13 @@ async function main(): Promise<void> {
     }
 
     const deleted = await db.$transaction(async (tx) => {
-      // Ticket children (messages, events, tags, attachment rows) cascade.
+      // Their notification log and in-app notifications (these also cascade with the tickets).
+      const notificationScope = {
+        OR: [{ ticketId: { in: [...e2eTicketIds, ...userTicketIds] } }, { userId: { in: ids } }],
+      };
+      await tx.notificationDelivery.deleteMany({ where: notificationScope });
+      await tx.notification.deleteMany({ where: notificationScope });
+      // Ticket children (messages, events, tags, attachment rows, SLA signals) cascade.
       const suiteTickets = e2eTicketIds.length
         ? await tx.ticket.deleteMany({ where: { id: { in: e2eTicketIds } } })
         : { count: 0 };
@@ -67,11 +84,44 @@ async function main(): Promise<void> {
       return { users: removed.count, tickets: suiteTickets.count + tickets.count };
     });
     process.stdout.write(
-      `[cleanup-e2e] removed ${deleted.users} e2e user(s), ${deleted.tickets} ticket(s) and ${objects} stored file(s)\n`,
+      `[cleanup-e2e] removed ${deleted.users} e2e user(s), ${deleted.tickets} ticket(s), ${objects} stored file(s) and ${jobs} queued job(s)\n`,
     );
   } finally {
     await db.$disconnect();
   }
+}
+
+/** BullMQ prefix of the API and the worker (`<redisPrefix>bull`, AppConfig.redisPrefix "loons:"). */
+const E2E_QUEUE_PREFIX = 'loons:bull';
+
+/** Removes the tickets' waiting / delayed jobs (none when REDIS_URL is not set). */
+async function removeQueuedJobs(ticketIds: string[]): Promise<number> {
+  if (ticketIds.length === 0) return 0;
+  const url = process.env.REDIS_URL?.trim();
+  if (!url) {
+    console.warn('[cleanup-e2e] REDIS_URL is not set: queued jobs of the e2e tickets were kept');
+    return 0;
+  }
+  // The helper lives next to the queues in the API (bullmq is its dependency, not this package's).
+  const { removeTicketJobs } = await import('../../../apps/api/src/lib/job-cleanup.ts');
+  return removeTicketJobs({
+    connection: { ...redisConnection(url), maxRetriesPerRequest: null },
+    prefix: E2E_QUEUE_PREFIX,
+    ticketIds,
+  });
+}
+
+/** ioredis options for a redis:// or rediss:// URL. */
+function redisConnection(url: string) {
+  const { protocol, hostname, port, username, password, pathname } = new URL(url);
+  return {
+    host: hostname,
+    port: port ? Number(port) : 6379,
+    ...(username ? { username: decodeURIComponent(username) } : {}),
+    ...(password ? { password: decodeURIComponent(password) } : {}),
+    ...(pathname.length > 1 ? { db: Number(pathname.slice(1)) } : {}),
+    ...(protocol === 'rediss:' ? { tls: {} } : {}),
+  };
 }
 
 main().catch((error: unknown) => {

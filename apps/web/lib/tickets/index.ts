@@ -27,6 +27,9 @@
 //   useUpdateTicket()                mutate({ ticketId, patch, optimistic? }): optimistic detail + list rows;
 //                                    cancels only that ticket's queries; on error undoes only the fields it
 //                                    wrote (newer realtime data stays), reloads the detail, toasts.
+//   useAcknowledgeTicket()           mutate(ticketId): POST /tickets/:id/acknowledge (Phase 3), server-
+//                                    confirmed; the answer's detail goes into every cached copy; errors
+//                                    reload the detail and are left to the caller (the P1 banner).
 // Viewer
 //   ViewerProvider / useViewer() / isStaffViewer(viewer)   The signed-in user ({ id, name, role }).
 // Cache helpers (pure; used by realtime and tests)
@@ -41,7 +44,7 @@
 //   loadThread(queryClient, ticketId)         Thread fetch merged with whatever the cache holds when it
 //                                    finishes (optimistic, pushed and parked messages): nothing is dropped.
 // Fetchers: fetchTicketFormConfig, fetchFormContext, fetchRequesters, fetchTickets, fetchTicketCounts,
-//   fetchTicket, createTicket, updateTicket, fetchMessagesPage, fetchAllMessages, postMessage,
+//   fetchTicket, createTicket, updateTicket, acknowledgeTicket, fetchMessagesPage, fetchAllMessages, postMessage,
 //   fetchMacros, fetchTeams, withQuery, parseResponse.
 // New ticket form model: NewTicketFormValues, emptyNewTicketValues, buildNewTicketSchema,
 //   customFieldSchema, toCreateTicketInput, customFieldsPayload, effectivePriority,

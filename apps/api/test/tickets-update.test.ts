@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { computeDueDates, resumeDueDate } from '@loons/shared';
+import { computeDueDates, computeSlaTargets, resumeDueDate } from '@loons/shared';
 import { createTestContext, rand, randomIp, type TestContext } from './helpers.ts';
 import {
   apiAs,
@@ -10,6 +10,7 @@ import {
   type Persona,
   type World,
 } from './ticket-world.ts';
+import { testChain } from './worker-helpers.ts';
 
 const MIN = 60_000;
 
@@ -125,21 +126,35 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
   describe('SLA clocks', () => {
     it('priority change recomputes both due dates from createdAt (P1: 24/7)', async () => {
       const t = await newTicket(); // P3, business hours
+      expect((await row(t.id)).slaTargetsChangedAt).toBeNull();
+      const before = Date.now();
       const res = await patch(w.agentA, t.id, { priority: 'P1' });
+      // The SLA scan announces crossings the new targets put in the past from this moment (D10).
+      expect((await row(t.id)).slaTargetsChangedAt!.getTime()).toBeGreaterThanOrEqual(before);
       expect(res.statusCode).toBe(200);
       const ticket = res.json().ticket;
       const created = Date.parse(ticket.createdAt);
       expect(Date.parse(ticket.firstReplyDueAt) - created).toBe(15 * MIN);
       expect(Date.parse(ticket.resolveDueAt) - created).toBe(240 * MIN);
       expect(ticket.sla.priority).toBe('P1');
+      // The at-risk instants move with them (D2): 75 % of 15 min / 4 h, wall-clock.
+      expect(Date.parse(ticket.firstReplyAtRiskAt) - created).toBe(11.25 * MIN);
+      expect(Date.parse(ticket.resolveAtRiskAt) - created).toBe(180 * MIN);
 
       // And back to P4 with the business calendar.
       const p4 = (await patch(w.agentA, t.id, { priority: 'P4' })).json().ticket;
       const calendar = await ctx.app.services.ticketConfig.getCalendar();
       const policy = await ctx.prisma.slaPolicy.findUniqueOrThrow({ where: { priority: 'P4' } });
-      const due = computeDueDates(new Date(ticket.createdAt), policy, calendar);
+      const due = computeSlaTargets(new Date(ticket.createdAt), policy, calendar);
       expect(p4.firstReplyDueAt).toBe(due.firstReplyDueAt.toISOString());
       expect(p4.resolveDueAt).toBe(due.resolveDueAt.toISOString());
+      expect(p4.firstReplyAtRiskAt).toBe(due.firstReplyAtRiskAt.toISOString());
+      expect(p4.resolveAtRiskAt).toBe(due.resolveAtRiskAt.toISOString());
+      const stored = await row(t.id);
+      expect([stored.firstReplyAtRiskAt, stored.resolveAtRiskAt]).toEqual([
+        due.firstReplyAtRiskAt,
+        due.resolveAtRiskAt,
+      ]);
       expect((await events(t.id)).map((e) => [e.type, e.fromValue, e.toValue])).toEqual([
         ['PRIORITY_CHANGED', 'P3', 'P1'],
         ['PRIORITY_CHANGED', 'P1', 'P4'],
@@ -152,7 +167,9 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       const before = await row(t.id);
       const after = (await patch(w.agentA, t.id, { priority: 'P1' })).json().ticket;
       expect(after.firstReplyDueAt).toBe(before.firstReplyDueAt!.toISOString());
+      expect(after.firstReplyAtRiskAt).toBe(before.firstReplyAtRiskAt!.toISOString());
       expect(Date.parse(after.resolveDueAt) - before.createdAt.getTime()).toBe(240 * MIN);
+      expect(Date.parse(after.resolveAtRiskAt) - before.createdAt.getTime()).toBe(180 * MIN);
     });
 
     it('PENDING pauses the resolution clock; leaving it resumes with the time that was left', async () => {
@@ -163,6 +180,8 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       const pausedAt = new Date(Date.now() - 90 * MIN);
       await ctx.prisma.ticket.update({ where: { id: t.id }, data: { slaPausedAt: pausedAt } });
       const dueBefore = (await row(t.id)).resolveDueAt!;
+      const riskBefore = (await row(t.id)).resolveAtRiskAt!;
+      const firstRiskBefore = (await row(t.id)).firstReplyAtRiskAt!;
 
       const resumed = (await patch(w.agentA, t.id, { status: 'OPEN' })).json().ticket;
       expect(resumed.slaPausedAt).toBeNull();
@@ -171,6 +190,11 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       expect(Date.parse(resumed.resolveDueAt)).toBe(
         dueBefore.getTime() + (resumedAt - pausedAt.getTime()),
       );
+      // The resolution at-risk instant moves the same way (D2); the first-reply one never pauses.
+      expect(Date.parse(resumed.resolveAtRiskAt)).toBe(
+        riskBefore.getTime() + (resumedAt - pausedAt.getTime()),
+      );
+      expect(resumed.firstReplyAtRiskAt).toBe(firstRiskBefore.toISOString());
       // The finished pause is recorded for later priority changes.
       expect((await row(t.id)).slaPauses).toEqual([
         { from: pausedAt.toISOString(), to: resumed.updatedAt },
@@ -217,6 +241,8 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       // Escalated to P1 (4 h): 2 h of the window are used, 2 h are left — not 46 h overdue.
       const p1 = (await patch(w.agentA, t.id, { priority: 'P1' })).json().ticket;
       expect(Date.parse(p1.resolveDueAt)).toBe(resumedAt + 2 * 60 * MIN);
+      // At risk after 3 of the 4 h of SLA time: 2 h were used before the pause, so 1 h after it.
+      expect(Date.parse(p1.resolveAtRiskAt)).toBe(resumedAt + 60 * MIN);
       const risk = (await apiAs(ctx, w.agentA).get('/tickets?view=risk&limit=100')).json();
       expect(risk.items.map((i: { id: string }) => i.id)).not.toContain(t.id);
       // Back to P2: the same target as before the escalation.
@@ -229,6 +255,9 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       const pauses = [{ from: new Date(now - 48 * 60 * MIN), to: new Date(resumedAt) }];
       expect(p3.resolveDueAt).toBe(
         computeDueDates(createdAt, policy, calendar, pauses).resolveDueAt.toISOString(),
+      );
+      expect(p3.resolveAtRiskAt).toBe(
+        computeSlaTargets(createdAt, policy, calendar, pauses).resolveAtRiskAt.toISOString(),
       );
       // The first reply was sent: its target stays.
       expect(p3.firstReplyDueAt).toBe(new Date(createdAt.getTime() + 60 * MIN).toISOString());
@@ -302,6 +331,13 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       );
       expect(Math.abs(resumed.resolveDueAt!.getTime() - expected.getTime())).toBeLessThan(1000);
       expect(resumed.resolveDueAt!.getTime()).toBeGreaterThan(paused.resolveDueAt!.getTime());
+      // The resolution at-risk instant is resumed by the same rule (message path, D2).
+      const pauses = resumed.slaPauses as Array<{ from: string; to: string }>;
+      const resumedAt = new Date(pauses.at(-1)!.to);
+      expect(resumed.resolveAtRiskAt).toEqual(
+        resumeDueDate(paused.resolveAtRiskAt!, pausedAt, resumedAt, calendar, true),
+      );
+      expect(resumed.resolveAtRiskAt!.getTime()).toBeGreaterThan(paused.resolveAtRiskAt!.getTime());
     });
 
     it('a target already passed when the pause started is not moved', async () => {
@@ -310,10 +346,137 @@ describe('PATCH /tickets/:id (status machine, SLA clocks, events)', () => {
       const overdue = new Date(Date.now() - 60 * MIN);
       await ctx.prisma.ticket.update({
         where: { id: t.id },
-        data: { resolveDueAt: overdue, slaPausedAt: new Date(Date.now() - 30 * MIN) },
+        data: {
+          resolveDueAt: overdue,
+          resolveAtRiskAt: new Date(overdue.getTime() - 60 * MIN),
+          slaPausedAt: new Date(Date.now() - 30 * MIN),
+        },
       });
       const resumed = (await patch(w.agentA, t.id, { status: 'OPEN' })).json().ticket;
       expect(resumed.resolveDueAt).toBe(overdue.toISOString());
+      expect(resumed.resolveAtRiskAt).toBe(new Date(overdue.getTime() - 60 * MIN).toISOString());
+    });
+
+    it('an at-risk instant that passed during the work stays; the due date still moves', async () => {
+      // P2 (24/7): at risk 60 min ago, due in 30 min when the pause started 10 min ago.
+      const t = await newTicket({ priority: 'P2' });
+      await patch(w.agentA, t.id, { status: 'PENDING' });
+      const pausedAt = new Date(Date.now() - 10 * MIN);
+      const riskAt = new Date(pausedAt.getTime() - 60 * MIN);
+      const dueAt = new Date(pausedAt.getTime() + 30 * MIN);
+      await ctx.prisma.ticket.update({
+        where: { id: t.id },
+        data: { resolveDueAt: dueAt, resolveAtRiskAt: riskAt, slaPausedAt: pausedAt },
+      });
+      const resumed = (await patch(w.agentA, t.id, { status: 'OPEN' })).json().ticket;
+      expect(resumed.resolveAtRiskAt).toBe(riskAt.toISOString());
+      expect(Date.parse(resumed.resolveDueAt)).toBe(Date.parse(resumed.updatedAt) + 30 * MIN);
+    });
+
+    it('a ticket without stored instants (pre-Phase 3) keeps them null on resume', async () => {
+      const t = await newTicket({ priority: 'P2' });
+      await patch(w.agentA, t.id, { status: 'PENDING' });
+      await ctx.prisma.ticket.update({
+        where: { id: t.id },
+        data: { firstReplyAtRiskAt: null, resolveAtRiskAt: null },
+      });
+      const resumed = (await patch(w.agentA, t.id, { status: 'OPEN' })).json().ticket;
+      expect(resumed.resolveAtRiskAt).toBeNull();
+      expect(resumed.firstReplyAtRiskAt).toBeNull();
+      // A priority change computes them (the SLA scan backfills the others).
+      const p1 = (await patch(w.agentA, t.id, { priority: 'P1' })).json().ticket;
+      expect(p1.firstReplyAtRiskAt).not.toBeNull();
+      expect(p1.resolveAtRiskAt).not.toBeNull();
+    });
+  });
+
+  describe('P1 period (p1Since, escalation step, acknowledgement)', () => {
+    const ackBy = async (ticketId: string) => {
+      // What the acknowledge endpoint and the escalation worker (other lanes) will write.
+      await ctx.prisma.ticket.update({
+        where: { id: ticketId },
+        data: { p1AckedAt: new Date(), p1AckedById: w.agentA.id, p1EscalationStep: 2 },
+      });
+    };
+
+    it('upgrade to P1 starts a new period; downgrade ends it; both reset step and ack', async () => {
+      const t = await newTicket(); // P3
+      expect(t).toMatchObject({ p1Since: null, p1EscalationStep: 0, p1AckedBy: null });
+      const up = (await patch(w.agentA, t.id, { priority: 'P1' })).json().ticket;
+      expect(up.p1Since).toBe(up.updatedAt);
+      expect(up).toMatchObject({ p1EscalationStep: 0, p1AckedAt: null, p1AckedBy: null });
+
+      await ackBy(t.id);
+      const acked = (await apiAs(ctx, w.agentA).get(`/tickets/${t.id}`)).json().ticket;
+      expect(acked.p1AckedBy).toEqual({ id: w.agentA.id, name: w.agentA.name });
+      expect(acked.p1EscalationStep).toBe(2);
+      // Other changes keep the P1 period and its acknowledgement.
+      const tagged = (await patch(w.agentA, t.id, { tags: ['p1-period'] })).json().ticket;
+      expect(tagged).toMatchObject({
+        p1Since: up.p1Since,
+        p1EscalationStep: 2,
+        p1AckedBy: { id: w.agentA.id },
+      });
+
+      const down = (await patch(w.agentA, t.id, { priority: 'P2' })).json().ticket;
+      expect(down).toMatchObject({
+        p1Since: null,
+        p1EscalationStep: 0,
+        p1AckedAt: null,
+        p1AckedBy: null,
+      });
+      expect((await row(t.id)).p1AckedById).toBeNull();
+
+      // Between non-P1 priorities nothing about P1 changes.
+      await ctx.prisma.ticket.update({ where: { id: t.id }, data: { p1EscalationStep: 1 } });
+      const p3 = (await patch(w.agentA, t.id, { priority: 'P3' })).json().ticket;
+      expect(p3).toMatchObject({ p1Since: null, p1EscalationStep: 1 });
+
+      // A second upgrade is a new period (a later p1Since, fresh step and acknowledgement).
+      const again = (await patch(w.agentA, t.id, { priority: 'P1' })).json().ticket;
+      expect(Date.parse(again.p1Since)).toBeGreaterThan(Date.parse(up.p1Since));
+      expect(again).toMatchObject({ p1EscalationStep: 0, p1AckedAt: null, p1AckedBy: null });
+    });
+
+    it('a ticket created as P1 starts its period at creation and loses it on downgrade', async () => {
+      const t = await newTicket({ priority: 'P1' });
+      expect(t.p1Since).toBe(t.createdAt);
+      const down = (await patch(w.agentA, t.id, { priority: 'P4' })).json().ticket;
+      expect(down.p1Since).toBeNull();
+    });
+
+    it('p1AckedBy is only shown while acknowledged; closedAt is mapped', async () => {
+      const t = await newTicket({ priority: 'P1' });
+      const closedAt = new Date(Date.now() - MIN);
+      await ctx.prisma.ticket.update({
+        where: { id: t.id },
+        data: { p1AckedById: w.agentA.id, p1AckedAt: null, closedAt },
+      });
+      const ticket = (await apiAs(ctx, w.agentA).get(`/tickets/${t.id}`)).json().ticket;
+      expect(ticket.p1AckedBy).toBeNull();
+      expect(ticket.closedAt).toBe(closedAt.toISOString());
+    });
+
+    it("the detail carries the team's P1 chain for staff (team rules replace the global one); null for clients", async () => {
+      const t = await newTicket({ priority: 'P1' });
+      const global = await ctx.prisma.escalationRule.findMany({
+        where: { priority: 'P1', teamId: null, isActive: true },
+        orderBy: { step: 'asc' },
+      });
+      const staffView = (await apiAs(ctx, w.agentA).get(`/tickets/${t.id}`)).json().ticket;
+      expect(staffView.p1Chain).toEqual(
+        global.map((r) => ({ step: r.step, afterMins: r.afterMins })),
+      );
+      const clientView = (await apiAs(ctx, w.clientX).get(`/tickets/${t.id}`)).json().ticket;
+      expect(clientView.p1Chain).toBeNull();
+      // The team gets rules of its own (steps 1 and 2 only): they replace the global chain.
+      await testChain(ctx, w.teamA.id, w.admin.id, [{ afterMins: 0 }, { afterMins: 7 }]);
+      const own = (await apiAs(ctx, w.agentA).get(`/tickets/${t.id}`)).json().ticket;
+      expect(own.p1Chain).toEqual([
+        { step: 1, afterMins: 0 },
+        { step: 2, afterMins: 7 },
+      ]);
+      await ctx.prisma.escalationRule.deleteMany({ where: { teamId: w.teamA.id } });
     });
   });
 

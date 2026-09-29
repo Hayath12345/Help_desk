@@ -25,7 +25,7 @@ function RadioGroupItem({
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
       className={cn(
-        'group/radio-group-item peer relative flex aspect-square size-4 shrink-0 cursor-pointer rounded-full border border-line-input bg-surface transition-colors duration-150 outline-none group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-line-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand',
+        'group/radio-group-item peer relative flex aspect-square size-4 shrink-0 cursor-pointer rounded-full border border-line-input bg-surface transition-colors duration-150 outline-none group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-line-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand',
         className,
       )}
       {...props}

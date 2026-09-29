@@ -6,6 +6,13 @@ import { Fragment, type ReactNode } from 'react';
 import { Button, Heading, Link, Section, Text } from '@react-email/components';
 import { render } from '@react-email/render';
 import type { Locale } from '@loons/shared';
+import {
+  BIDI_CONTROLS,
+  blockParagraphs,
+  isBlockVariable,
+  truncateBlockText,
+  type BlockVariable,
+} from './blocks.ts';
 import { interpolate, parseTemplate, variableText, type TemplateVariables } from './interpolate.ts';
 import { EmailLayout, textStyle } from './layout.tsx';
 import {
@@ -14,6 +21,7 @@ import {
   emailRadii,
   layoutStrings,
   type TextDirection,
+  type TruncationSurface,
 } from './theme.ts';
 
 export interface EmailCta {
@@ -47,13 +55,21 @@ export interface RenderTemplateEmailInput {
   subject: string;
   /**
    * Body template: plain text, paragraphs separated by blank lines, `{{variables}}` allowed.
-   * Bare URLs in the template text and in `LINK_VARIABLES` values become links.
+   * Bare URLs in the template text and in `LINK_VARIABLES` values become links. A block variable
+   * (`BLOCK_VARIABLES`) that is a whole paragraph keeps its own paragraphs and line breaks.
    */
   body: string;
   variables?: TemplateVariables;
   cta?: EmailCta;
   /** Inbox preview line; defaults to the first paragraph of the body. */
   preview?: string;
+  /**
+   * False for a distribution list: a greeting first paragraph ("Hi {{name}},") is left out. It is
+   * also left out when `name` is empty. Default true.
+   */
+  greeting?: boolean;
+  /** Where a shortened block value can be read in full (named by the "shortened" line). */
+  viewFullIn?: 'portal' | 'console';
 }
 
 export interface RenderedEmail {
@@ -87,8 +103,18 @@ interface Run {
 }
 type Line = Run[];
 
+interface BodyParagraph {
+  lines: Line[];
+  /** The "this message has been shortened" line: smaller, muted. */
+  note?: boolean;
+}
+
 function lineText(line: Line): string {
   return line.map((run) => run.text).join('');
+}
+
+function paragraphText(paragraph: BodyParagraph): string {
+  return paragraph.lines.map(lineText).join('\n');
 }
 
 function trimLine(line: Line, { start }: { start: boolean }): Line {
@@ -106,15 +132,46 @@ function trimLine(line: Line, { start }: { start: boolean }): Line {
   return runs;
 }
 
+/** Template paragraphs: split at blank (whitespace-only) template lines. */
+const PARAGRAPH_BREAK = /\n[ \t]*\n/;
+/** A template paragraph that is nothing but one placeholder. */
+const WHOLE_PLACEHOLDER = /^\s*\{\{\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}\s*$/;
+/** Longest literal text (placeholders removed) of a greeting line: "Hi ,", "مرحبًا ،". */
+const GREETING_MAX_LITERAL = 20;
+
 /**
- * The body as blank-line separated paragraphs of lines. Only the template's own text can break
- * lines or paragraphs: substituted values are collapsed onto one line.
+ * "Hi {{name}}," — a one-line template paragraph that uses `{{name}}` and little else. Left out
+ * for distribution lists and when the recipient has no name.
  */
-function toParagraphs(body: string, vars: TemplateVariables): Line[][] {
+function isGreeting(chunk: string): boolean {
+  const text = chunk.trim();
+  if (text.includes('\n')) return false;
+  const parts = parseTemplate(text);
+  if (!parts.some((part) => part.type === 'variable' && part.name === 'name')) return false;
+  const literal = parts.map((part) => (part.type === 'text' ? part.text : '')).join('');
+  return literal.trim().length <= GREETING_MAX_LITERAL;
+}
+
+/**
+ * One template paragraph whose values are collapsed onto one line: only the template's own text
+ * can break lines (whitespace-only lines left by empty values still separate paragraphs). Block
+ * values used here are cut at BLOCK_MAX_CHARS; the first one cut is reported.
+ */
+function inlineParagraphs(
+  chunk: string,
+  vars: TemplateVariables,
+): { paragraphs: BodyParagraph[]; truncated: BlockVariable | null } {
+  let truncated: BlockVariable | null = null;
   const lines: Line[] = [[]];
-  for (const part of parseTemplate(body.replace(/\r\n?/g, '\n'))) {
+  for (const part of parseTemplate(chunk)) {
     if (part.type === 'variable') {
-      const text = oneLine(variableText(vars, part.name));
+      let value = variableText(vars, part.name);
+      if (isBlockVariable(part.name)) {
+        const cut = truncateBlockText(value);
+        value = cut.text;
+        if (cut.truncated) truncated ??= part.name;
+      }
+      const text = oneLine(value);
       if (text) lines.at(-1)?.push({ text, linkify: LINK_VARIABLE_NAMES.has(part.name) });
       continue;
     }
@@ -125,17 +182,73 @@ function toParagraphs(body: string, vars: TemplateVariables): Line[][] {
   }
 
   // Whitespace-only lines separate paragraphs; each paragraph is trimmed, each line right-trimmed.
-  const paragraphs: Line[][] = [];
+  const paragraphs: BodyParagraph[] = [];
   let current: Line[] = [];
   for (const line of [...lines, []]) {
     if (lineText(line).trim() !== '') {
       current.push(trimLine(line, { start: current.length === 0 }));
     } else if (current.length > 0) {
-      paragraphs.push(current);
+      paragraphs.push({ lines: current });
       current = [];
     }
   }
-  return paragraphs;
+  return { paragraphs, truncated };
+}
+
+/** A block value that is a whole template paragraph: its own paragraphs, never linkified. */
+function blockValueParagraphs(value: string): {
+  paragraphs: BodyParagraph[];
+  truncated: boolean;
+} {
+  const cut = truncateBlockText(value);
+  const paragraphs = blockParagraphs(cut.text).map((lines) => ({
+    lines: lines.map((text): Line => [{ text, linkify: false }]),
+  }));
+  return { paragraphs, truncated: cut.truncated };
+}
+
+function truncationNote(
+  locale: Locale,
+  variable: BlockVariable,
+  surface: TruncationSurface,
+): BodyParagraph {
+  const strings = layoutStrings[locale].truncated[variable === 'ticketList' ? 'list' : 'message'];
+  return { lines: [[{ text: strings[surface], linkify: false }]], note: true };
+}
+
+/** The body as paragraphs of lines (see RenderTemplateEmailInput.body for the rules). */
+function toParagraphs(
+  body: string,
+  vars: TemplateVariables,
+  options: { locale: Locale; greeting: boolean; surface: TruncationSurface },
+): BodyParagraph[] {
+  const out: BodyParagraph[] = [];
+  const chunks = body
+    .replace(/\r\n?/g, '\n')
+    .split(PARAGRAPH_BREAK)
+    .filter((chunk) => chunk.trim() !== '');
+  chunks.forEach((chunk, index) => {
+    if (
+      index === 0 &&
+      isGreeting(chunk) &&
+      (!options.greeting || variableText(vars, 'name').trim() === '')
+    ) {
+      return;
+    }
+    const whole = WHOLE_PLACEHOLDER.exec(chunk)?.[1];
+    if (whole && isBlockVariable(whole)) {
+      const block = blockValueParagraphs(variableText(vars, whole));
+      out.push(...block.paragraphs);
+      if (block.truncated) out.push(truncationNote(options.locale, whole, options.surface));
+      return;
+    }
+    const inline = inlineParagraphs(chunk, vars);
+    out.push(...inline.paragraphs);
+    if (inline.truncated) {
+      out.push(truncationNote(options.locale, inline.truncated, options.surface));
+    }
+  });
+  return out;
 }
 
 /** Text with bare URLs turned into links. React escapes every text node. */
@@ -166,10 +279,21 @@ function linkify(line: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function Paragraph({ lines, dir, index }: { lines: Line[]; dir: TextDirection; index: number }) {
+function Paragraph({
+  paragraph,
+  dir,
+  index,
+}: {
+  paragraph: BodyParagraph;
+  dir: TextDirection;
+  index: number;
+}) {
+  const style = paragraph.note
+    ? textStyle(dir, { fontSize: '13px', color: emailColors.inkMuted, fontStyle: 'italic' })
+    : textStyle(dir);
   return (
-    <Text style={textStyle(dir)}>
-      {lines.map((line, li) => (
+    <Text style={style}>
+      {paragraph.lines.map((line, li) => (
         <Fragment key={li}>
           {li > 0 ? <br /> : null}
           {line.map((run, ri) =>
@@ -194,7 +318,7 @@ function TemplateEmail({
 }: {
   locale: Locale;
   subject: string;
-  paragraphs: Line[][];
+  paragraphs: BodyParagraph[];
   cta: ResolvedCta | null;
   preview: string;
 }) {
@@ -216,8 +340,8 @@ function TemplateEmail({
       >
         {subject}
       </Heading>
-      {paragraphs.map((lines, index) => (
-        <Paragraph key={index} lines={lines} dir={dir} index={index} />
+      {paragraphs.map((paragraph, index) => (
+        <Paragraph key={index} paragraph={paragraph} dir={dir} index={index} />
       ))}
       {cta ? (
         <>
@@ -266,9 +390,11 @@ function TemplateEmail({
   );
 }
 
+/** One line of text: line breaks collapsed, bidi controls (from client text) removed. */
 function oneLine(value: string): string {
   return value
-    .replace(/[\r\n\t]+/g, ' ')
+    .replace(BIDI_CONTROLS, '')
+    .replace(/[\r\n\t\u2028\u2029]+/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -277,13 +403,19 @@ function oneLine(value: string): string {
  * Renders an admin-editable template (subject + plain-text body with `{{variables}}`) inside the
  * branded layout. Returns the final subject, the HTML part and a plain-text alternative.
  * Variable values are HTML-escaped in the HTML part (React escapes every text node), kept on one
- * line, and only linkified for `LINK_VARIABLES`; newlines are stripped from the subject.
+ * line, and only linkified for `LINK_VARIABLES`; block variables that are a whole paragraph keep
+ * their paragraphs (never linkified, cut at BLOCK_MAX_CHARS); newlines are stripped from the
+ * subject.
  */
 export async function renderTemplateEmail(input: RenderTemplateEmailInput): Promise<RenderedEmail> {
   const vars = input.variables ?? {};
   const subject = oneLine(interpolate(input.subject, vars));
-  const paragraphs = toParagraphs(input.body, vars);
-  const paragraphTexts = paragraphs.map((lines) => lines.map(lineText).join('\n'));
+  const paragraphs = toParagraphs(input.body, vars, {
+    locale: input.locale,
+    greeting: input.greeting ?? true,
+    surface: input.viewFullIn ?? 'any',
+  });
+  const paragraphTexts = paragraphs.map(paragraphText);
   const bodyText = paragraphTexts.join('\n\n');
 
   let cta: ResolvedCta | null = null;

@@ -168,6 +168,7 @@ const DETAIL_ONLY_KEYS = [
   'attachments',
   'requesterCard',
   'sla',
+  'p1Chain',
 ] as const satisfies readonly (keyof TicketDetailDto)[];
 
 /** The summary part of a detail DTO (what list rows hold). */

@@ -143,7 +143,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-2 text-sm text-ink outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-surface-sunken [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-ink-muted [&_svg:not([class*='size-'])]:size-4",
+        "group/command-item relative flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-2 text-sm text-ink outline-none select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-surface-sunken data-[selected=true]:outline-hidden forced-colors:data-[selected=true]:-outline-offset-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-ink-muted [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
@@ -159,7 +159,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
     <span
       data-slot="command-shortcut"
       className={cn(
-        'ms-auto text-xs tracking-widest text-ink-subtle group-data-selected/command-item:text-ink-muted',
+        'ms-auto text-xs tracking-widest text-ink-subtle group-data-[selected=true]/command-item:text-ink-muted',
         className,
       )}
       {...props}

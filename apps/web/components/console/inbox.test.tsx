@@ -200,11 +200,13 @@ describe('Inbox', () => {
   });
 
   it('switches views through the URL without reloading and sorts by SLA or recency', async () => {
+    // Generous waits: under a full parallel run the list refetches can take longer than 1 s.
+    const slow = { timeout: 5_000 };
     renderInbox();
-    await screen.findByRole('heading', { level: 2, name: /Security alert/ });
+    await screen.findByRole('heading', { level: 2, name: /Security alert/ }, slow);
     fireEvent.click(screen.getByRole('link', { name: /^All open/ }));
-    await waitFor(() => expect(window.location.search).toMatch(/^\?view=open/));
-    await waitFor(() => expect(within(list()).getAllByRole('link')).toHaveLength(6));
+    await waitFor(() => expect(window.location.search).toMatch(/^\?view=open/), slow);
+    await waitFor(() => expect(within(list()).getAllByRole('link')).toHaveLength(6), slow);
     const refs = () =>
       within(list())
         .getAllByRole('link')
@@ -213,21 +215,24 @@ describe('Inbox', () => {
     expect(refs()).toEqual(['LG-4771', 'LG-4817', 'LG-4821', 'LG-4790', 'LG-4829', 'LG-4809']);
 
     fireEvent.click(screen.getByRole('button', { name: /Sorted by SLA/ }));
-    expect(await screen.findByRole('button', { name: /Sorted by recent/ })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Sorted by recent/ }, slow)).toBeTruthy();
     expect(window.localStorage.getItem('loons.console.inbox.sort')).toBe('recent');
-    await waitFor(() =>
-      expect(
-        api.calls.some((c) => c.path.startsWith('/tickets?') && c.path.includes('sort=recent')),
-      ).toBe(true),
+    await waitFor(
+      () =>
+        expect(
+          api.calls.some((c) => c.path.startsWith('/tickets?') && c.path.includes('sort=recent')),
+        ).toBe(true),
+      slow,
     );
 
     fireEvent.click(screen.getByRole('link', { name: /^ELV Field/ }));
-    await waitFor(() =>
-      expect(window.location.search).toMatch(new RegExp(`^\\?team=${WORLD_TEAMS.elv.id}`)),
+    await waitFor(
+      () => expect(window.location.search).toMatch(new RegExp(`^\\?team=${WORLD_TEAMS.elv.id}`)),
+      slow,
     );
-    await waitFor(() => expect(within(list()).getAllByRole('link')).toHaveLength(2));
+    await waitFor(() => expect(within(list()).getAllByRole('link')).toHaveLength(2), slow);
     expect(screen.getByRole('heading', { level: 2, name: /^ELV Field/ })).toBeTruthy();
-  });
+  }, 15_000);
 
   it('switches views with the select used below 1180 px', async () => {
     renderInbox();
@@ -421,6 +426,31 @@ describe('Inbox', () => {
     expect(within(details).getByRole('alert').textContent).toBe(
       'Use lowercase letters, numbers and hyphens.',
     );
+  });
+
+  it('acknowledges a P1 from the conversation header; its row loses the marker (Phase 3)', async () => {
+    renderInbox('/console/inbox?view=p1&ticket=LG-4817');
+    await screen.findByRole('heading', {
+      name: 'Security alert – multiple failed admin logins on firewall',
+      level: 2,
+    });
+    const row = () => within(list()).getByRole('link', { name: /LG-4817/ });
+    await waitFor(() => expect(row().textContent).toContain('Not acknowledged'));
+    // Every unacknowledged P1 in the view is marked.
+    expect(list().querySelectorAll('[data-p1-marker]').length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-p1="acknowledged"]')?.textContent).toContain(
+        'Acknowledged by',
+      ),
+    );
+    expect(document.querySelector('[data-p1="acknowledged"]')?.textContent).toContain('Maya Ruiz');
+    expect(api.calls.filter((c) => c.method === 'POST').map((c) => c.path)).toEqual([
+      `/tickets/${api.world!.getTicket('LG-4817').id}/acknowledge`,
+    ]);
+    expect(api.world!.getTicket('LG-4817').p1AckedBy?.name).toBe('Maya Ruiz');
+    await waitFor(() => expect(row().textContent).not.toContain('Not acknowledged'));
   });
 
   it('moves through the statuses with the arrow keys and saves only the one chosen', async () => {

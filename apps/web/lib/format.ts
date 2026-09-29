@@ -67,6 +67,20 @@ export function formatDateTime(
   }).format(toDate(value));
 }
 
+/** Time of day: "14:05" (24-hour, Latin digits in Arabic too). */
+export function formatTime(
+  value: Date | string | number,
+  locale: Locale,
+  timeZone: string = DISPLAY_TIME_ZONE,
+): string {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone,
+  }).format(toDate(value));
+}
+
 /** Calendar date: "Sep 23, 2026". */
 export function formatDate(
   value: Date | string | number,

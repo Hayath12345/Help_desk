@@ -17,6 +17,9 @@ const base = (over: Partial<SlaFields>): SlaFields => ({
   createdAt: new Date(NOW - 5 * MIN),
   firstReplyDueAt: new Date(NOW + 10 * MIN),
   resolveDueAt: new Date(NOW + 235 * MIN),
+  // 75 % of each window (15 min / 240 min from createdAt), as computeSlaTargets stores them.
+  firstReplyAtRiskAt: new Date(NOW + 6.25 * MIN),
+  resolveAtRiskAt: new Date(NOW + 175 * MIN),
   firstRepliedAt: null,
   slaPausedAt: null,
   slaBreached: false,
@@ -65,34 +68,105 @@ describe('slaState', () => {
     if (s.kind !== 'firstReply') return;
     expect(s.clock.remainingMs).toBe(10 * MIN);
     expect(s.clock.windowMs).toBe(15 * MIN);
-    expect(s.clock.atRisk).toBe(false); // 10 of 15 min left: more than half
+    expect(s.clock.atRisk).toBe(false); // the at-risk instant (75 % = 11.25 min) is ahead
   });
 
-  it('flags at-risk below min(1 h, half the window) and overdue after the due time', () => {
-    const risky = slaState(base({ firstReplyDueAt: new Date(NOW + 4 * MIN) }), NOW); // 4 of 9 min left
+  it('D1/D2: at risk from the stored instant on, overdue after the due time', () => {
+    const at = base({ firstReplyAtRiskAt: new Date(NOW) });
+    const risky = slaState(at, NOW);
     expect(risky.kind === 'firstReply' && risky.clock.atRisk).toBe(true);
+    expect(isSlaAtRiskOrBreached(at, NOW)).toBe(true);
+    // One millisecond before the instant: not yet.
+    const before = slaState(base({ firstReplyAtRiskAt: new Date(NOW + 1) }), NOW);
+    expect(before.kind === 'firstReply' && before.clock.atRisk).toBe(false);
+    expect(isSlaAtRiskOrBreached(base({ firstReplyAtRiskAt: new Date(NOW + 1) }), NOW)).toBe(false);
+    // ISO strings (the DTO form) work the same.
+    const iso = base({ firstReplyAtRiskAt: new Date(NOW - MIN).toISOString() });
+    expect(isSlaAtRiskOrBreached(iso, NOW)).toBe(true);
+
     const late = base({ firstReplyDueAt: new Date(NOW - 6 * MIN) });
     const overdue = slaState(late, NOW);
     expect(overdue.kind === 'firstReply' && overdue.clock.overdue).toBe(true);
+    // Overdue is not "at risk" any more (the tone is overdue), but stays in the view.
+    expect(overdue.kind === 'firstReply' && overdue.clock.atRisk).toBe(false);
     expect(isSlaAtRiskOrBreached(late, NOW)).toBe(true);
   });
 
-  it('shows Replied with the resolution clock after the first reply', () => {
-    const s = slaState(base({ firstRepliedAt: new Date(NOW - MIN) }), NOW);
+  it('the Phase 2 rule (less than min(1 h, 50 %) left) no longer decides anything', () => {
+    // 4 of 9 minutes left (old rule: at risk), but the stored instant is still ahead.
+    const soon = base({
+      firstReplyDueAt: new Date(NOW + 4 * MIN),
+      firstReplyAtRiskAt: new Date(NOW + 2 * MIN),
+    });
+    expect(isSlaAtRiskOrBreached(soon, NOW)).toBe(false);
+    // A business-hours window: 20 wall-clock hours left (old rule: fine), but 75 % of the
+    // business minutes have elapsed, so the stored instant has passed.
+    const business = base({
+      priority: 'P3',
+      createdAt: new Date(NOW - 50 * 60 * MIN),
+      firstReplyDueAt: new Date(NOW + 20 * 60 * MIN),
+      firstReplyAtRiskAt: new Date(NOW - 30 * MIN),
+    });
+    const s = slaState(business, NOW);
+    expect(s.kind === 'firstReply' && s.clock.atRisk).toBe(true);
+    expect(isSlaAtRiskOrBreached(business, NOW)).toBe(true);
+  });
+
+  it('a missing instant is never "at risk"; overdue still comes from the due date', () => {
+    const unknown = base({ firstReplyAtRiskAt: null, firstReplyDueAt: new Date(NOW + MIN) });
+    const s = slaState(unknown, NOW);
+    expect(s.kind === 'firstReply' && s.clock.atRisk).toBe(false);
+    expect(isSlaAtRiskOrBreached(unknown, NOW)).toBe(false);
+    const late = base({ firstReplyAtRiskAt: null, firstReplyDueAt: new Date(NOW - MIN) });
+    expect(isSlaAtRiskOrBreached(late, NOW)).toBe(true);
+    // Resolution too.
+    const replied = base({
+      firstRepliedAt: new Date(NOW - MIN),
+      resolveAtRiskAt: null,
+      resolveDueAt: new Date(NOW + MIN),
+    });
+    expect(isSlaAtRiskOrBreached(replied, NOW)).toBe(false);
+  });
+
+  it('shows Replied with the resolution clock (and its own instant) after the first reply', () => {
+    const replied = { firstRepliedAt: new Date(NOW - MIN) };
+    const s = slaState(base(replied), NOW);
     expect(s.kind).toBe('replied');
-    if (s.kind === 'replied') expect(s.resolution?.remainingMs).toBe(235 * MIN);
+    if (s.kind === 'replied') {
+      expect(s.resolution?.remainingMs).toBe(235 * MIN);
+      expect(s.resolution?.atRisk).toBe(false);
+    }
+    // The first-reply instant no longer matters once replied.
+    expect(isSlaAtRiskOrBreached(base({ ...replied, firstReplyAtRiskAt: new Date(0) }), NOW)).toBe(
+      false,
+    );
+    const risky = base({ ...replied, resolveAtRiskAt: new Date(NOW - 1) });
+    const r = slaState(risky, NOW);
+    expect(r.kind === 'replied' && r.resolution?.atRisk).toBe(true);
+    expect(isSlaAtRiskOrBreached(risky, NOW)).toBe(true);
+    // Unanswered tickets carry the resolution clock next to the first-reply one.
+    const both = slaState(base({ resolveAtRiskAt: new Date(NOW - 1) }), NOW);
+    expect(both.kind === 'firstReply' && both.resolution?.atRisk).toBe(true);
   });
 
   it('PENDING after the first reply is paused (nothing runs); solved stops everything', () => {
     const replied = { firstRepliedAt: new Date(NOW - MIN) };
     expect(slaState(base({ status: 'PENDING', ...replied }), NOW).kind).toBe('paused');
     expect(slaState(base({ status: 'SOLVED' }), NOW).kind).toBe('done');
-    // The resolution clock is stopped: an overdue resolution target is not "at risk" meanwhile.
+    // The resolution clock is stopped: an overdue / at-risk resolution target is not "at risk".
     expect(
       isSlaAtRiskOrBreached(
-        base({ status: 'PENDING', ...replied, resolveDueAt: new Date(NOW - 5 * MIN) }),
+        base({
+          status: 'PENDING',
+          ...replied,
+          resolveDueAt: new Date(NOW - 5 * MIN),
+          resolveAtRiskAt: new Date(NOW - 60 * MIN),
+        }),
         NOW,
       ),
+    ).toBe(false);
+    expect(
+      isSlaAtRiskOrBreached(base({ status: 'CLOSED', firstReplyDueAt: new Date(0) }), NOW),
     ).toBe(false);
   });
 
@@ -104,6 +178,10 @@ describe('slaState', () => {
       resolution: null,
       resolutionPaused: true,
     });
+    // At risk by its stored instant while PENDING, too.
+    expect(
+      isSlaAtRiskOrBreached(base({ status: 'PENDING', firstReplyAtRiskAt: new Date(NOW) }), NOW),
+    ).toBe(true);
     // Overdue (e.g. a note with the "Awaiting client access" macro): still in "SLA at risk".
     const late = base({ status: 'PENDING', firstReplyDueAt: new Date(NOW - 6 * MIN) });
     const overdue = slaState(late, NOW);

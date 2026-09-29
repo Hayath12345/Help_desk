@@ -1,6 +1,6 @@
 'use client';
 
-import { slaState, type SlaFields, type SlaState } from '@loons/shared';
+import { slaState, type SlaClock, type SlaFields, type SlaState } from '@loons/shared';
 import { useLocale, useNow, useTranslations } from 'next-intl';
 import { formatDuration } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,23 @@ export function slaTone(state: SlaState): SlaTone {
     case 'firstReply':
       return state.clock.overdue ? 'overdue' : state.clock.atRisk ? 'risk' : 'ok';
   }
+}
+
+/**
+ * The resolution clock a list row shows instead of "Replied" (D1): once the first reply is sent
+ * the row says "Replied" — unless the running resolution target has reached its stored at-risk
+ * instant or passed its due date, so every row in the "SLA at risk" view shows why it is there.
+ */
+export function rowResolutionClock(state: SlaState): SlaClock | null {
+  if (state.kind !== 'replied' || !state.resolution) return null;
+  return state.resolution.atRisk || state.resolution.overdue ? state.resolution : null;
+}
+
+/** The list row's tone: `slaTone`, or the resolution clock's when the row shows it. */
+export function slaRowTone(state: SlaState): SlaTone {
+  const resolution = rowResolutionClock(state);
+  if (!resolution) return slaTone(state);
+  return resolution.overdue ? 'overdue' : 'risk';
 }
 
 /**
@@ -53,7 +70,8 @@ export interface SlaTextProps {
 
 /**
  * The list's SLA cell (design inbox row): first-reply countdown ("9m", "1h 05m"), "Overdue 12m",
- * "Replied", "Paused" (PENDING) or the done status. Mono 12px, coloured by `slaTone`.
+ * "Replied", "Paused" (PENDING) or the done status. Mono 12px, coloured by `slaRowTone`. After
+ * the first reply, a resolution target at risk or overdue replaces "Replied" (`rowResolutionClock`).
  */
 export function SlaText({ ticket, now, className }: SlaTextProps) {
   const t = useTranslations('tickets.sla');
@@ -61,7 +79,8 @@ export function SlaText({ ticket, now, className }: SlaTextProps) {
   const locale = useLocale();
   const clock = useNow({ updateInterval: 30_000 });
   const state = slaState(ticket, now ?? clock.getTime());
-  const tone = slaTone(state);
+  const tone = slaRowTone(state);
+  const resolution = rowResolutionClock(state);
 
   let text: string;
   let label: string | undefined;
@@ -74,15 +93,26 @@ export function SlaText({ ticket, now, className }: SlaTextProps) {
       label = t('pausedLabel');
       break;
     case 'replied':
-      text = t('replied');
-      label = t('repliedLabel');
+      if (resolution) {
+        const duration = formatDuration(Math.abs(resolution.remainingMs), locale);
+        text = resolution.overdue ? t('overdue', { duration }) : duration;
+        // Shown only when at risk or overdue: the words say so (not only the amber colour).
+        label = resolution.overdue
+          ? t('resolutionOverdueLabel', { duration })
+          : t('resolutionInAtRisk', { duration });
+      } else {
+        text = t('replied');
+        label = t('repliedLabel');
+      }
       break;
     case 'firstReply': {
       const duration = formatDuration(Math.abs(state.clock.remainingMs), locale);
       text = state.clock.overdue ? t('overdue', { duration }) : duration;
       label = state.clock.overdue
         ? t('firstReplyOverdue', { duration })
-        : t('firstReplyIn', { duration });
+        : state.clock.atRisk
+          ? t('firstReplyInAtRisk', { duration })
+          : t('firstReplyIn', { duration });
       break;
     }
   }

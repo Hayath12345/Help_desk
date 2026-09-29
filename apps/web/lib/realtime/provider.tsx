@@ -7,13 +7,22 @@
 // - ticket:updated  → update the ticket detail and every cached list row
 // - queue:updated   → refetch lists and counts (debounced: one burst → one refetch)
 // - config:updated  → refetch the New-ticket configuration
+// - notification:new → insert into the console bell's list (lib/notifications; deduplicated by
+//                     id, unread count from the push)
 // - room joined     → (first join and every re-join) fetch what the thread may have missed before
 //                     the join: `after` its last known message
-// - after a reconnect (once the rooms are joined again): refetch tickets, lists and counts.
+// - after a reconnect (once the rooms are joined again): refetch tickets, lists, counts and
+//   notifications (pushes sent while disconnected were missed).
 
-import { messageDtoSchema, ticketSummaryDtoSchema } from '@loons/shared';
+import {
+  messageDtoSchema,
+  notificationNewPayloadSchema,
+  ticketSummaryDtoSchema,
+} from '@loons/shared';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo } from 'react';
+import { applyNewNotification } from '@/lib/notifications/cache';
+import { notificationKeys } from '@/lib/notifications/keys';
 import { fetchAllMessages } from '@/lib/tickets/api';
 import {
   applyTicketSummary,
@@ -124,6 +133,10 @@ export function connectRealtimeToCache(
     client.on('config:updated', () => {
       void queryClient.invalidateQueries({ queryKey: ticketKeys.formConfig() });
     }),
+    client.on('notification:new', (payload) => {
+      const parsed = notificationNewPayloadSchema.safeParse(payload);
+      if (parsed.success) applyNewNotification(queryClient, parsed.data);
+    }),
     client.onRoomJoined((ticketId) => {
       void catchUpThread(queryClient, ticketId).catch(() =>
         queryClient.invalidateQueries({ queryKey: ticketKeys.messages(ticketId) }),
@@ -131,6 +144,7 @@ export function connectRealtimeToCache(
     }),
     client.onReconnect(() => {
       void queryClient.invalidateQueries({ queryKey: ticketKeys.details() });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       refreshLists.run();
     }),
   ];

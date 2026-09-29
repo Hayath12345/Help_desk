@@ -74,6 +74,9 @@ export interface SlaFields {
   createdAt: string | Date;
   firstReplyDueAt: string | Date | null;
   resolveDueAt: string | Date | null;
+  /** Stored by the API with the due dates (`computeSlaTargets`); null = not known yet. */
+  firstReplyAtRiskAt: string | Date | null;
+  resolveAtRiskAt: string | Date | null;
   firstRepliedAt: string | Date | null;
   slaPausedAt: string | Date | null;
   slaBreached: boolean;
@@ -83,10 +86,14 @@ export interface SlaFields {
 export interface SlaClock {
   /** Negative once the target has passed. */
   remainingMs: number;
-  /** Full window length, for the progress bar. */
+  /** Full window length (wall-clock, for the progress bar). */
   windowMs: number;
   overdue: boolean;
-  /** Design rule: less than min(1 h, 50% of the window) left (and not yet overdue). */
+  /**
+   * Spec §7 / decision D1: the target's stored at-risk instant (`atRiskPercent` of the window
+   * elapsed in SLA time) has been reached, and it is not yet overdue. False while the instant is
+   * unknown (tickets created before Phase 3 until the SLA scan backfills them).
+   */
   atRisk: boolean;
 }
 
@@ -106,7 +113,12 @@ export type SlaState =
 const toMs = (d: string | Date | null): number | null =>
   d === null ? null : typeof d === 'string' ? Date.parse(d) : d.getTime();
 
-function clock(startMs: number, dueMs: number | null, now: number): SlaClock | null {
+function clock(
+  startMs: number,
+  dueMs: number | null,
+  atRiskMs: number | null,
+  now: number,
+): SlaClock | null {
   if (dueMs === null) return null;
   const remainingMs = dueMs - now;
   const windowMs = Math.max(1, dueMs - startMs);
@@ -115,39 +127,39 @@ function clock(startMs: number, dueMs: number | null, now: number): SlaClock | n
     remainingMs,
     windowMs,
     overdue,
-    atRisk: !overdue && remainingMs < Math.min(60 * 60_000, windowMs * 0.5),
+    atRisk: !overdue && atRiskMs !== null && !Number.isNaN(atRiskMs) && now >= atRiskMs,
   };
 }
 
 /**
  * What the SLA countdowns show (list rows, the right-panel SLA card, the "SLA at risk" view).
- * Due dates are computed by the API (business hours, holidays, pauses); this only compares them
- * with `now`. PENDING pauses the resolution clock only: an unanswered PENDING ticket keeps its
- * first-reply countdown (the API's SQL twins — `atRiskSql` and the `sla` sort — agree).
+ * Due dates and at-risk instants are computed and stored by the API (business hours, holidays,
+ * pauses — decisions D1/D2); this only compares them with `now`. PENDING pauses the resolution
+ * clock only: an unanswered PENDING ticket keeps its first-reply countdown (the API's SQL twins —
+ * `atRiskSql` and the `sla` sort — agree).
  */
 export function slaState(t: SlaFields, now: number = Date.now()): SlaState {
   if (t.status === 'SOLVED' || t.status === 'CLOSED') return { kind: 'done' };
   const pending = t.status === 'PENDING';
   const created = toMs(t.createdAt) ?? now;
+  const resolution = () =>
+    clock(created, toMs(t.resolveDueAt), toMs(t.resolveAtRiskAt ?? null), now);
   if (t.firstRepliedAt === null) {
-    const first = clock(created, toMs(t.firstReplyDueAt), now);
+    const first = clock(created, toMs(t.firstReplyDueAt), toMs(t.firstReplyAtRiskAt ?? null), now);
     if (first) {
       return pending
         ? { kind: 'firstReply', clock: first, resolution: null, resolutionPaused: true }
-        : {
-            kind: 'firstReply',
-            clock: first,
-            resolution: clock(created, toMs(t.resolveDueAt), now),
-          };
+        : { kind: 'firstReply', clock: first, resolution: resolution() };
     }
   }
   if (pending) return { kind: 'paused' };
-  return { kind: 'replied', resolution: clock(created, toMs(t.resolveDueAt), now) };
+  return { kind: 'replied', resolution: resolution() };
 }
 
 /**
  * "SLA at risk" view membership: first reply at risk or overdue (also while PENDING), or the
- * running resolution clock at risk/overdue.
+ * running resolution clock at risk/overdue. The at-risk part uses the stored instants only (a
+ * missing instant never matches); overdue always comes from the due date.
  */
 export function isSlaAtRiskOrBreached(t: SlaFields, now: number = Date.now()): boolean {
   const s = slaState(t, now);

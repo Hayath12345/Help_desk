@@ -37,7 +37,10 @@
     "firstReplyIn": "First reply due in {duration}",
     "firstReplyOverdue": "First reply overdue by {duration}",
     "repliedLabel": "First reply sent",
-    "pausedLabel": "SLA paused while waiting on the client"
+    "pausedLabel": "SLA paused while waiting on the client",
+    "resolutionOverdueLabel": "Resolution overdue by {duration}",
+    "firstReplyInAtRisk": "First reply due in {duration}, at risk",
+    "resolutionInAtRisk": "Resolution due in {duration}, at risk"
   },
   "role": {
     "client": "Client",
@@ -94,7 +97,11 @@
       "network": "Check your connection and retry.",
       "type": "This file type isn't supported.",
       "size": "The file is larger than 25 MB.",
-      "empty": "The file is empty."
+      "empty": "The file is empty.",
+      "quotaHours": "This file doesn't fit in what's left of your upload allowance for the last 24 hours. Try again in {count, plural, one {{n} hour} other {{n} hours}}.",
+      "quotaMinutes": "This file doesn't fit in what's left of your upload allowance for the last 24 hours. Try again in {count, plural, one {{n} minute} other {{n} minutes}}.",
+      "busy": "Too many uploads in a short time. Wait a few minutes, then retry.",
+      "allowance": "The file is larger than your daily upload allowance."
     }
   },
   "assetPlaceholder": {

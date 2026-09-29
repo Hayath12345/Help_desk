@@ -308,7 +308,15 @@ export async function createTestContext(
     config?: Partial<AppConfig>;
     beforeReady?: (app: App) => void | Promise<void>;
     /** Replacement object storage / SLA arithmetic / socket limits. */
-    deps?: Pick<AppDeps, 'storage' | 'sla' | 'realtimeLimits' | 'realtimeClusterTimeoutMs'>;
+    deps?: Pick<
+      AppDeps,
+      | 'storage'
+      | 'sla'
+      | 'realtimeLimits'
+      | 'realtimeClusterTimeoutMs'
+      | 'uploadQuota'
+      | 'escalationMinuteMs'
+    >;
   } = {},
 ): Promise<TestContext> {
   const config = testConfig(options.config);
@@ -342,7 +350,9 @@ export async function createTestContext(
       await app.close();
       await fixtures.cleanup();
       await Promise.allSettled(
-        [queues.email, queues.notifications, queues.sla].map((q) => q.obliterate({ force: true })),
+        [queues.email, queues.notifications, queues.sla, queues.escalation].map((q) =>
+          q.obliterate({ force: true }),
+        ),
       );
       await queues.close();
       await deleteKeys(redis, `${config.redisPrefix}*`);

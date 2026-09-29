@@ -263,8 +263,10 @@ describe('business hours, holidays and settings', () => {
       '2026-12-18 Qatar National Day',
       '2027-02-09 National Sports Day',
       '2027-12-18 Qatar National Day',
+      '2028-02-08 National Sports Day',
+      '2028-12-18 Qatar National Day',
     ]);
-    for (const year of [2026, 2027]) {
+    for (const year of [2026, 2027, 2028]) {
       for (const eid of ['Eid al-Fitr', 'Eid al-Adha']) {
         const days = HOLIDAYS.filter(
           (h) => h.name.startsWith(eid) && h.date.getUTCFullYear() === year,
@@ -288,7 +290,25 @@ describe('business hours, holidays and settings', () => {
       'business.timezone': 'Asia/Qatar',
       'tickets.autoCloseDays': 5,
       'support.socPhone': '+974 4000 0000',
+      'notifications.p4DigestTime': '07:30',
+      'tickets.securityCategoryKey': 'cyber',
     });
+  });
+
+  it('phase 3 settings are usable: the digest time is "HH:mm", the security category exists', () => {
+    const value = (key: string) => APP_SETTINGS.find((s) => s.key === key)?.value;
+    expect(value('notifications.p4DigestTime')).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
+    expect(CATEGORIES.map((c) => c.key)).toContain(value('tickets.securityCategoryKey'));
+  });
+
+  it('2028 Eid estimates follow 2027 by one Hijri year (354–355 days)', () => {
+    const first = (name: string, year: number) =>
+      HOLIDAYS.find((h) => h.name.startsWith(name) && h.date.getUTCFullYear() === year)!.date;
+    for (const eid of ['Eid al-Fitr', 'Eid al-Adha']) {
+      const days = (first(eid, 2028).getTime() - first(eid, 2027).getTime()) / 86_400_000;
+      expect(days, eid).toBeGreaterThanOrEqual(354);
+      expect(days, eid).toBeLessThanOrEqual(355);
+    }
   });
 });
 

@@ -9,9 +9,10 @@
 //                      staff typing, so a note being written is never revealed)
 //   team:{id}          staff of the team — queue changes (staff auto-join their teams on connect;
 //                      super admins join every active team)
-//   user:{id}          one user — personal events (Phase 3 notifications)
+//   user:{id}          one user — personal events (notification:new)
 
 import { z } from 'zod';
+import type { NotificationNewPayload } from './schemas/notifications.ts';
 import type { MessageDto, TicketSummaryDto } from './schemas/tickets.ts';
 
 /** Server → client event names. */
@@ -59,7 +60,8 @@ export interface ServerToClientEvents {
   'message:typing': (payload: TypingPayload) => void;
   'ticket:updated': (payload: TicketUpdatedPayload) => void;
   'queue:updated': (payload: QueueUpdatedPayload) => void;
-  'notification:new': (payload: unknown) => void;
+  /** To `user:{id}` only (validate with `notificationNewPayloadSchema`). */
+  'notification:new': (payload: NotificationNewPayload) => void;
   'config:updated': (payload: { scope: string }) => void;
 }
 

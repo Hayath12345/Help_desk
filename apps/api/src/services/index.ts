@@ -5,6 +5,7 @@ import type { AppConfig } from '../config.ts';
 import type { PrincipalStore } from '../lib/actor.ts';
 import type { AppQueues } from '../lib/queues.ts';
 import type { Storage } from '../lib/storage.ts';
+import type { UploadQuotaOptions } from '../lib/upload-quota.ts';
 import { createAttachmentsService, type AttachmentsService } from './attachments.service.ts';
 import { createAuthService, type AuthService } from './auth.service.ts';
 import { createDirectoryService, type DirectoryService } from './directory.service.ts';
@@ -14,6 +15,8 @@ import {
 } from './email-verification.service.ts';
 import { createMeService, type MeService } from './me.service.ts';
 import { createMessagesService, type MessagesService } from './messages.service.ts';
+import { createNotificationsService, type NotificationsService } from './notifications.service.ts';
+import { createNotifier, type Notifier } from './notifier.ts';
 import { createPasswordResetService, type PasswordResetService } from './password-reset.service.ts';
 import {
   createSessionsService,
@@ -46,6 +49,10 @@ export interface Services {
   attachments: AttachmentsService;
   /** Form context, requester picker, macros, teams. */
   directory: DirectoryService;
+  /** In-app notifications of the caller (D13). */
+  notifications: NotificationsService;
+  /** Notification / escalation job producers (after commit, D15). */
+  notifier: Notifier;
 }
 
 export function createServices(deps: {
@@ -61,6 +68,10 @@ export function createServices(deps: {
   sla: SlaMath;
   config: AppConfig;
   logger: Logger;
+  /** Upload budget window / clock (tests). */
+  uploadQuota?: Pick<UploadQuotaOptions, 'windowMs' | 'now'> | undefined;
+  /** Length of an escalation "minute" (tests shrink it; default 60 000 ms). */
+  escalationMinuteMs?: number | undefined;
 }): Services {
   const sessions = createSessionsService({
     prisma: deps.prisma,
@@ -81,11 +92,18 @@ export function createServices(deps: {
     prefix: deps.config.redisPrefix,
     logger: deps.logger.child({ svc: 'ticket-config' }),
   });
+  const notifier = createNotifier({
+    prisma: deps.prisma,
+    queues: deps.queues,
+    logger: deps.logger.child({ svc: 'notifier' }),
+    ...(deps.escalationMinuteMs !== undefined ? { minuteMs: deps.escalationMinuteMs } : {}),
+  });
   const tickets = createTicketsService({
     prisma: deps.prisma,
     ticketConfig,
     sla: deps.sla,
     realtime: deps.ticketRealtime,
+    notifier,
     logger: deps.logger.child({ svc: 'tickets' }),
   });
   return {
@@ -116,6 +134,7 @@ export function createServices(deps: {
       ticketConfig,
       sla: deps.sla,
       realtime: deps.ticketRealtime,
+      notifier,
       logger: deps.logger.child({ svc: 'messages' }),
     }),
     attachments: createAttachmentsService({
@@ -124,7 +143,10 @@ export function createServices(deps: {
       storage: deps.storage,
       config: deps.config,
       logger: deps.logger.child({ svc: 'attachments' }),
+      uploadQuota: deps.uploadQuota,
     }),
     directory: createDirectoryService({ prisma: deps.prisma }),
+    notifications: createNotificationsService({ prisma: deps.prisma }),
+    notifier,
   };
 }

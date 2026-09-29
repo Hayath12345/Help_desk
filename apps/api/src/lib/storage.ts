@@ -159,6 +159,30 @@ export function fileNameForMimeType(fileName: string, mimeType: string): string 
   return sanitizeFileName(`${name}.${extensions[0] ?? 'bin'}`);
 }
 
+/** Every extension of an allowed image type (png, jpg, jpeg, …, heic, heif, bmp, tif, tiff…). */
+const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(
+  ALLOWED_UPLOAD_MIME_TYPES.filter((mime) => mime.startsWith('image/')).flatMap(
+    (mime) => UPLOAD_MIME_EXTENSIONS[mime] as readonly string[],
+  ),
+);
+
+/**
+ * The name for an image accepted as the type its bytes really are (`detectAllowedImageType`): an
+ * image extension (the one that matched the declared type) is replaced by the detected type's
+ * canonical one, any other name gets it appended — "photo.png" as image/jpeg → "photo.jpg",
+ * "scan" → "scan.jpg". A name whose extension already belongs to the type is kept. Sanitised like
+ * every stored name (idempotent, MAX_FILE_NAME_BYTES, extension kept when cut).
+ */
+export function fileNameForDetectedType(fileName: string, mimeType: AllowedUploadMimeType): string {
+  const name = sanitizeFileName(fileName);
+  const extensions: readonly string[] = UPLOAD_MIME_EXTENSIONS[mimeType];
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (extensions.includes(ext)) return name;
+  const base = dot > 0 && IMAGE_EXTENSIONS.has(ext) ? name.slice(0, dot) : name;
+  return sanitizeFileName(`${base}.${extensions[0] ?? 'bin'}`);
+}
+
 // ───────────── Content sniffing ─────────────
 
 /** Bytes of an upload's start that `contentMatchesMimeType` looks at. */
@@ -205,7 +229,9 @@ export function contentMatchesMimeType(mimeType: string, head: Uint8Array): bool
       );
     case 'image/heic':
     case 'image/heif':
-      return isoBox(head, ['ftyp']);
+      // One family: either declared type accepts a HEIC or a generic HEIF image, but not just any
+      // ISO file (an MP4 or QuickTime video also starts with an `ftyp` box).
+      return heifImageType(head) !== null;
     case 'video/mp4':
     case 'video/quicktime':
       return isoBox(head, QUICKTIME_BOXES);
@@ -226,6 +252,65 @@ export function contentMatchesMimeType(mimeType: string, head: Uint8Array): bool
     case 'text/x-log':
       return true;
   }
+}
+
+/** An allowed `image/*` type (the only declared types `detectAllowedImageType` may correct). */
+export function isAllowedImageMimeType(mime: string): boolean {
+  const normalized = normalizeMimeType(mime);
+  return isAllowedMimeType(normalized) && normalized.startsWith('image/');
+}
+
+/** `ftyp` brands of HEIF images: HEVC-coded (image/heic) and generic HEIF (image/heif). */
+const HEIC_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs'];
+const HEIF_BRANDS = ['mif1', 'msf1'];
+
+/**
+ * image/heic or image/heif when the `ftyp` box names a HEIF image brand, else null. The major brand
+ * decides; a file whose major brand is something else (some cameras write their own) still counts
+ * as HEIC when a HEVC image brand is among its compatible brands. `mif1` / `msf1` count only as
+ * the major brand: AVIF lists `mif1` as compatible too, and AVIF is not allowed.
+ */
+function heifImageType(head: Uint8Array): 'image/heic' | 'image/heif' | null {
+  if (!isoBox(head, ['ftyp']) || head.length < 12) return null;
+  const major = ascii(head, 8, 12);
+  if (HEIC_BRANDS.includes(major)) return 'image/heic';
+  if (HEIF_BRANDS.includes(major)) return 'image/heif';
+  // Compatible brands: 4 bytes each after the minor version, up to the end of the box.
+  const boxSize = new DataView(head.buffer, head.byteOffset, 4).getUint32(0);
+  const end = Math.min(boxSize, head.length);
+  for (let at = 16; at + 4 <= end; at += 4) {
+    if (HEIC_BRANDS.includes(ascii(head, at, at + 4))) return 'image/heic';
+  }
+  return null;
+}
+/** BITMAPCOREHEADER, BITMAPINFOHEADER and its later versions (the DIB header's own size). */
+const BMP_DIB_HEADER_SIZES = [12, 40, 52, 56, 64, 108, 124];
+
+/**
+ * Which allowed image type the first bytes of a file really are, or null. A HEIF needs an image
+ * brand (not just any ISO box, which MP4 / QuickTime have too — the declared-type check asks the
+ * same), and a BMP a known DIB header size (stricter than the declared-type check, which only
+ * wants "BM"). Used at `complete` for an image declared as another image type — a JPEG named .png
+ * — which is then stored as what it really is.
+ */
+export function detectAllowedImageType(head: Uint8Array): AllowedUploadMimeType | null {
+  if (contentMatchesMimeType('image/png', head)) return 'image/png';
+  if (contentMatchesMimeType('image/jpeg', head)) return 'image/jpeg';
+  if (contentMatchesMimeType('image/gif', head)) return 'image/gif';
+  if (contentMatchesMimeType('image/webp', head)) return 'image/webp';
+  if (contentMatchesMimeType('image/tiff', head)) return 'image/tiff';
+  const heif = heifImageType(head);
+  if (heif) return heif;
+  if (
+    contentMatchesMimeType('image/bmp', head) &&
+    head.length >= 18 &&
+    BMP_DIB_HEADER_SIZES.includes(
+      new DataView(head.buffer, head.byteOffset + 14, 4).getUint32(0, true),
+    )
+  ) {
+    return 'image/bmp';
+  }
+  return null;
 }
 
 // ───────────── Virus scanning hook (placeholder) ─────────────
@@ -284,8 +369,15 @@ export interface Storage {
   readonly scanHook: ScanHook;
   /** Pre-signed POST: S3 enforces the size range and exact Content-Type. */
   createUploadPost(input: UploadPostInput): Promise<PresignedPost>;
-  /** Short-lived GET URL, served as an attachment download. */
-  getDownloadUrl(key: string, options?: { fileName?: string; expiresIn?: number }): Promise<string>;
+  /**
+   * Short-lived GET URL, served as an attachment download. `contentType` overrides the stored
+   * object's type in the response (an image accepted as its detected type keeps the declared type
+   * on the object).
+   */
+  getDownloadUrl(
+    key: string,
+    options?: { fileName?: string; contentType?: string; expiresIn?: number },
+  ): Promise<string>;
   /** Size / type / ETag of an uploaded object, or null when it doesn't exist. */
   headObject(key: string): Promise<ObjectHead | null>;
   /**
@@ -352,13 +444,18 @@ export function createStorage(
       });
     },
 
-    async getDownloadUrl(key, { fileName, expiresIn = 300 } = {}) {
+    async getDownloadUrl(key, { fileName, contentType, expiresIn = 300 } = {}) {
       const disposition = fileName
         ? `attachment; filename*=UTF-8''${rfc5987(sanitizeFileName(fileName))}`
         : 'attachment';
       return getSignedUrl(
         client,
-        new GetObjectCommand({ Bucket: bucket, Key: key, ResponseContentDisposition: disposition }),
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          ResponseContentDisposition: disposition,
+          ...(contentType ? { ResponseContentType: contentType } : {}),
+        }),
         { expiresIn },
       );
     },

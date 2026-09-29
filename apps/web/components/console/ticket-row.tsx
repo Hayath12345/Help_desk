@@ -1,6 +1,7 @@
 'use client';
 
 import type { TicketSummaryDto } from '@loons/shared';
+import { BellRing } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLocale, useTranslations } from 'next-intl';
 import { InitialsAvatar } from '@/components/common/initials-avatar';
@@ -12,6 +13,7 @@ import { initialsFrom } from '@/lib/format';
 import { listItemVariants, transitions } from '@/lib/motion';
 import { placeName } from '@/lib/tickets/labels';
 import { cn } from '@/lib/utils';
+import { isUnacknowledgedP1 } from './p1-banner';
 
 export interface TicketRowProps {
   ticket: TicketSummaryDto;
@@ -26,12 +28,14 @@ export interface TicketRowProps {
 
 /**
  * Inbox row (design 745–758): priority dot, "requester · client", SLA countdown; the subject;
- * `LG-n`, the status pill and the assignee's initials. A link (`?ticket=LG-n`), so it can be
+ * `LG-n`, the status pill (+ "Not acknowledged" on a P1 waiting for an acknowledgement, Phase 3)
+ * and the assignee's initials. A link (`?ticket=LG-n`), so it can be
  * opened in a new tab; a plain click selects it without reloading. Rows animate in / out and
  * slide to their new place when the order changes.
  */
 export function TicketRow({ ticket, href, selected, now, onSelect, onPrefetch }: TicketRowProps) {
   const t = useTranslations('console.inbox');
+  const tP1 = useTranslations('console.p1');
   const locale = useLocale();
   const assignee = ticket.assignee;
 
@@ -82,6 +86,15 @@ export function TicketRow({ ticket, href, selected, now, onSelect, onPrefetch }:
             className={selected ? 'text-ink-secondary' : undefined}
           />
           <StatusPill status={ticket.status} />
+          {isUnacknowledgedP1(ticket) ? (
+            <span
+              data-p1-marker=""
+              className="inline-flex min-w-0 items-center gap-1 rounded-sm bg-p1-bg px-1.5 py-0.5 text-[11px] leading-none font-medium text-p1-fg"
+            >
+              <BellRing aria-hidden="true" className="size-3 shrink-0" />
+              <span className="truncate">{tP1('marker')}</span>
+            </span>
+          ) : null}
           <span className="flex-1" />
           {assignee ? (
             <InitialsAvatar

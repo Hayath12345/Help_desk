@@ -21,6 +21,24 @@ describe('resolveUploadMimeType', () => {
     expect(resolveUploadMimeType({ name: 'page.html', type: 'text/html' })).toBeNull();
     expect(UPLOAD_ACCEPT).toContain('.log');
   });
+
+  it('still accepts an image whose name does not match its bytes (the API corrects it)', () => {
+    // A JPEG saved as .png: the browser reports image/png (or nothing and the extension decides).
+    const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+    const asPng = new File([jpegBytes], 'camera-14.png', { type: 'image/png' });
+    const untyped = new File([jpegBytes], 'camera-14.png', { type: '' });
+    const pngAsJpg = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'a.jpg', {
+      type: 'image/jpeg',
+    });
+    expect(resolveUploadMimeType(asPng)).toBe('image/png');
+    expect(resolveUploadMimeType(untyped)).toBe('image/png');
+    const { accepted, rejected } = checkFiles([asPng, untyped, pngAsJpg], {
+      count: 0,
+      totalBytes: 0,
+    });
+    expect(rejected).toEqual([]);
+    expect(accepted.map((a) => a.mimeType)).toEqual(['image/png', 'image/png', 'image/jpeg']);
+  });
 });
 
 describe('checkFiles', () => {
