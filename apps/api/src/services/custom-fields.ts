@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { stripControlChars, toWellFormed, type CustomFieldType } from '@loons/shared';
+import {
+  storedCustomFieldOptionSchema,
+  stripControlChars,
+  toWellFormed,
+  type CustomFieldType,
+  type StoredCustomFieldOption,
+} from '@loons/shared';
 import type { ValidationIssue } from '../lib/errors.ts';
 
 // Request-time validation of ticket custom fields, built from the live form configuration
@@ -116,4 +122,26 @@ export function validateCustomFields(
     });
   }
   return { ok: false, issues };
+}
+
+/**
+ * Labels of the options a DROPDOWN / MULTI_SELECT value holds (E6), in value order: the stored
+ * option (archived ones included, with `isActive`), or — for a value no longer configured at all —
+ * the value itself as its label with `isActive: false`. null for other field types.
+ */
+export function customFieldValueOptions(
+  type: CustomFieldType,
+  storedOptions: unknown,
+  value: unknown,
+): StoredCustomFieldOption[] | null {
+  if (type !== 'DROPDOWN' && type !== 'MULTI_SELECT') return null;
+  const parsed = z.array(storedCustomFieldOptionSchema).safeParse(storedOptions ?? []);
+  const options = parsed.success ? parsed.data : [];
+  const chosen = (Array.isArray(value) ? value : [value]).filter(
+    (v): v is string => typeof v === 'string' && v !== '',
+  );
+  return chosen.map(
+    (v) =>
+      options.find((o) => o.value === v) ?? { value: v, labelEn: v, labelAr: v, isActive: false },
+  );
 }

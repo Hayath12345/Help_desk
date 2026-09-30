@@ -165,6 +165,7 @@ export const WORLD_CONFIG: TicketFormConfig = {
       labelAr: 'الشبكات والاتصال',
       icon: 'network',
       assetPlaceholder: 'e.g. SW-CORE-02',
+      assetPlaceholderAr: null,
       team: WORLD_TEAMS.noc,
       subtypes: [
         sub(341, 'link-down', 'Site / link down', 'انقطاع الموقع / الرابط', 'P1'),
@@ -179,6 +180,7 @@ export const WORLD_CONFIG: TicketFormConfig = {
       labelAr: 'التحكم في الدخول وكشف التسلل',
       icon: 'door-closed',
       assetPlaceholder: 'e.g. RDR-203',
+      assetPlaceholderAr: null,
       team: WORLD_TEAMS.elv,
       subtypes: [
         sub(
@@ -199,6 +201,7 @@ export const WORLD_CONFIG: TicketFormConfig = {
       labelAr: 'الأنظمة السمعية والبصرية',
       icon: 'projector',
       assetPlaceholder: 'e.g. MR-2.14',
+      assetPlaceholderAr: null,
       team: WORLD_TEAMS.av,
       subtypes: [sub(361, 'meeting-room', 'Meeting room AV', 'أنظمة قاعة الاجتماعات', 'P2')],
       fields: [],
@@ -210,6 +213,7 @@ export const WORLD_CONFIG: TicketFormConfig = {
       labelAr: 'طلبات الخدمة والشؤون التجارية',
       icon: 'clipboard-list',
       assetPlaceholder: 'e.g. AMC-2026-018',
+      assetPlaceholderAr: null,
       team: WORLD_TEAMS.am,
       subtypes: [
         sub(371, 'ppm', 'Preventive maintenance scheduling', 'جدولة الصيانة الوقائية', 'P4'),
@@ -592,9 +596,9 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         isActive: true,
       },
       subtype: { ...subtype, isActive: true },
-      team: category.team,
+      team: { ...category.team, isActive: true },
       org: { id: org.id, name: org.name, nameAr: org.nameAr },
-      site,
+      site: site ? { ...site, isActive: true } : null,
       requester: { id: requester.id, name: requester.name, email: requester.email },
       assignee: assignee ? { id: assignee.id, name: assignee.name } : null,
       tags: seed.tags,
@@ -864,7 +868,7 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         const category = config.categories.find((c) => c.id === patch.categoryId)!;
         const { id, key, labelEn, labelAr, icon } = category;
         ticket.category = { id, key, labelEn, labelAr, icon, isActive: true };
-        ticket.team = category.team;
+        ticket.team = { ...category.team, isActive: true };
       }
       if (patch.subtypeId) {
         const subtype = config.categories
@@ -876,7 +880,7 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         const site = Object.values(ORGS)
           .flatMap((o) => o.sites)
           .find((s) => s.id === patch.siteId);
-        if (site) ticket.site = site;
+        if (site) ticket.site = { ...site, isActive: true };
       }
       if (patch.assetId !== undefined) ticket.assetId = patch.assetId || null;
       touch(ticket);

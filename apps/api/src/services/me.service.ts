@@ -89,7 +89,11 @@ export function createMeService(deps: {
     },
 
     async updateLocale(userId, locale) {
-      await prisma.user.update({ where: { id: userId }, data: { locale } });
+      // A raw UPDATE so the admin's lost-update token (User.updatedAt, E19) doesn't move: the
+      // language is the user's own preference, not something an admin edit started from.
+      const count = await prisma.$executeRaw`UPDATE "User" SET "locale" = ${locale}::"Locale"
+        WHERE "id" = ${userId}::uuid`;
+      if (count === 0) throw errors.notFound('User not found');
       await principals.invalidate(userId);
     },
   };

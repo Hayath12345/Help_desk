@@ -9,6 +9,8 @@ export const ERROR_CODES = [
   'CONFLICT',
   'RATE_LIMITED',
   'INTERNAL',
+  /** 501: the route exists but is not built yet (Phase 4 admin sections before their lane lands). */
+  'NOT_IMPLEMENTED',
   /** A dependency the request needs (e.g. the auth rate-limit store) is unavailable: retry later. */
   'SERVICE_UNAVAILABLE',
   // auth

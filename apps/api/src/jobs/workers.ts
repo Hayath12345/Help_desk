@@ -138,9 +138,10 @@ export function startWorkers(deps: WorkerDeps): Workers {
     return unknownJob(job);
   };
 
-  const escalation: Processor = async (job) => {
+  const escalation: Processor = async (job, token) => {
     if (job.name !== ESCALATION_JOB) return unknownJob(job);
-    return processEscalationStep(context, parse(escalationJobSchema, job));
+    // The job and its token let a step that fires early wait again (E13 re-timing).
+    return processEscalationStep(context, parse(escalationJobSchema, job), { job, token });
   };
 
   const sla: Processor = async (job) => {

@@ -172,6 +172,10 @@
     "categoryLockedNotice": "Category set to {category} and locked for security incidents.",
     "categoryRestoredNotice": "Category set back to {category}.",
     "categoryUnlockedNotice": "The category can be changed again.",
+    "categoryGoneNotice": "“{category}” is no longer available, so it was cleared. Choose another category.",
+    "subtypeGoneNotice": "The sub-type “{subtype}” is no longer available, so it was cleared. Choose another one.",
+    "optionGoneNotice": "An option chosen in {field} is no longer available, so it was cleared.",
+    "securityCategoryMovedNotice": "Security incidents now go to {category}, so the category was changed. Choose a sub-type.",
     "createdElsewhere": "Ticket {ref} created and routed to {team}",
     "createdElsewhereHint": "You're not on that team, so it stays out of your inbox.",
     "errors": {

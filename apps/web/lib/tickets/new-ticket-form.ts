@@ -107,6 +107,37 @@ export function emptyCustomFieldValue(type: CustomFieldType): CustomFieldValue {
   return '';
 }
 
+/**
+ * Drops choices whose option is no longer offered (an admin archived it while the form was open,
+ * E18): a MULTI_SELECT keeps the offered values, a DROPDOWN goes back to ''. Such a value can't
+ * be seen or unticked (only offered options are rendered) and would fail validation. Returns the
+ * values (the same object when nothing changed) and the fields that lost a choice.
+ */
+export function dropUnavailableOptions(
+  fields: readonly FormCustomField[],
+  values: Record<string, CustomFieldValue>,
+): { values: Record<string, CustomFieldValue>; changed: FormCustomField[] } {
+  const changed: FormCustomField[] = [];
+  let next = values;
+  for (const field of fields) {
+    if (field.type !== 'MULTI_SELECT' && field.type !== 'DROPDOWN') continue;
+    const offered = new Set(field.options.map((o) => o.value));
+    const raw = values[field.key];
+    let pruned: CustomFieldValue = raw;
+    if (field.type === 'MULTI_SELECT' && Array.isArray(raw)) {
+      const kept = raw.filter((v) => offered.has(v));
+      if (kept.length !== raw.length) pruned = kept;
+    } else if (field.type === 'DROPDOWN' && typeof raw === 'string' && raw !== '') {
+      if (!offered.has(raw)) pruned = '';
+    }
+    if (pruned === raw) continue;
+    if (next === values) next = { ...values };
+    next[field.key] = pruned;
+    changed.push(field);
+  }
+  return { values: next, changed };
+}
+
 // ───────────── Schema ─────────────
 
 const isIsoDate = (v: string) =>

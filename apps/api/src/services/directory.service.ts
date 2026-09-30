@@ -29,7 +29,11 @@ export interface DirectoryService {
     query: { search: string; limit: number },
   ): Promise<RequesterOption[]>;
   macros(actor: Actor): Promise<MacroDto[]>;
-  teams(actor: Actor): Promise<TeamWithMembers[]>;
+  /**
+   * Active teams with their active staff; `includeArchived` adds archived teams after them (a
+   * ticket on an archived team stays workable: its members are still offered, E6).
+   */
+  teams(actor: Actor, options?: { includeArchived?: boolean }): Promise<TeamWithMembers[]>;
 }
 
 /** Requesters: active clients with a verified address in an active organisation. */
@@ -133,7 +137,15 @@ export function createDirectoryService(deps: { prisma: PrismaClient }): Director
             ? {}
             : { OR: [{ teamId: null }, { teamId: { in: [...actor.teamIds] } }] }),
         },
-        orderBy: [{ sortOrder: 'asc' }, { titleEn: 'asc' }],
+        // The admin list's order (order is per scope, E3): teams in their order, each team's
+        // macros by position; then global macros first (stable sort).
+        orderBy: [
+          { team: { sortOrder: 'asc' } },
+          { teamId: 'asc' },
+          { sortOrder: 'asc' },
+          { titleEn: 'asc' },
+          { id: 'asc' },
+        ],
         select: {
           id: true,
           key: true,
@@ -145,14 +157,14 @@ export function createDirectoryService(deps: { prisma: PrismaClient }): Director
           setStatus: true,
         },
       });
-      return rows;
+      return rows.sort((a, b) => Number(a.teamId !== null) - Number(b.teamId !== null));
     },
 
-    async teams(actor) {
+    async teams(actor, options = {}) {
       requireStaff(actor);
       const teams = await prisma.team.findMany({
-        where: { isActive: true },
-        orderBy: [{ sortOrder: 'asc' }, { nameEn: 'asc' }],
+        where: options.includeArchived ? {} : { isActive: true },
+        orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { nameEn: 'asc' }],
         select: {
           id: true,
           key: true,

@@ -6,6 +6,8 @@ import type { PrincipalStore } from '../lib/actor.ts';
 import type { AppQueues } from '../lib/queues.ts';
 import type { Storage } from '../lib/storage.ts';
 import type { UploadQuotaOptions } from '../lib/upload-quota.ts';
+import { createAdminServices, type AdminServices } from './admin/index.ts';
+import type { Broadcast } from './admin/config-changes.ts';
 import { createAttachmentsService, type AttachmentsService } from './attachments.service.ts';
 import { createAuthService, type AuthService } from './auth.service.ts';
 import { createDirectoryService, type DirectoryService } from './directory.service.ts';
@@ -53,6 +55,8 @@ export interface Services {
   notifications: NotificationsService;
   /** Notification / escalation job producers (after commit, D15). */
   notifier: Notifier;
+  /** Phase 4 admin: writer (transaction + audit + after-commit), config changes, sections. */
+  admin: AdminServices;
 }
 
 export function createServices(deps: {
@@ -72,6 +76,8 @@ export function createServices(deps: {
   uploadQuota?: Pick<UploadQuotaOptions, 'windowMs' | 'now'> | undefined;
   /** Length of an escalation "minute" (tests shrink it; default 60 000 ms). */
   escalationMinuteMs?: number | undefined;
+  /** Emits to every socket (`config:updated`); the Socket.IO server is attached after this. */
+  broadcast: Broadcast;
 }): Services {
   const sessions = createSessionsService({
     prisma: deps.prisma,
@@ -148,5 +154,17 @@ export function createServices(deps: {
     directory: createDirectoryService({ prisma: deps.prisma }),
     notifications: createNotificationsService({ prisma: deps.prisma }),
     notifier,
+    admin: createAdminServices({
+      prisma: deps.prisma,
+      redis: deps.redis,
+      queues: deps.queues,
+      config: deps.config,
+      logger: deps.logger,
+      ticketConfig,
+      principals: deps.principals,
+      sessions,
+      notifier,
+      broadcast: deps.broadcast,
+    }),
   };
 }

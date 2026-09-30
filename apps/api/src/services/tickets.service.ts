@@ -27,7 +27,7 @@ import { errors, type ValidationIssue } from '../lib/errors.ts';
 import { loadP1Chain } from '../lib/escalation.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import { attachmentLinkIssues, linkAttachments } from './attachments.service.ts';
-import { validateCustomFields } from './custom-fields.ts';
+import { customFieldValueOptions, validateCustomFields } from './custom-fields.ts';
 import type { Notifier } from './notifier.ts';
 import { REQUESTER_WHERE } from './directory.service.ts';
 import type { SlaMath } from './sla.ts';
@@ -195,7 +195,15 @@ export function createTicketsService(deps: {
         keys.length
           ? prisma.customField.findMany({
               where: { key: { in: keys } },
-              select: { id: true, key: true, labelEn: true, labelAr: true, type: true },
+              select: {
+                id: true,
+                key: true,
+                labelEn: true,
+                labelAr: true,
+                type: true,
+                isActive: true,
+                options: true,
+              },
             })
           : Promise.resolve([]),
         keys.length
@@ -227,6 +235,8 @@ export function createTicketsService(deps: {
         labelAr: f.labelAr,
         type: f.type,
         value: values[f.key],
+        isActive: f.isActive,
+        options: customFieldValueOptions(f.type, f.options, values[f.key]),
       }));
     const { accountManager, contractType, amcExpiry } = row.org;
     return {

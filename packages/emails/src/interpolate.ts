@@ -91,3 +91,38 @@ export function templateVariables(template: string): string[] {
   }
   return [...names];
 }
+
+/**
+ * A placeholder with extra braces around it (group 1 / 3), else a `{{` or `}}` that isn't part of
+ * one. Scanned left to right, so each valid placeholder is consumed whole first.
+ */
+const BRACES = new RegExp(`(\\{*)${PLACEHOLDER.source}(\\}*)|\\{\\{|\\}\\}`, 'g');
+
+/**
+ * Brace text that looks like a placeholder but isn't one, so it would be sent as typed:
+ * `{{ticket-number}}`, `{{ticket number}}`, `{{name}` (unclosed), `{{name}}}` / `{{{name}}` (extra
+ * braces), `{name}}`. Distinct fragments in order of first appearance; single braces in prose
+ * (`{x}`) are fine.
+ */
+export function malformedPlaceholders(template: string): string[] {
+  const fragments = new Set<string>();
+  BRACES.lastIndex = 0;
+  for (let match = BRACES.exec(template); match; match = BRACES.exec(template)) {
+    const [whole] = match;
+    if (match[2] !== undefined) {
+      // A valid name: malformed only with extra braces around it.
+      if (match[1] || match[3]) fragments.add(whole);
+    } else if (whole === '{{') {
+      // Up to the first closing brace on the line (or the end of the word when there is none).
+      const rest = template.slice(match.index);
+      const fragment = /^\{\{[^{}\n]{0,40}?\}\}?/.exec(rest)?.[0] ?? /^\{\{[^\s{}]*/.exec(rest)![0];
+      fragments.add(fragment);
+      BRACES.lastIndex = match.index + fragment.length;
+    } else {
+      // `}}` with no opening pair: include the word it closes.
+      const before = /\{?[^\s{}]{0,40}$/.exec(template.slice(0, match.index))?.[0] ?? '';
+      fragments.add(`${before}${whole}`);
+    }
+  }
+  return [...fragments];
+}

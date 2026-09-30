@@ -9,6 +9,8 @@ import { ACTIVE_SQL, atRiskSql, sqlTimestamp } from '../services/ticket-query.ts
 import { slaPausesOf } from '../services/ticket-state.ts';
 import type { WorkerContext } from './context.ts';
 import { resumeStalledEscalations } from './escalation.ts';
+import { digestTime } from './maintenance.ts';
+import { rescheduleForSettings } from './schedulers.ts';
 
 // The SLA scan (spec §7, decisions D1 / D2 / D10), every minute:
 //
@@ -25,7 +27,11 @@ import { resumeStalledEscalations } from './escalation.ts';
 // 3. Announcements: every `notify` signal not yet enqueued and at most 60 minutes old is
 //    enqueued (deterministic job id) and marked `enqueuedAt`, so an enqueue that failed after the
 //    commit (Redis down, worker killed) is retried by the next scans instead of being lost.
-// 5. Escalation safety net: see `resumeStalledEscalations` (jobs/escalation.ts).
+// 5. Escalation safety net: see `resumeStalledEscalations` (jobs/escalation.ts); it also fires a
+//    pending step whose delay an admin shortened (E13).
+// 6. Settings (E11): the business time zone and the P4 digest time are re-read, and the daily
+//    schedulers that follow them are rewritten when they changed (`rescheduleForSettings`), so an
+//    admin change applies within a minute without restarting the worker.
 // 4. Summary flag: `slaAtRiskAt` follows the live rule (`atRiskSql`, the same predicate as the
 //    risk view): cleared when no target is at risk any more, set when one is. `slaBreached` stays
 //    (reporting).
@@ -51,6 +57,8 @@ export interface SlaScanResult {
   notified: number;
   /** Overdue P1 escalation steps without a live job, re-scheduled by the safety net. */
   escalationsResumed: number;
+  /** Schedulers rewritten because the time zone or digest time changed (E11). */
+  schedulersRescheduled: string[];
 }
 
 interface Crossing {
@@ -347,5 +355,32 @@ export async function runSlaScan(ctx: WorkerContext, opts: SlaScanOptions): Prom
   await reconcileFlags(ctx, opts);
   // 5. P1 chains whose next step is overdue with no live job (see resumeStalledEscalations).
   const escalationsResumed = await resumeStalledEscalations(ctx, opts);
-  return { backfilled, signals, notified, escalationsResumed };
+  // 6. The daily schedulers follow the General settings.
+  const schedulersRescheduled = await syncSchedulerSettings(ctx);
+  return { backfilled, signals, notified, escalationsResumed, schedulersRescheduled };
+}
+
+/**
+ * Re-reads `business.timezone` (the cached calendar, dropped by every admin change) and
+ * `notifications.p4DigestTime`, and rewrites the schedulers that follow them when they differ.
+ * Never fails the scan: an error is logged and the next tick tries again.
+ */
+export async function syncSchedulerSettings(ctx: WorkerContext): Promise<string[]> {
+  try {
+    const [calendar, time] = await Promise.all([ctx.ticketConfig.getCalendar(), digestTime(ctx)]);
+    const changed = await rescheduleForSettings(ctx.queues.sla, {
+      timeZone: calendar.timeZone,
+      digestTime: time,
+    });
+    if (changed.length) {
+      ctx.logger.info(
+        { schedulers: changed, timeZone: calendar.timeZone, digestTime: time },
+        'schedulers rescheduled after a settings change',
+      );
+    }
+    return changed;
+  } catch (err) {
+    ctx.logger.warn({ err }, 'could not re-check the scheduler settings');
+    return [];
+  }
 }

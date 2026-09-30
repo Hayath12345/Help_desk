@@ -62,17 +62,22 @@ export function ResolveButton({ ticket }: { ticket: Pick<TicketSummaryDto, 'id' 
  * isolated with the page's direction, not `auto` — an Arabic site name that starts with a Latin
  * word ("QNB – المقر الرئيسي") must keep its order. The subject is typed by people in either
  * language, so it keeps `auto`. Names inside sentences are FSI…PDI isolated.
+ *
+ * Archived config (E6): a category, sub-type, site or team archived since the ticket was raised
+ * keeps its name, followed by "(archived)".
  */
 export function TicketHeader({ ticket }: { ticket: TicketSummaryDto }) {
   const t = useTranslations('portal.ticket');
   const locale = useLocale();
   const dir = getDir(locale);
-  const category = localizedLabel(ticket.category, locale);
+  const marked = (label: string, isActive: boolean) =>
+    isActive ? label : t('archived', { label });
+  const category = marked(localizedLabel(ticket.category, locale), ticket.category.isActive);
   const path = ticket.subtype
-    ? `${category} › ${localizedLabel(ticket.subtype, locale)}`
+    ? `${category} › ${marked(localizedLabel(ticket.subtype, locale), ticket.subtype.isActive)}`
     : category;
-  const site = ticket.site ? placeName(ticket.site, locale) : null;
-  const team = isolate(teamName(ticket.team, locale));
+  const site = ticket.site ? marked(placeName(ticket.site, locale), ticket.site.isActive) : null;
+  const team = isolate(marked(teamName(ticket.team, locale), ticket.team.isActive));
   const handledBy = ticket.assignee
     ? t('handledBy', { assignee: isolate(ticket.assignee.name), team })
     : t('handledByTeam', { team });

@@ -120,6 +120,7 @@
     "memberOption": "{name} · {team}",
     "subtypeOption": "{label} · {priority}",
     "archived": "{label} (archived)",
+    "customFields": "Custom fields",
     "assignToMe": "Assign to me",
     "tagsEditor": {
       "placeholder": "+ tag",

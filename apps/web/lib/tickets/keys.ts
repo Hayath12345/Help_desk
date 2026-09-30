@@ -34,6 +34,8 @@ export const ticketKeys = {
   formContexts: () => ['tickets', 'form-context'] as const,
   formContext: (requesterId?: string | null) =>
     ['tickets', 'form-context', requesterId ?? 'self'] as const,
+  /** Every requester search (prefix of `requesters`). */
+  requesterSearches: () => ['tickets', 'requesters'] as const,
   requesters: (search: string) => ['tickets', 'requesters', search.trim()] as const,
   lists: () => ['tickets', 'list'] as const,
   list: (filters: TicketListFilters) => ['tickets', 'list', normalizeListFilters(filters)] as const,

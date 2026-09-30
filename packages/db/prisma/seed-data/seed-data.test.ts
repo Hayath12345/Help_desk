@@ -365,6 +365,11 @@ describe('macros, email templates, help articles, tags', () => {
   });
 
   it('email templates cover every notification and declare every placeholder they use', () => {
+    const BUTTON_URL_VARIABLE: Readonly<Record<string, string>> = {
+      PASSWORD_RESET: 'resetUrl',
+      EMAIL_VERIFICATION: 'verifyUrl',
+      GOOGLE_LINKED: 'signInUrl',
+    };
     expect(EMAIL_TEMPLATES.map((t) => t.key)).toEqual([
       'TICKET_CREATED_CLIENT',
       'TICKET_CREATED_TEAM',
@@ -387,8 +392,13 @@ describe('macros, email templates, help articles, tags', () => {
       // Every placeholder is declared, and both languages use the same set.
       for (const v of en) expect(t.variables, `${t.key}: ${v}`).toContain(v);
       expect([...ar].sort(), t.key).toEqual([...en].sort());
-      // Every declared variable is actually used.
-      for (const v of t.variables) expect(en.has(v), `${t.key}: unused ${v}`).toBe(true);
+      // Every declared variable is actually used, except the button URL of the button-only auth
+      // emails (the button carries it; seed-parity.test.ts in @loons/emails checks these rows
+      // equal the built-in defaults, whose ctaUrlVariable it is).
+      for (const v of t.variables) {
+        if (BUTTON_URL_VARIABLE[t.key] === v) continue;
+        expect(en.has(v), `${t.key}: unused ${v}`).toBe(true);
+      }
       expect(t.subjectAr + t.bodyAr, t.key).toMatch(arabic);
     }
     expect(EMAIL_TEMPLATES.find((t) => t.key === 'PASSWORD_RESET')?.variables).toEqual([

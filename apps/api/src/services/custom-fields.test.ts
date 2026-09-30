@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  customFieldValueOptions,
   CUSTOM_TEXT_MAX,
   buildCustomFieldsSchema,
   validateCustomFields,
@@ -115,5 +116,37 @@ describe('custom fields built from the live config', () => {
     const empty = buildCustomFieldsSchema([]);
     expect(validateCustomFields(empty, {})).toEqual({ ok: true, value: {} });
     expect(validateCustomFields(empty, { a: 1 }).ok).toBe(false);
+  });
+});
+
+describe('custom-field value labels on old tickets (E6)', () => {
+  const stored = [
+    { value: 'red', labelEn: 'Red', labelAr: 'أحمر' },
+    { value: 'green', labelEn: 'Green', labelAr: 'أخضر', isActive: false },
+  ];
+
+  it('labels dropdown and multi-select values, archived options included', () => {
+    expect(customFieldValueOptions('DROPDOWN', stored, 'green')).toEqual([
+      { value: 'green', labelEn: 'Green', labelAr: 'أخضر', isActive: false },
+    ]);
+    expect(customFieldValueOptions('MULTI_SELECT', stored, ['green', 'red'])).toEqual([
+      { value: 'green', labelEn: 'Green', labelAr: 'أخضر', isActive: false },
+      { value: 'red', labelEn: 'Red', labelAr: 'أحمر', isActive: true },
+    ]);
+  });
+
+  it('a value no longer configured keeps itself as its label', () => {
+    expect(customFieldValueOptions('DROPDOWN', stored, 'blue')).toEqual([
+      { value: 'blue', labelEn: 'blue', labelAr: 'blue', isActive: false },
+    ]);
+    expect(customFieldValueOptions('DROPDOWN', 'not json options', 'x')).toEqual([
+      { value: 'x', labelEn: 'x', labelAr: 'x', isActive: false },
+    ]);
+    expect(customFieldValueOptions('DROPDOWN', stored, undefined)).toEqual([]);
+  });
+
+  it('is null for types without options', () => {
+    expect(customFieldValueOptions('TEXT', stored, 'red')).toBe(null);
+    expect(customFieldValueOptions('ASSET_ID', null, 'CAM-1')).toBe(null);
   });
 });

@@ -1,9 +1,4 @@
-import {
-  ADMIN_SECTIONS,
-  TEAM_LEAD_ADMIN_SECTIONS,
-  type AdminSection,
-  type Role,
-} from '@loons/shared';
+import type { AdminSlug } from '@/lib/admin/sections';
 import {
   BookOpen,
   Building2,
@@ -12,42 +7,41 @@ import {
   Mail,
   MessageSquareText,
   ScrollText,
+  Settings2,
   Siren,
   TextCursorInput,
   Timer,
+  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 
-export const ADMIN_SECTION_ICONS: Record<AdminSection, LucideIcon> = {
+// The section list, groups and role rules live in lib/admin/sections.ts (also used by the proxy's
+// routing rules); this module adds the icons the navigation and overview show.
+export {
+  ADMIN_NAV_GROUPS,
+  ADMIN_SECTION_NAMESPACE,
+  ADMIN_SLUGS,
+  allowedAdminGroups,
+  allowedAdminSections,
+  canOpenAdminSection,
+  isAdminSection,
+  type AdminNavGroupId,
+  type AdminSlug,
+} from '@/lib/admin/sections';
+
+export const ADMIN_SECTION_ICONS: Record<AdminSlug, LucideIcon> = {
   categories: FolderTree,
   'custom-fields': TextCursorInput,
-  teams: Users,
+  macros: MessageSquareText,
   sla: Timer,
   'business-hours': CalendarClock,
   escalation: Siren,
+  teams: Users,
+  staff: UserCog,
   clients: Building2,
-  macros: MessageSquareText,
   'email-templates': Mail,
   'help-center': BookOpen,
+  settings: Settings2,
   'audit-log': ScrollText,
 };
-
-export function isAdminSection(value: string): value is AdminSection {
-  return (ADMIN_SECTIONS as readonly string[]).includes(value);
-}
-
-/**
- * Sections this role may open, in display order. UI-only mirror of `canAccessAdminSection`
- * (the API enforces access; team leads are further scoped to their own teams there).
- */
-export function allowedAdminSections(role: Role): readonly AdminSection[] {
-  if (role === 'SUPER_ADMIN') return ADMIN_SECTIONS;
-  if (role === 'TEAM_LEAD')
-    return ADMIN_SECTIONS.filter((s) => TEAM_LEAD_ADMIN_SECTIONS.includes(s));
-  return [];
-}
-
-export function canOpenAdminSection(role: Role, section: AdminSection): boolean {
-  return allowedAdminSections(role).includes(section);
-}

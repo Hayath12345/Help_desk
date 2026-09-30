@@ -25,6 +25,9 @@ const pairs: Array<[string, readonly string[], Record<string, string>]> = [
     shared.NOTIFICATION_DELIVERY_STATUSES,
     db.NotificationDeliveryStatus,
   ],
+  ['EscalationTargetType', shared.ESCALATION_TARGET_TYPES, db.EscalationTargetType],
+  ['EscalationChannel', shared.ESCALATION_CHANNELS, db.EscalationChannel],
+  ['AuditAction', shared.AUDIT_ACTIONS, db.AuditAction],
   // The API contract spells upload visibilities in lower case ('public' → PUBLIC).
   [
     'AttachmentVisibility',

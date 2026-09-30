@@ -198,12 +198,17 @@ enum NotificationDeliveryStatus {
   SKIPPED // deliberately not sent (e.g. SMS cap, no phone number, no webhook)
 }
 
+/// What an admin write did (decision E17). DELETE is only for join rows (team members, category
+/// fields); config rows are archived. APPROVE / REJECT: pending client sign-ups (E10).
 enum AuditAction {
   CREATE
   UPDATE
   ARCHIVE
   RESTORE
   REORDER
+  DELETE
+  APPROVE
+  REJECT
 }
 
 // ───────────────────────────── Identity ─────────────────────────────
@@ -592,19 +597,21 @@ model TicketSlaSignal {
 // ───────────────────────────── Configuration ─────────────────────────────
 
 model Category {
-  id               String   @id @default(uuid()) @db.Uuid
-  key              String   @unique
-  labelEn          String
-  labelAr          String   @default("")
+  id                 String   @id @default(uuid()) @db.Uuid
+  key                String   @unique
+  labelEn            String
+  labelAr            String   @default("")
   /// lucide-react icon name.
-  icon             String   @default("circle-question-mark")
+  icon               String   @default("circle-question-mark")
   /// Example shown in the Asset / device ID input (e.g. "e.g. CAM-014").
-  assetPlaceholder String?
-  teamId           String   @db.Uuid
-  sortOrder        Int      @default(0)
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  assetPlaceholder   String?
+  /// Arabic example for the same input; null = the English one is shown (bidi-isolated).
+  assetPlaceholderAr String?
+  teamId             String   @db.Uuid
+  sortOrder          Int      @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   team     Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
   subtypes Subtype[]
@@ -678,13 +685,15 @@ model SlaPolicy {
 }
 
 model BusinessHours {
-  id      String  @id @default(uuid()) @db.Uuid
+  id        String   @id @default(uuid()) @db.Uuid
   /// 0 = Sunday … 6 = Saturday.
-  weekday Int     @unique
-  isOpen  Boolean @default(true)
+  weekday   Int      @unique
+  isOpen    Boolean  @default(true)
   /// "HH:mm" in the configured business timezone (AppSetting "business.timezone").
-  open    String  @default("07:30")
-  close   String  @default("16:30")
+  open      String   @default("07:30")
+  close     String   @default("16:30")
+  /// Optimistic concurrency for admin edits (E19).
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 /// Archived with `isActive = false` like every config record (the SLA calendar must ignore
@@ -697,6 +706,8 @@ model Holiday {
   nameAr    String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+  /// Optimistic concurrency for admin edits (E19).
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 /// P1 escalation chain (spec §9). Team-scoped rules (teamId set), when a team has any active ones,
@@ -847,19 +858,30 @@ model NotificationDelivery {
   @@index([createdAt])
 }
 
+/// Append-only log of admin writes (decision E17), written in the same transaction as the change.
+/// `before` / `after` hold the changed fields only, redacted: secrets never stored (a Teams webhook
+/// becomes its host), phone numbers masked, and never passwordHash / mfaSecret / sessionVersion.
+/// The API has no endpoint that updates or deletes rows.
 model AdminAuditLog {
-  id        String      @id @default(uuid()) @db.Uuid
-  actorId   String?     @db.Uuid
-  action    AuditAction
-  entity    String
-  entityId  String
-  before    Json?
-  after     Json?
-  createdAt DateTime    @default(now())
+  id          String      @id @default(uuid()) @db.Uuid
+  actorId     String?     @db.Uuid
+  action      AuditAction
+  /// The Prisma model name (e.g. "Category", "TeamMember"), see AUDIT_ENTITIES in @loons/shared.
+  entity      String
+  entityId    String
+  /// A human label of the entity at the time of the change (e.g. the English name), for the viewer.
+  entityLabel String?
+  /// The API request id (x-request-id) of the write.
+  requestId   String?
+  before      Json?
+  after       Json?
+  createdAt   DateTime    @default(now())
 
   actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([actorId])
   @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([entity, createdAt])
 }

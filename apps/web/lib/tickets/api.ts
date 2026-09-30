@@ -184,7 +184,15 @@ export async function fetchMacros(signal?: AbortSignal): Promise<MacroDto[]> {
   return parseResponse(macroListSchema, data).items;
 }
 
-export async function fetchTeams(signal?: AbortSignal): Promise<TeamWithMembers[]> {
-  const data = await apiClient.get<unknown>('/teams', { signal });
+/**
+ * Active teams with their active members; `includeArchived` adds archived teams after them (a
+ * ticket on an archived team stays workable: its members are still offered, E6).
+ */
+export async function fetchTeams(
+  signal?: AbortSignal,
+  options: { includeArchived?: boolean } = {},
+): Promise<TeamWithMembers[]> {
+  const path = options.includeArchived ? '/teams?archived=include' : '/teams';
+  const data = await apiClient.get<unknown>(path, { signal });
   return parseResponse(teamListSchema, data).items;
 }

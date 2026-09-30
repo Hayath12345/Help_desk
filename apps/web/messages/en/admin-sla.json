@@ -1,0 +1,210 @@
+{
+  "validation": {
+    "wholeNumber": "Use whole numbers.",
+    "minutesMin": "Allow at least 1 minute.",
+    "tooLarge": "This is too large.",
+    "tooSmall": "This is too small.",
+    "atRiskPercent": "Use a whole percentage from 1 to 99.",
+    "timeFormat": "Use a time like 07:30.",
+    "openBeforeClose": "Closing time must be after opening time.",
+    "oneOpenDay": "Keep at least one day open.",
+    "duplicateValue": "The same value is used twice.",
+    "nothingToChange": "Nothing changed.",
+    "reorderMismatch": "The list changed. Reload and try again.",
+    "targetMismatch": "Choose who is paged.",
+    "chooseUser": "Choose a person.",
+    "delayTooLong": "Use at most 7 days (168 hours).",
+    "chainOrder": "Keep the steps in time order: no earlier than the step above, no later than the step below.",
+    "chooseChannel": "Choose at least one channel.",
+    "timezone": "Choose a time zone from the list.",
+    "phone": "Enter an international number starting with + and the country code, e.g. +974 4000 0000.",
+    "autoCloseDays": "Use a whole number of days from 1 to 60.",
+    "securityCategory": "Choose an active category that has an active sub-type.",
+    "keyFormat": "Choose a category from the list."
+  },
+  "errors": {
+    "duplicate": "That already exists. Reload to see it.",
+    "guards": {
+      "escalation_team_archived": "This rule belongs to an archived team. Restore the team first."
+    }
+  },
+  "duration": {
+    "hours": "hours",
+    "minutes": "minutes"
+  },
+  "sla": {
+    "table": {
+      "priority": "Priority",
+      "firstReply": "First reply",
+      "resolution": "Resolution",
+      "clock": "Clock",
+      "atRisk": "At risk from"
+    },
+    "clock": {
+      "business": "Business hours",
+      "always": "24/7"
+    },
+    "appliesNote": "Changes apply to new tickets and to later priority changes. Open tickets keep the due dates they already have.",
+    "sheetTitle": "{priority} targets",
+    "sheetDescription": "How quickly this priority must be answered and resolved.",
+    "saved": "{priority} targets saved",
+    "shownAs": "Shown to clients as: {label}",
+    "fields": {
+      "firstReply": "First reply within",
+      "resolution": "Resolve within",
+      "businessHoursOnly": "Count business hours only",
+      "businessHoursOnlyHint": "Evenings, weekends and holidays don’t count. Turn off for a 24/7 clock.",
+      "atRisk": "Flag as at risk after",
+      "atRiskHint": "The share of the time that may pass before the ticket is flagged “at risk” (1–99)."
+    }
+  },
+  "businessHours": {
+    "weekTitle": "Working week",
+    "timeZone": "Times are in {zone}. <link>Change the time zone in General settings.</link>",
+    "open": "Open",
+    "closed": "Closed",
+    "openOn": "Open on {day}",
+    "opensAt": "{day} opens at",
+    "closesAt": "{day} closes at",
+    "dayLength": "A business day is {length} long, so “{example}” means twice that.",
+    "hours": "{count, plural, one {# hour} other {# hours}}",
+    "hoursMinutes": "{hours} h {minutes} min",
+    "appliesNote": "Changes apply to new tickets and to later priority changes. Open tickets keep their due dates.",
+    "weekSaved": "Working week saved"
+  },
+  "holidays": {
+    "title": "Holidays",
+    "add": "Add holiday",
+    "year": "Year",
+    "allYears": "All years",
+    "table": {
+      "date": "Date",
+      "name": "Name",
+      "nameAr": "Arabic name"
+    },
+    "noArabic": "Not translated",
+    "empty": "No holidays yet",
+    "emptyYear": "No holidays in {year}",
+    "emptyDescription": "Add public holidays: SLA clocks that count business hours skip them.",
+    "createTitle": "Add a holiday",
+    "createDescription": "Business-hours SLA clocks don’t count this day.",
+    "fields": {
+      "date": "Date",
+      "dateLocked": "The date can’t change. To move a holiday, archive it and add the new date.",
+      "name": "Name"
+    },
+    "dateTaken": "{name} is already on this date.",
+    "dateTakenArchived": "This date has an archived holiday, {name}. Restore it instead of adding it again.",
+    "openExisting": "Open it",
+    "restoreExisting": "Restore it",
+    "restoring": "Restoring…",
+    "archiveWarning": "SLA clocks will count this day again. Open tickets keep their due dates. You can restore it at any time.",
+    "created": "{name} added",
+    "saved": "Holiday saved",
+    "archived": "{name} archived",
+    "restored": "{name} restored"
+  },
+  "escalation": {
+    "add": "Add step",
+    "chain": "Chain",
+    "globalChain": "Global chain (every team without its own)",
+    "teamChainOwn": "{team} — own chain",
+    "teamChainGlobal": "{team} — uses the global chain",
+    "teamChainArchived": "{team} — archived team",
+    "archivedTeamNote": "This team is archived: its steps are kept, but none can be added or restored. Restore the team in Teams & members first.",
+    "tableLabel": "Escalation steps: {chain}",
+    "table": {
+      "step": "Step",
+      "after": "When",
+      "channels": "Channels",
+      "warnings": "Warnings"
+    },
+    "stepN": "Step {n}",
+    "stepLabel": "Step {n}, {target}",
+    "noWarnings": "None",
+    "empty": "No steps yet",
+    "emptyBody": "Add the first step of this chain.",
+    "usesGlobalTitle": "This team uses the global chain",
+    "usesGlobalBody": "Add a step to give it its own chain.",
+    "globalNote": "The global chain pages every team that has no chain of its own. Steps count from the moment a ticket became P1, not from the previous step. Changes also re-time open P1 tickets.",
+    "teamNote": "This team’s own chain replaces the global chain for its tickets. Steps count from the moment a ticket became P1. Changes also re-time open P1 tickets.",
+    "usesGlobalNote": "Adding a step here gives this team its own chain, which replaces the global chain for its tickets.",
+    "chainFull": "A chain has at most {max} steps (archived ones included).",
+    "targets": {
+      "ON_CALL": "On-call user",
+      "ROLE": "Role",
+      "USER": "Person",
+      "userMissing": "Person removed",
+      "userInactive": "{name} (disabled)"
+    },
+    "roles": {
+      "TEAM_LEAD": "Team leads",
+      "SUPER_ADMIN": "Super admins"
+    },
+    "channels": {
+      "EMAIL": "Email",
+      "SMS": "SMS",
+      "TEAMS": "Teams"
+    },
+    "delay": {
+      "atOnce": "At once",
+      "after": "After {duration}"
+    },
+    "warnings": {
+      "teams_no_webhook": "Teams is chosen, but the team has no Teams webhook.",
+      "on_call_missing": "The team has no on-call user.",
+      "on_call_no_phone": "The on-call user has no phone number for SMS.",
+      "target_user_inactive": "This person is disabled or no longer staff.",
+      "target_user_no_phone": "This person has no phone number for SMS.",
+      "global": {
+        "teams_no_webhook": "Teams is chosen, but some teams on this chain have no Teams webhook.",
+        "on_call_missing": "Some teams on this chain have no on-call user.",
+        "on_call_no_phone": "Some teams’ on-call users have no phone number for SMS."
+      }
+    },
+    "createTitle": "Add step {n}",
+    "editTitle": "Step {n}",
+    "sheetDescription": "{chain}",
+    "firstOwnStepNote": "This is the first step of {team}’s own chain: from now on it replaces the global chain for this team’s tickets.",
+    "archiveWarning": "This step stops paging anyone. Later steps keep their times. You can restore it at any time.",
+    "fields": {
+      "target": "Who is paged",
+      "onCallHint": "The on-call user of the ticket’s team (set in Teams & members).",
+      "role": "Role",
+      "user": "Person",
+      "choosePerson": "Choose a person",
+      "loadingStaff": "Loading staff…",
+      "userNoPhone": "This person has no phone number for SMS.",
+      "delay": "When, after the ticket became P1",
+      "delayHint": "counted from the start of the P1, not from the previous step",
+      "channels": "Channels",
+      "teamsHint": "Teams posts go to the ticket team’s Teams webhook."
+    },
+    "created": "Step {n} added",
+    "saved": "Step {n} saved",
+    "archived": "Step {n} archived",
+    "restored": "Step {n} restored",
+    "reordered": "New order saved. Each step keeps its time."
+  },
+  "settings": {
+    "formLabel": "General settings",
+    "optional": "(optional)",
+    "days": "days",
+    "fields": {
+      "timezone": "Business time zone",
+      "timezoneHint": "Business hours, holidays and the daily digest follow this time zone.",
+      "socPhone": "SOC phone",
+      "socPhoneHint": "Shown on P1 banners and emails. International format, e.g. +974 4000 0000. Leave empty to hide it.",
+      "autoCloseDays": "Close solved tickets after",
+      "autoCloseDaysHint": "A solved ticket closes when the client doesn’t reply for this many days ({min}–{max}).",
+      "digestTime": "Daily P4 digest time",
+      "digestTimeHint": "Each business day at this time, teams get a list of new P4 tickets.",
+      "securityCategory": "Security incident category",
+      "securityCategoryHint": "Tickets raised as “Security incident” go to this category. It must stay active with an active sub-type.",
+      "chooseCategory": "Choose a category",
+      "unavailableCategory": "{key} (not available)"
+    },
+    "rescheduleNote": "A new time zone or digest time reschedules the daily jobs within a minute. Changes don’t alter open tickets’ due dates.",
+    "saved": "Settings saved"
+  }
+}

@@ -3,11 +3,8 @@
   "subtitle": "Configure how Loons Help Desk routes, prioritises and answers tickets.",
   "teamLeadSubtitle": "Manage your team’s members and macros.",
   "navLabel": "Admin sections",
-  "sectionsKicker": "Settings",
   "overview": "Overview",
   "backToConsole": "Back to console",
-  "placeholderTitle": "Coming soon",
-  "placeholder": "Configuration for this section arrives in Phase 4.",
   "sections": {
     "categories": {
       "title": "Categories & sub-types",
@@ -17,9 +14,9 @@
       "title": "Custom fields",
       "description": "Extra fields collected on the New ticket form."
     },
-    "teams": {
-      "title": "Teams & members",
-      "description": "Teams, members, email lists and Microsoft Teams webhooks."
+    "macros": {
+      "title": "Macros",
+      "description": "Canned replies agents can insert into conversations."
     },
     "sla": {
       "title": "SLA policies",
@@ -33,13 +30,17 @@
       "title": "Escalation rules",
       "description": "P1 escalation chain, on-call contacts, delays and channels."
     },
+    "teams": {
+      "title": "Teams & members",
+      "description": "Teams, members, email lists and Microsoft Teams webhooks."
+    },
+    "staff": {
+      "title": "Staff",
+      "description": "Staff accounts, roles, job titles and phone numbers."
+    },
     "clients": {
       "title": "Clients & sites",
       "description": "Client organisations, contracts, AMC expiry and sites."
-    },
-    "macros": {
-      "title": "Macros",
-      "description": "Canned replies agents can insert into conversations."
     },
     "email-templates": {
       "title": "Email templates",
@@ -49,9 +50,88 @@
       "title": "Help center",
       "description": "FAQ articles shown to clients in English and Arabic."
     },
+    "settings": {
+      "title": "General settings",
+      "description": "Time zone, SOC phone, auto-close and the daily digest time."
+    },
     "audit-log": {
       "title": "Audit log",
       "description": "Read-only history of every configuration change."
+    }
+  },
+  "groups": {
+    "ticket-setup": "Ticket setup",
+    "sla-escalation": "SLA & escalation",
+    "people": "People & clients",
+    "communication": "Communication",
+    "system": "System"
+  },
+  "kit": {
+    "createNew": "Create new",
+    "showArchived": "Show archived",
+    "archived": "Archived",
+    "archivedHidden": "{count, plural, one {# archived item is hidden.} other {# archived items are hidden.}}",
+    "loading": "Loading…",
+    "loadError": "This list couldn’t be loaded.",
+    "retry": "Try again",
+    "emptyTitle": "Nothing here yet",
+    "emptyDescription": "Use Create new to add the first one.",
+    "openRow": "Edit {label}",
+    "order": "Order",
+    "save": "Save",
+    "saving": "Saving…",
+    "create": "Create",
+    "creating": "Creating…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "archive": "Archive",
+    "archiving": "Archiving…",
+    "restore": "Restore",
+    "restoring": "Restoring…",
+    "archiveConfirmTitle": "Archive {label}?",
+    "archiveConfirmBody": "It disappears from forms and pickers, but old tickets keep showing it. You can restore it at any time.",
+    "archivedNotice": "This item is archived. It no longer appears on forms, but old tickets still show it.",
+    "discardTitle": "Discard your changes?",
+    "discardBody": "You have unsaved changes. If you close this now, they are lost.",
+    "discard": "Discard changes",
+    "keepEditing": "Keep editing",
+    "conflictTitle": "Someone else changed this — reload",
+    "conflictBody": "Your changes weren’t saved. Reload to see the latest version, then make your changes again.",
+    "reload": "Reload",
+    "languages": {
+      "en": "English",
+      "ar": "العربية"
+    },
+    "languageTag": {
+      "en": "English",
+      "ar": "Arabic"
+    },
+    "contentLanguage": "Content language",
+    "arabicMissing": "Arabic missing — English is shown",
+    "key": "Key",
+    "keyHint": "Made from the English name. You can change it now; it can’t change after you create this.",
+    "keyLocked": "The key can’t change after creation.",
+    "reorder": {
+      "handle": "Drag to reorder",
+      "moveUp": "Move {label} up",
+      "moveDown": "Move {label} down",
+      "moved": "{label} moved to position {position} of {total}.",
+      "archivedNotReordered": "Archived items keep their place and can’t be reordered.",
+      "orderChanged": "Someone else changed the order meanwhile. The list was reloaded — try again.",
+      "notSaved": "The new order wasn’t saved. {label} is back at position {position} of {total}."
+    },
+    "whoCanSee": {
+      "label": "Who can see this:",
+      "superAdmins": "Only Super Admins can open this section.",
+      "teamLeads": "Super Admins manage every team. Team Leads see and manage only the teams they lead."
+    },
+    "toast": {
+      "created": "{label} created",
+      "createdWithKey": "{label} created with the key {key}: the suggested key was already taken",
+      "saved": "Changes saved",
+      "archived": "{label} archived",
+      "restored": "{label} restored",
+      "reordered": "New order saved"
     }
   }
 }

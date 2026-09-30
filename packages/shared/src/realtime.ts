@@ -55,6 +55,46 @@ export interface QueueUpdatedPayload {
   reason: 'created' | 'updated' | 'message';
 }
 
+/**
+ * What an admin change touched (Phase 4, decision E18). The web maps each scope to the queries it
+ * must refetch:
+ *   ticket-form     categories, sub-types, custom fields, SLA policies, security category → the
+ *                   New Ticket form config (and ticket details, which embed labels)
+ *   form-context    organisations and sites → form contexts, requester search, ticket details
+ *   macros          macros → the console macro list
+ *   teams           teams, members, on-call → teams list, form config (team names), ticket details
+ *   escalation      escalation rules → ticket details (`p1Chain`)
+ *   calendar        business hours, holidays, timezone → form config, ticket details
+ *   staff           staff accounts → staff pickers, teams, ticket details (names), escalation
+ *                   warnings, account managers on Clients
+ *   email-templates, help-center, settings, audit → the matching admin lists only
+ */
+export const CONFIG_SCOPES = [
+  'ticket-form',
+  'form-context',
+  'macros',
+  'teams',
+  'escalation',
+  'calendar',
+  'staff',
+  'email-templates',
+  'help-center',
+  'settings',
+  'audit',
+] as const;
+export type ConfigScope = (typeof CONFIG_SCOPES)[number];
+
+/**
+ * Broadcast to every socket after an admin change commits. `version` is the config generation
+ * after the change: a client that refetches and still gets an older `version` from
+ * `GET /config/ticket-form` (its `version` field) refetches again.
+ */
+export const configUpdatedPayloadSchema = z.object({
+  scope: z.enum(CONFIG_SCOPES),
+  version: z.number().int().nonnegative(),
+});
+export type ConfigUpdatedPayload = z.infer<typeof configUpdatedPayloadSchema>;
+
 export interface ServerToClientEvents {
   'message:new': (payload: MessageNewPayload) => void;
   'message:typing': (payload: TypingPayload) => void;
@@ -62,7 +102,8 @@ export interface ServerToClientEvents {
   'queue:updated': (payload: QueueUpdatedPayload) => void;
   /** To `user:{id}` only (validate with `notificationNewPayloadSchema`). */
   'notification:new': (payload: NotificationNewPayload) => void;
-  'config:updated': (payload: { scope: string }) => void;
+  /** To every socket (validate with `configUpdatedPayloadSchema`). */
+  'config:updated': (payload: ConfigUpdatedPayload) => void;
 }
 
 /**

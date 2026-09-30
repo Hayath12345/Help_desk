@@ -10,6 +10,11 @@ export const NAMESPACES = [
   'tickets',
   'console',
   'admin',
+  // Phase 4 admin sections, one file per navigation group (see lib/admin/sections.ts).
+  'admin-setup',
+  'admin-sla',
+  'admin-people',
+  'admin-comms',
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 

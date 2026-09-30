@@ -10,6 +10,7 @@ import {
   type ErrorResponse,
   type ValidationIssue,
 } from '../lib/errors.ts';
+import { mapPrismaError } from '../lib/prisma-errors.ts';
 
 export type { ValidationIssue } from '../lib/errors.ts';
 
@@ -34,10 +35,22 @@ function toPath(instancePath: string): Array<string | number> {
  * Unknown errors become 500 INTERNAL with a generic message (the stack is logged, never sent).
  */
 export function registerErrorHandling(app: FastifyInstance): void {
-  app.setErrorHandler<FastifyError | AppError>((err, req, reply) => {
+  app.setErrorHandler<FastifyError | AppError | Error>((err, req, reply) => {
     if (err instanceof AppError) {
-      if (err.statusCode >= 500) req.log.error({ err }, 'request failed');
+      if (err.statusCode >= 500 && err.statusCode !== 501) req.log.error({ err }, 'request failed');
       return reply.code(err.statusCode).send(body(err.code, err.message, req.id, err.details));
+    }
+
+    // Unique / foreign-key / not-found errors from the database describe the request (E19).
+    const mapped = mapPrismaError(err);
+    if (mapped) {
+      req.log.info(
+        { code: mapped.code, status: mapped.statusCode },
+        'request refused by the database',
+      );
+      return reply
+        .code(mapped.statusCode)
+        .send(body(mapped.code, mapped.message, req.id, mapped.details));
     }
 
     if (hasZodFastifySchemaValidationErrors(err)) {

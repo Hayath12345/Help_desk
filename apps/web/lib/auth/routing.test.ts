@@ -180,6 +180,9 @@ describe('resolveRedirect — staff', () => {
     expect(go('/admin/macros', lead)).toBeNull();
     expect(go('/admin/categories', lead)).toBe('/admin');
     expect(go('/admin/audit-log', lead)).toBe('/admin');
+    // Phase 4 sections that are not in the shared list yet are super-admin only too.
+    expect(go('/admin/staff', lead)).toBe('/admin');
+    expect(go('/admin/settings', lead)).toBe('/admin');
     expect(go('/tickets', lead)).toBe('/console/inbox');
   });
 
@@ -190,6 +193,8 @@ describe('resolveRedirect — staff', () => {
       '/admin',
       '/admin/categories',
       '/admin/audit-log',
+      '/admin/staff',
+      '/admin/settings',
     ]) {
       expect(go(path, admin)).toBeNull();
     }

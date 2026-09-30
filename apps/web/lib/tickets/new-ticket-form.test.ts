@@ -5,6 +5,7 @@ import {
   buildNewTicketSchema,
   countFieldErrors,
   customFieldsPayload,
+  dropUnavailableOptions,
   effectivePriority,
   emptyNewTicketValues,
   securityCategory,
@@ -218,5 +219,29 @@ describe('SLA windows', () => {
     });
     expect(slaWindowParts(2880, false)).toEqual({ unit: 'days', n: 2 });
     expect(slaWindowParts(90, false)).toEqual({ unit: 'hoursMinutes', hours: 1, minutes: 30 });
+  });
+});
+
+describe('dropUnavailableOptions (E18: an option archived while the form is open)', () => {
+  const lab = FORM_CONFIG.categories.find((c) => c.key === 'lab')!;
+  const archived = lab.fields.map((f) =>
+    f.key === 'zones' || f.key === 'vendor'
+      ? { ...f, options: f.options.filter((o) => o.value !== 'b' && o.value !== 'hik') }
+      : f,
+  );
+
+  it('keeps the offered choices and clears the rest, naming the fields', () => {
+    const values = { room: 'B-12', vendor: 'hik', zones: ['a', 'b'], on_site: true };
+    const result = dropUnavailableOptions(archived, values);
+    expect(result.values).toEqual({ room: 'B-12', vendor: '', zones: ['a'], on_site: true });
+    expect(result.changed.map((f) => f.key)).toEqual(['vendor', 'zones']);
+    expect(values.zones).toEqual(['a', 'b']);
+  });
+
+  it('returns the same values when every choice is still offered', () => {
+    const values = { vendor: 'axis', zones: ['a'], room: '' };
+    const result = dropUnavailableOptions(archived, values);
+    expect(result.values).toBe(values);
+    expect(result.changed).toEqual([]);
   });
 });

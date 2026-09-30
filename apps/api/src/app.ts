@@ -23,6 +23,7 @@ import { registerSecurity } from './plugins/security.ts';
 import type { RealtimeLimits } from './realtime/limits.ts';
 import { attachRealtime } from './realtime/socket.ts';
 import { attachWorkerBridge } from './realtime/worker-bridge.ts';
+import { adminRoutes, type AdminRoutesOptions } from './routes/admin/index.ts';
 import { attachmentRoutes } from './routes/attachments.ts';
 import { configRoutes } from './routes/config.ts';
 import { healthRoutes } from './routes/health.ts';
@@ -83,6 +84,8 @@ export interface AppDeps {
   uploadQuota?: Pick<UploadQuotaOptions, 'windowMs' | 'now'>;
   /** Length of an escalation "minute" when scheduling P1 steps (default 60 000 ms; tests shrink it). */
   escalationMinuteMs?: number;
+  /** Per-user admin write limit (default ADMIN_WRITE_RATE_LIMIT); tests lower it. */
+  adminWriteLimit?: AdminRoutesOptions['writeLimit'];
 }
 
 /** Builds the Fastify app (routes, plugins, Socket.IO) without listening. */
@@ -160,6 +163,8 @@ export async function buildApp(deps: AppDeps) {
       logger: app.log,
       uploadQuota: deps.uploadQuota,
       escalationMinuteMs: deps.escalationMinuteMs,
+      // `realtime` is attached below; admin writes only happen once requests are served.
+      broadcast: (event, payload) => app.realtime.broadcast(event, payload),
     }),
   );
   app.decorateRequest('actor', null);
@@ -184,6 +189,10 @@ export async function buildApp(deps: AppDeps) {
   await app.register(attachmentRoutes);
   await app.register(staffRoutes);
   await app.register(notificationRoutes);
+  await app.register(adminRoutes, {
+    prefix: '/admin',
+    ...(deps.adminWriteLimit ? { writeLimit: deps.adminWriteLimit } : {}),
+  });
 
   app.decorate(
     'realtime',

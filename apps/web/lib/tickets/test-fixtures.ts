@@ -56,6 +56,7 @@ export const FORM_CONFIG: TicketFormConfig = {
       labelAr: 'الأمن السيبراني / SOC',
       icon: 'shield',
       assetPlaceholder: 'e.g. FW-01',
+      assetPlaceholderAr: null,
       team: TEAMS.soc,
       subtypes: [
         {
@@ -89,6 +90,7 @@ export const FORM_CONFIG: TicketFormConfig = {
       labelAr: 'الدوائر التلفزيونية والمراقبة بالفيديو',
       icon: 'cctv',
       assetPlaceholder: 'e.g. CAM-014',
+      assetPlaceholderAr: null,
       team: TEAMS.elv,
       subtypes: [
         {
@@ -127,6 +129,7 @@ export const FORM_CONFIG: TicketFormConfig = {
       labelAr: '',
       icon: 'flask-conical',
       assetPlaceholder: null,
+      assetPlaceholderAr: null,
       team: TEAMS.triage,
       subtypes: [
         {
@@ -219,6 +222,7 @@ export const FORM_CONFIG: TicketFormConfig = {
       labelAr: 'أخرى',
       icon: 'circle-question-mark',
       assetPlaceholder: 'Optional',
+      assetPlaceholderAr: null,
       team: TEAMS.triage,
       subtypes: [
         {
@@ -264,7 +268,8 @@ export const FORM_CONFIG: TicketFormConfig = {
   ],
   securityCategoryKey: 'cyber',
   socPhone: '+974 4000 0000',
-  version: 'fixture-1',
+  businessDayMinutes: 540,
+  version: 1,
 };
 
 export const FORM_CONTEXT: FormContext = {
@@ -310,9 +315,9 @@ export function makeSummary(overrides: Partial<TicketSummaryDto> = {}): TicketSu
       labelAr: '',
       isActive: true,
     },
-    team: TEAMS.elv,
+    team: { ...TEAMS.elv, isActive: true },
     org: { id: IDS.org, name: 'Hamad Medical Corporation', nameAr: null },
-    site: { id: IDS.siteA, name: 'HMC – Building 3, Level 2', nameAr: null },
+    site: { id: IDS.siteA, name: 'HMC – Building 3, Level 2', nameAr: null, isActive: true },
     requester: { id: IDS.requester, name: 'Dr. Aisha Al-Kuwari', email: 'aisha.alkuwari@hamad.qa' },
     assignee: null,
     tags: [],

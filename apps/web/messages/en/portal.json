@@ -32,6 +32,7 @@
     "handledBy": "Handled by {assignee} ({team})",
     "handledByTeam": "Handled by {team}",
     "opened": "Opened {date}",
+    "archived": "{label} (archived)",
     "markSolved": "Mark as solved",
     "reopen": "Reopen ticket",
     "solvedToast": "Ticket marked as solved",

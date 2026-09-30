@@ -9,12 +9,12 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 
-> **Status:** Phase 3 (SLA & notifications) — on top of Phase 1 (monorepo, infrastructure, schema + seed,
-> authentication, design tokens, EN/AR + RTL shells) and Phase 2 (tickets, realtime chat, internal notes,
-> attachments): the SLA worker (at risk / breached, auto-close), email notifications, Microsoft Teams posts and SMS,
-> P1 acknowledge and the escalation chain, the daily P4 digest and the in-app notification bell. Admin, reports and
-> AWS packaging arrive in phases 4–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md),
-> [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md).
+> **Status:** Phase 4 (admin panel) — on top of Phase 1 (monorepo, infrastructure, schema + seed, authentication,
+> design tokens, EN/AR + RTL shells), Phase 2 (tickets, realtime chat, internal notes, attachments) and Phase 3 (SLA
+> worker, email / Teams / SMS notifications, P1 escalation, the notification bell): the admin panel for Super Admins
+> with a limited Team Lead view, the audit log and live refresh of open forms. Reports, the portal help-center page
+> and AWS packaging arrive in phases 5–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md),
+> [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md), [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md).
 
 ---
 
@@ -182,6 +182,9 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - The notifications spec raises a P1: it checks the team and on-call emails in Mailpit and the sent Teams and SMS
   records, then the agent acknowledges from the P1 banner and bell. It texts one demo number per run, so more than 5
   runs in an hour hit the SMS cap (see Troubleshooting).
+- The admin spec keeps a client's New Ticket form open while the Super Admin adds a category and a custom field, then
+  raises a ticket with them and archives them. Its config rows are keyed `e2e-<13-digit timestamp>` (and `…-panel`);
+  the teardown removes exactly that key shape and never touches other configuration.
 
 ---
 
@@ -222,7 +225,7 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
   public reply sets PENDING (or SOLVED with _Send & solve_), an internal note on a NEW ticket makes it OPEN. Clients can
   only mark their tickets solved or reopen them; every change writes a `TicketEvent`.
 - **SLA:** first-reply and resolution targets come from the priority's policy over the business calendar
-  (`Asia/Qatar` business hours and holidays from the seed). PENDING pauses the resolution clock only; the first-reply
+  (business hours, holidays and time zone are set in Admin; the seed uses `Asia/Qatar`). PENDING pauses the resolution clock only; the first-reply
   clock never pauses. A priority change recomputes the targets and replays the ticket's pauses. The console sorts by
   SLA and shows the _SLA at risk_ view: a target is at risk once 75 % of its window has passed (the policy's
   `atRiskPercent`, counted in business time where the policy uses business hours) and breached at its due date.
@@ -269,6 +272,35 @@ built are in [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md).
 - **Limits:** a phone number receives at most 20 texts an hour (`SMS_MAX_PER_RECIPIENT_PER_HOUR`), and one
   organisation's P1s may use at most a quarter of that; skipped texts are recorded, and the email and bell still go.
 - The console **bell** shows staff their notifications live; clients are notified by email.
+
+## Admin panel
+
+Super Admins configure everything at `/admin` (the **Admin** tab in the console). Details and the rules as built are
+in [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md).
+
+| Group            | Sections                                                     |
+| ---------------- | ------------------------------------------------------------ |
+| Ticket setup     | Categories & sub-types · Custom fields · Macros              |
+| SLA & escalation | SLA policies · Business hours & holidays · Escalation rules  |
+| People & clients | Teams & members · Staff · Clients & sites (pending sign-ups) |
+| Communication    | Email templates · Help center                                |
+| System           | General settings · Audit log                                 |
+
+- **Team Leads** see Teams & members and Macros only, for the teams they lead: members, the on-call user and their
+  teams' macros. Everything else is for Super Admins; the API enforces it.
+- **Editing:** each section is a table with **Create new**; a row opens a side sheet. Short labels have English and
+  Arabic side by side; email templates and help articles have an **English | العربية** switch. Lists with an order
+  can be dragged or moved with **Move up / Move down**. Keys are generated from the English label and can't change
+  after creation.
+- **Nothing is deleted:** configuration is archived and can be restored; old tickets keep showing archived
+  categories, sub-types, fields, options, teams and sites with an "archived" marker.
+- **Live refresh:** a change reaches open New Ticket forms and console lists within seconds, without a reload; a
+  form keeps what the user typed, and a choice that was archived meanwhile is cleared with a notice.
+- **Two admins at once:** a save based on an older version is refused with _Someone else changed this — reload_.
+- **Audit log:** every change is recorded with who, when and the changed fields (webhook URLs and phone numbers are
+  never stored in full). It is read-only.
+- SLA, business-hours and holiday changes apply to new tickets and later priority changes; open tickets keep their
+  due dates.
 
 ### Enabling Google (clients)
 
@@ -333,6 +365,10 @@ Enforce MFA with Entra Conditional Access.
   `docker compose exec redis sh -c "redis-cli --scan --pattern 'loons:sms-cap*' | xargs -r redis-cli del"`.
 - **A P1 paged the team leads** — escalation step 2 fires 5 real minutes after a ticket becomes P1 unless someone
   acknowledges it in the console. Demo tickets created before Phase 3 never page anyone.
+- **Email templates show "Customized" although nobody edited them** — the database was seeded before Phase 4, when
+  six templates had older wording. Open each one in Admin → Email templates and press **Reset to default**.
+- **After flushing Redis** — the configuration version starts again from zero; open forms notice the lower version
+  and refetch once, so nothing needs restarting.
 
 ---
 

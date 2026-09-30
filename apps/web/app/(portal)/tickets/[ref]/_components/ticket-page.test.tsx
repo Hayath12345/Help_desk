@@ -163,7 +163,7 @@ describe('Ticket thread page', () => {
     const ar = createPortalHarness({ locale: 'ar' });
     holder.client = ar.client;
     // ELV's Arabic name already starts with "فريق" ("team"): the header must not say it twice.
-    await renderPage(makeDetail({ assignee: null, team: TEAMS.elv }), ar);
+    await renderPage(makeDetail({ assignee: null, team: { ...TEAMS.elv, isActive: true } }), ar);
     const header = plain(screen.getByText(/^يتولاها/).textContent);
     expect(header).toMatch(/^يتولاها فريق الأنظمة الميدانية · /);
     expect(header).not.toContain('فريق فريق');
@@ -172,7 +172,7 @@ describe('Ticket thread page', () => {
     // Design: "يتولاها" followed directly by the team's name.
     const ar2 = createPortalHarness({ locale: 'ar' });
     holder.client = ar2.client;
-    await renderPage(makeDetail({ assignee: null, team: TEAMS.soc }), ar2);
+    await renderPage(makeDetail({ assignee: null, team: { ...TEAMS.soc, isActive: true } }), ar2);
     expect(plain(screen.getByText(/^يتولاها/).textContent)).toMatch(
       /^يتولاها مركز العمليات الأمنية · /,
     );
@@ -485,7 +485,13 @@ describe('Ticket thread page', () => {
       name: 'QNB – Head Office, West Bay',
       nameAr: 'QNB – المقر الرئيسي، الخليج الغربي',
     };
-    api.fetchTicket.mockResolvedValue(makeDetail({ assignee: PRIYA, team: soc, site: qnbSite }));
+    api.fetchTicket.mockResolvedValue(
+      makeDetail({
+        assignee: PRIYA,
+        team: { ...soc, isActive: true },
+        site: { ...qnbSite, isActive: true },
+      }),
+    );
     render(<TicketPage ticketRef="LG-4771" />, { wrapper: ar.wrapper });
     await screen.findByRole('heading', { level: 1 });
     const handledBy = plain(screen.getByText(/^يتولاها/).textContent);

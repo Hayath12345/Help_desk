@@ -20,7 +20,6 @@ import {
   fetchTeams,
   fetchTicket,
   fetchTicketCounts,
-  fetchTicketFormConfig,
   fetchTickets,
 } from './api';
 import {
@@ -31,6 +30,7 @@ import {
   takeParkedThreadWrites,
   takeThreadCatchUp,
 } from './cache';
+import { loadTicketFormConfig } from './config-version';
 import { ticketKeys, type TicketListFilters } from './keys';
 import type { ThreadMessage } from './types';
 
@@ -42,11 +42,15 @@ function retryTransient(failureCount: number, error: unknown): boolean {
   return failureCount < 1;
 }
 
-/** Live New-ticket configuration (categories → sub-types → fields, SLA policies, SOC phone). */
+/**
+ * Live New-ticket configuration (categories → sub-types → fields, SLA policies, SOC phone). Kept
+ * current by `config:updated` (refetched until it reaches the announced version).
+ */
 export function useTicketFormConfig(options: { enabled?: boolean } = {}) {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ticketKeys.formConfig(),
-    queryFn: ({ signal }) => fetchTicketFormConfig(signal),
+    queryFn: ({ signal }) => loadTicketFormConfig(queryClient, signal),
     staleTime: FIVE_MINUTES,
     retry: retryTransient,
     enabled: options.enabled ?? true,
@@ -176,11 +180,16 @@ export function useMacros(options: { enabled?: boolean } = {}) {
   });
 }
 
-/** Staff: active teams with their active members (assignee picker, Teams column). */
-export function useTeams(options: { enabled?: boolean } = {}) {
+/**
+ * Staff: active teams with their active members (assignee picker, Teams column).
+ * `includeArchived` also lists archived teams (a ticket on an archived team, E6); it is cached
+ * under the same prefix, so a `teams` config change refreshes both.
+ */
+export function useTeams(options: { enabled?: boolean; includeArchived?: boolean } = {}) {
+  const includeArchived = options.includeArchived ?? false;
   return useQuery({
-    queryKey: ticketKeys.teams(),
-    queryFn: ({ signal }) => fetchTeams(signal),
+    queryKey: includeArchived ? [...ticketKeys.teams(), 'with-archived'] : ticketKeys.teams(),
+    queryFn: ({ signal }) => fetchTeams(signal, { includeArchived }),
     staleTime: FIVE_MINUTES,
     retry: retryTransient,
     enabled: options.enabled ?? true,

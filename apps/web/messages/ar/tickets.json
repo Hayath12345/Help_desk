@@ -172,6 +172,10 @@
     "categoryLockedNotice": "تم ضبط الفئة إلى {category} وقفلها للحوادث الأمنية.",
     "categoryRestoredNotice": "أُعيدت الفئة إلى {category}.",
     "categoryUnlockedNotice": "يمكن تغيير الفئة مجددًا.",
+    "categoryGoneNotice": "لم تعد الفئة «{category}» متاحة، لذا أُزيل اختيارها. اختر فئة أخرى.",
+    "subtypeGoneNotice": "لم يعد النوع الفرعي «{subtype}» متاحًا، لذا أُزيل اختياره. اختر نوعًا آخر.",
+    "optionGoneNotice": "لم يعد أحد الخيارات المحددة في {field} متاحًا، لذا أُزيل اختياره.",
+    "securityCategoryMovedNotice": "تُسجَّل الحوادث الأمنية الآن ضمن {category}، لذا تغيّرت الفئة. اختر نوعًا فرعيًا.",
     "createdElsewhere": "تم إنشاء التذكرة {ref} وتوجيهها إلى {team}",
     "createdElsewhereHint": "لست ضمن هذا الفريق، لذا لن تظهر في صندوق الوارد لديك.",
     "errors": {

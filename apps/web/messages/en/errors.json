@@ -7,6 +7,7 @@
   "CONFLICT": "Someone else changed this in the meantime. Refresh and try again.",
   "RATE_LIMITED": "Too many attempts. Wait a few minutes and try again.",
   "INTERNAL": "Something went wrong on our side. Try again in a moment.",
+  "NOT_IMPLEMENTED": "This isn’t available yet. Try again after the next update.",
   "SERVICE_UNAVAILABLE": "This is temporarily unavailable. Try again in a few minutes.",
   "INVALID_CREDENTIALS": "Incorrect email or password.",
   "ACCOUNT_DISABLED": "This account has been disabled. Contact your Loons account manager.",

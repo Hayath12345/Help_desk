@@ -26,6 +26,7 @@ import { renderStoredTemplate } from './email-templates.ts';
 import type { EmailVerificationService } from './email-verification.service.ts';
 import { matchOrganizationByDomain } from './organizations.ts';
 import { REVOKE_SESSIONS_DATA, type SessionsService } from './sessions.service.ts';
+import { sqlTimestamp } from './ticket-query.ts';
 
 export const GOOGLE_LINKED_TEMPLATE_KEY = 'GOOGLE_LINKED' satisfies EmailTemplateKey;
 
@@ -34,6 +35,23 @@ export interface AuthService {
   resolveOAuth(input: OAuthResolveInput): Promise<AuthUser>;
   register(input: RegisterInput): Promise<AuthUser>;
   getUser(id: string): Promise<AuthUser>;
+}
+
+/**
+ * Records a sign-in without moving `User.updatedAt`: that column is the admin's lost-update token
+ * (E19: staff edits, pending sign-up approve / reject compare it), and a sign-in changes nothing an
+ * admin edits. A raw UPDATE, because Prisma sets `@updatedAt` on every update() / updateMany().
+ * Staff marked verified by their Entra sign-in are the same (linkAndTouch). Real state changes (a
+ * client's email verification, which the pending sign-up review shows; password removal; session
+ * revocation) stay Prisma updates and do move it.
+ */
+export async function recordSignIn(
+  db: Pick<PrismaClient, '$executeRaw'> | Prisma.TransactionClient,
+  userId: string,
+  at: Date,
+): Promise<void> {
+  await db.$executeRaw`UPDATE "User" SET "lastLoginAt" = ${sqlTimestamp(at)}
+    WHERE "id" = ${userId}::uuid`;
 }
 
 function isUniqueViolation(err: unknown): boolean {
@@ -77,7 +95,7 @@ export function createAuthService(deps: {
       throw errors.clientPortalOnly();
     }
 
-    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await recordSignIn(prisma, user.id, new Date());
     return toAuthUser(user);
   }
 
@@ -202,18 +220,16 @@ export function createAuthService(deps: {
           passwordRemoved = cleared.count === 1;
         }
       } else {
-        // Staff are gated by Entra itself; a successful sign-in also proves the address.
-        const verified = await tx.user.updateMany({
-          where: { id: user.id, emailVerifiedAt: null },
-          data: { emailVerifiedAt: now },
-        });
-        becameVerified = verified.count === 1;
+        // Staff are gated by Entra itself; a successful sign-in also proves the address. A raw
+        // conditional UPDATE: marking an admin-created account verified is not an edit of it, so
+        // it leaves `updatedAt` (the admin's lost-update token, E19) alone, like recordSignIn.
+        const verified = await tx.$executeRaw`UPDATE "User"
+          SET "emailVerifiedAt" = ${sqlTimestamp(now)}
+          WHERE "id" = ${user.id}::uuid AND "emailVerifiedAt" IS NULL`;
+        becameVerified = verified === 1;
       }
-      return tx.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: now },
-        select: authUserSelect,
-      });
+      await recordSignIn(tx, user.id, now);
+      return tx.user.findUniqueOrThrow({ where: { id: user.id }, select: authUserSelect });
     });
     if (passwordRemoved) {
       await sessions.sessionsRevoked(user.id);

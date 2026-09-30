@@ -53,7 +53,8 @@
 //   localizedLabel / teamName / placeName / fieldPlaceholder   EN/AR labels (empty Arabic → English).
 //   localizedAssetPlaceholder / useAssetPlaceholder()  Category asset placeholder ("e.g. FW-01" → "مثال: FW-01").
 //   slaWindowParts, BUSINESS_DAY_MINUTES      "15 min" / "1 hour" / "2 business days" parts.
-//   useSlaWindowFormatter()                  Formats a policy window in the UI language.
+//   useConfiguredBusinessDayMinutes()        The configured business-day length (E12, cached form config).
+//   useSlaWindowFormatter(dayMinutes?)       Formats a policy window in the UI language.
 //   useApiErrorText()                        API error → errors.<CODE> sentence.
 //   useTicketValidationMessage()             'validation.x' / 'tickets.x' keys → text.
 //   newClientTempId()                        uuid v4 (crypto.randomUUID with a fallback).
@@ -62,6 +63,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 export * from './api';
+export * from './business-day';
 export * from './cache';
 export * from './i18n';
 export * from './ids';

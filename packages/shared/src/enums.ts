@@ -86,3 +86,27 @@ export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 export const NOTIFICATION_DELIVERY_STATUSES = ['QUEUED', 'SENT', 'FAILED', 'SKIPPED'] as const;
 export type NotificationDeliveryStatus = (typeof NOTIFICATION_DELIVERY_STATUSES)[number];
+
+// ───────────── Phase 4: admin ─────────────
+
+export const ESCALATION_TARGET_TYPES = ['ON_CALL', 'ROLE', 'USER'] as const;
+export type EscalationTargetType = (typeof ESCALATION_TARGET_TYPES)[number];
+
+export const ESCALATION_CHANNELS = ['EMAIL', 'TEAMS', 'SMS'] as const;
+export type EscalationChannel = (typeof ESCALATION_CHANNELS)[number];
+
+/**
+ * What an admin write did (decision E17). `DELETE` is only for join rows (team members, category
+ * fields); config rows are archived. `APPROVE` / `REJECT`: pending client sign-ups (E10).
+ */
+export const AUDIT_ACTIONS = [
+  'CREATE',
+  'UPDATE',
+  'ARCHIVE',
+  'RESTORE',
+  'REORDER',
+  'DELETE',
+  'APPROVE',
+  'REJECT',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];

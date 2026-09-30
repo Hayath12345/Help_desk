@@ -121,10 +121,28 @@ describe('realtime → query cache', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.counts() });
   });
 
-  it('refetches the form configuration on config:updated', () => {
+  it('refetches what the scope of config:updated touches (Phase 4, E18)', () => {
     const { socket, invalidate } = setup();
-    socket.receive('config:updated', { scope: 'ticket-form' });
+    socket.receive('config:updated', { scope: 'macros', version: 4 });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.macros() });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ticketKeys.formConfig() });
+    invalidate.mockClear();
+    socket.receive('config:updated', { scope: 'ticket-form', version: 5 });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.formConfig() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.details() });
+  });
+
+  it('refetches the form configuration, macros, teams and admin lists after a reconnect', async () => {
+    const { socket, invalidate } = setup();
+    socket.transportClose();
+    socket.accept();
+    await vi.waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.formConfig() }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.formContexts() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.macros() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.teams() });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['admin'] });
   });
 
   it('after a reconnect, fetches what joined threads missed (after the last known id)', async () => {

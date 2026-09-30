@@ -1,4 +1,5 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
 import {
   macroListSchema,
   requesterListSchema,
@@ -51,10 +52,17 @@ export const staffRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['staff'],
         summary: 'Active teams with their active staff (assignee picker, Teams sidebar)',
+        description:
+          '`archived=include` also lists archived teams, after the active ones: a ticket on an archived team stays workable (its members are still offered as assignees, Phase 4 E6).',
         security,
-        response: { 200: teamListSchema, ...errorResponses(401, 403, 429) },
+        querystring: z.object({ archived: z.enum(['include']).optional() }),
+        response: { 200: teamListSchema, ...errorResponses(400, 401, 403, 429) },
       },
     },
-    async (req) => ({ items: await app.services.directory.teams(actorOf(req)) }),
+    async (req) => ({
+      items: await app.services.directory.teams(actorOf(req), {
+        includeArchived: req.query.archived === 'include',
+      }),
+    }),
   );
 };

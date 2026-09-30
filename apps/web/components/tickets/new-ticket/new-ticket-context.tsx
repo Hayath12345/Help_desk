@@ -16,7 +16,8 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { isApiRequestError } from '@/lib/api/errors';
-import { fetchTicket, fetchTicketFormConfig } from '@/lib/tickets/api';
+import { fetchTicket } from '@/lib/tickets/api';
+import { loadTicketFormConfig } from '@/lib/tickets/config-version';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { teamName } from '@/lib/tickets/labels';
 import type { Viewer } from '@/lib/tickets/types';
@@ -141,7 +142,7 @@ export function NewTicketProvider({
   const prefetch = useCallback(() => {
     void queryClient.prefetchQuery({
       queryKey: ticketKeys.formConfig(),
-      queryFn: ({ signal }) => fetchTicketFormConfig(signal),
+      queryFn: ({ signal }) => loadTicketFormConfig(queryClient, signal),
       staleTime: 5 * 60_000,
     });
   }, [queryClient]);

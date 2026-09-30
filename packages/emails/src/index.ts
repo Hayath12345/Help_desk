@@ -1,6 +1,7 @@
 export {
   escapeHtml,
   interpolate,
+  malformedPlaceholders,
   parseTemplate,
   templateVariables,
   variableText,
@@ -58,6 +59,18 @@ export {
   type RenderEmailTemplateInput,
   type StoredEmailTemplate,
 } from './templates.ts';
+export {
+  allowedTemplateVariables,
+  legacyTemplateVariables,
+  renderEmailTemplatePreview,
+  sampleTemplateVariables,
+  templateBlockVariables,
+  templatePlaceholderProblems,
+  type RenderEmailTemplatePreviewInput,
+  type SampleVariablesOptions,
+  type TemplatePlaceholderProblem,
+  type TemplatePlaceholderReason,
+} from './preview.ts';
 export {
   BUSINESS_DAY_MINUTES,
   EMPTY_VALUE,

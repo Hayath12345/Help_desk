@@ -1,5 +1,5 @@
 import type { Job, Queue, RepeatOptions } from 'bullmq';
-import { SLA_JOBS, type SlaJob } from '../lib/job-data.ts';
+import { SLA_JOBS, slaJobSchema, type SlaJob } from '../lib/job-data.ts';
 import type { SlaJobData } from '../lib/queues.ts';
 
 // The repeatable `sla` jobs (contract "Worker"). bullmq 6 rejects `repeat` on Queue.add, so they
@@ -100,4 +100,40 @@ export async function registerSchedulers(
     await upsertSchedulerIfChanged(queue, spec.id, spec.repeat, data);
   }
   return specs.map((s) => s.id);
+}
+
+/** The schedulers whose timing follows the General settings (E11). */
+export const SETTINGS_SCHEDULERS = [SLA_JOBS.digest, SLA_JOBS.retention] as const;
+
+/**
+ * Brings the settings-dependent schedulers in line with the current business time zone and P4
+ * digest time (decision E11: an admin change applies within a minute, without a worker restart).
+ * Called by every SLA scan tick. Only schedulers that already exist are rewritten (a worker started
+ * with WORKER_SCHEDULERS=true registered them; this never adds any), with the data they were
+ * registered with, and only when their timing differs — an unchanged scheduler keeps its pending
+ * tick. Resolves to the ids that were rewritten.
+ */
+export async function rescheduleForSettings(
+  queue: Queue<SlaJobData>,
+  settings: Pick<SchedulerOptions, 'timeZone' | 'digestTime'>,
+): Promise<string[]> {
+  const specs = [
+    {
+      id: SLA_JOBS.digest,
+      repeat: { pattern: dailyPattern(settings.digestTime), tz: settings.timeZone },
+    },
+    { id: SLA_JOBS.retention, repeat: { pattern: RETENTION_PATTERN, tz: settings.timeZone } },
+  ];
+  const changed: string[] = [];
+  for (const spec of specs) {
+    const existing = await queue.getJobScheduler(spec.id);
+    if (!existing) continue;
+    const data = slaJobSchema.safeParse(existing.template?.data ?? {});
+    if (
+      await upsertSchedulerIfChanged(queue, spec.id, spec.repeat, data.success ? data.data : {})
+    ) {
+      changed.push(spec.id);
+    }
+  }
+  return changed;
 }

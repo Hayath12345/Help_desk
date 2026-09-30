@@ -19,6 +19,8 @@ export interface Api {
   get(url: string): Promise<LightMyRequestResponse>;
   post(url: string, body?: unknown): Promise<LightMyRequestResponse>;
   patch(url: string, body?: unknown): Promise<LightMyRequestResponse>;
+  put(url: string, body?: unknown): Promise<LightMyRequestResponse>;
+  delete(url: string): Promise<LightMyRequestResponse>;
 }
 
 /** HTTP calls as `persona` (a random source address, so the global per-IP limit never trips). */
@@ -38,6 +40,8 @@ export function apiAs(ctx: TestContext, persona?: Pick<Persona, 'token'> | null)
     get: (url) => send('GET', url),
     post: (url, body) => send('POST', url, body ?? {}),
     patch: (url, body) => send('PATCH', url, body ?? {}),
+    put: (url, body) => send('PUT', url, body ?? {}),
+    delete: (url) => send('DELETE', url),
   };
 }
 

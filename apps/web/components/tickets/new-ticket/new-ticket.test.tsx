@@ -315,6 +315,31 @@ describe('New ticket modal', () => {
     expect(asset().getAttribute('placeholder')).toBe('\u2067مثال: \u20662026-018\u2069\u2069');
   });
 
+  it('shows the category’s own Arabic asset example in Arabic, the English one in English', async () => {
+    const withArabic = {
+      ...FORM_CONFIG,
+      categories: FORM_CONFIG.categories.map((c) =>
+        c.id === IDS.cctv ? { ...c, assetPlaceholderAr: 'مثال: كاميرا-014' } : c,
+      ),
+    };
+    const ar = renderModal(CLIENT, 'ar');
+    ar.queryClient.setQueryData(ticketKeys.formConfig(), withArabic);
+    await choose(within(ar.dialog()).getByRole('combobox', { name: /^الفئة/ }), 'الدوائر');
+    expect(
+      within(ar.dialog())
+        .getByLabelText(/الأصل|الجهاز/)
+        .getAttribute('placeholder'),
+    ).toBe('⁧مثال: كاميرا-014⁩');
+    cleanup();
+
+    const en = renderModal(CLIENT, 'en');
+    en.queryClient.setQueryData(ticketKeys.formConfig(), withArabic);
+    await choose(within(en.dialog()).getByRole('combobox', { name: /^Category/ }), 'CCTV');
+    expect(within(en.dialog()).getByLabelText(/Asset/).getAttribute('placeholder')).toBe(
+      'e.g. CAM-014',
+    );
+  });
+
   it('shows per-field errors and the error count after a submit attempt', async () => {
     const { dialog } = renderModal();
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
@@ -574,5 +599,242 @@ describe('entry points', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New ticket' }));
     expect(await screen.findByRole('dialog')).toBeTruthy();
     warn.mockRestore();
+  });
+});
+
+describe('config changes while the form is open (Phase 4, E18)', () => {
+  const withoutCctv = (version: number) => ({
+    ...FORM_CONFIG,
+    categories: FORM_CONFIG.categories.filter((c) => c.key !== 'cctv'),
+    version,
+  });
+
+  it('keeps the input and clears an archived category with a polite notice', async () => {
+    const { dialog, queryClient } = renderModal();
+    const subject = within(dialog()).getByRole('textbox', { name: /Subject/ });
+    type(subject, 'Cameras offline on level 2');
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    await choose(category, 'CCTV');
+    await choose(subtype, 'NVR / VMS recording failure');
+
+    // An admin archives CCTV: the refetched configuration no longer has it.
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), withoutCctv(2));
+    });
+    const text =
+      '“CCTV & Video Surveillance” is no longer available, so it was cleared. Choose another category.';
+    const notice = await within(dialog()).findByText(text);
+    expect(notice.closest('[role="status"]')?.getAttribute('aria-live')).toBe('polite');
+    expect(category.textContent).toContain('Choose a category…');
+    expect(subtype.hasAttribute('disabled')).toBe(true);
+    expect((subject as HTMLInputElement).value).toBe('Cameras offline on level 2');
+    // The P1 banner of the cleared sub-type is gone too.
+    await waitFor(() => expect(within(dialog()).queryByRole('alert')).toBeNull());
+
+    // Choosing another category dismisses the notice.
+    await choose(category, 'Other');
+    expect(within(dialog()).queryByText(text)).toBeNull();
+  });
+
+  it('clears an archived sub-type but keeps its category', async () => {
+    const { dialog, queryClient } = renderModal();
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    await choose(category, 'CCTV');
+    await choose(subtype, 'NVR / VMS recording failure');
+
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), {
+        ...FORM_CONFIG,
+        version: 3,
+        categories: FORM_CONFIG.categories.map((c) =>
+          c.key === 'cctv'
+            ? { ...c, subtypes: c.subtypes.filter((s) => s.key !== 'nvr-failure') }
+            : c,
+        ),
+      });
+    });
+    expect(
+      await within(dialog()).findByText(
+        'The sub-type “NVR / VMS recording failure” is no longer available, so it was cleared. Choose another one.',
+      ),
+    ).toBeTruthy();
+    expect(category.textContent).toContain('CCTV & Video Surveillance');
+    expect(subtype.textContent).toContain('Choose a sub-type…');
+  });
+
+  it('shows new options and fields of the chosen category without losing the input', async () => {
+    const { dialog, queryClient } = renderModal();
+    const subject = within(dialog()).getByRole('textbox', { name: /Subject/ });
+    type(subject, 'Door reader');
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'CCTV');
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), {
+        ...FORM_CONFIG,
+        version: 4,
+        categories: FORM_CONFIG.categories.map((c) =>
+          c.key === 'cctv'
+            ? {
+                ...c,
+                fields: [
+                  ...c.fields,
+                  {
+                    id: '00000000-0000-4000-8000-000000009001',
+                    key: 'e2e_zone',
+                    labelEn: 'Zone',
+                    labelAr: 'المنطقة',
+                    type: 'TEXT' as const,
+                    options: [],
+                    placeholderEn: null,
+                    placeholderAr: null,
+                    required: false,
+                  },
+                ],
+              }
+            : c,
+        ),
+      });
+    });
+    const zone = await within(dialog()).findByLabelText(/Zone/);
+    expect((zone as HTMLInputElement).value).toBe('');
+    expect((subject as HTMLInputElement).value).toBe('Door reader');
+    expect(within(dialog()).queryByText(/no longer available/)).toBeNull();
+  });
+
+  /** The config with options of the Lab category's fields archived (dropped from the config). */
+  const labWithout = (version: number, drop: Record<string, string>) => ({
+    ...FORM_CONFIG,
+    version,
+    categories: FORM_CONFIG.categories.map((c) =>
+      c.key === 'lab'
+        ? {
+            ...c,
+            fields: c.fields.map((f) =>
+              drop[f.key] ? { ...f, options: f.options.filter((o) => o.value !== drop[f.key]) } : f,
+            ),
+          }
+        : c,
+    ),
+  });
+
+  it('clears a chosen option an admin archived (multi-select, dropdown) so the form can be sent', async () => {
+    api.createTicket.mockResolvedValueOnce(makeDetail({ number: 4901, ref: 'LG-4901' }));
+    const { dialog, queryClient } = renderModal();
+    type(within(dialog()).getByLabelText(/^Subject/), 'Lab check');
+    await choose(within(dialog()).getByRole('combobox', { name: /^Category/ }), 'Lab');
+    await choose(within(dialog()).getByRole('combobox', { name: /Sub-type/ }), 'Lab sub-type');
+    await pick(within(dialog()).getByRole('combobox', { name: /Site/ }), /Building 3/);
+    type(within(dialog()).getByLabelText(/^Description/), 'Every field type.');
+    type(within(dialog()).getByLabelText(/^Room/), 'B-12');
+    const vendor = within(dialog()).getByRole('combobox', { name: /^Vendor/ });
+    await choose(vendor, 'Hikvision');
+    fireEvent.click(within(dialog()).getByRole('checkbox', { name: 'Zone A' }));
+    fireEvent.click(within(dialog()).getByRole('checkbox', { name: 'Zone B' }));
+    fireEvent.click(
+      within(within(dialog()).getByRole('radiogroup', { name: /Engineer on site/ })).getByRole(
+        'radio',
+        { name: 'Yes' },
+      ),
+    );
+
+    // An admin archives Zone B and Hikvision while the form is open.
+    act(() => {
+      queryClient.setQueryData(
+        ticketKeys.formConfig(),
+        labWithout(6, { zones: 'b', vendor: 'hik' }),
+      );
+    });
+    const notice = await within(dialog()).findByText(
+      'An option chosen in Vendor and Zones is no longer available, so it was cleared.',
+    );
+    expect(notice.closest('[role="status"]')?.getAttribute('aria-live')).toBe('polite');
+    const boxes = within(dialog()).getAllByRole('checkbox');
+    expect(
+      boxes.map((b) => [b.parentElement?.textContent, b.getAttribute('aria-checked')]),
+    ).toEqual([['Zone A', 'true']]);
+    expect(vendor.textContent).not.toContain('Hikvision');
+
+    // The required dropdown needs a new choice; then the ticket goes out with what is left.
+    await choose(vendor, 'Axis');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await waitFor(() => expect(api.createTicket).toHaveBeenCalledTimes(1));
+    expect(api.createTicket.mock.calls[0]?.[0]).toMatchObject({
+      categoryId: IDS.lab,
+      customFields: { room: 'B-12', vendor: 'axis', zones: ['a'], on_site: true },
+    });
+  });
+
+  it('moves a Security Incident to the new security category when an admin changes it', async () => {
+    api.createTicket.mockResolvedValueOnce(makeDetail({ number: 4902, ref: 'LG-4902' }));
+    const { dialog, queryClient } = renderModal();
+    fireEvent.click(
+      radio(within(dialog()).getByRole('radiogroup', { name: 'Ticket type' }), 'Security Incident'),
+    );
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    const subtype = within(dialog()).getByRole('combobox', { name: /Sub-type/ });
+    await waitFor(() => expect(category.textContent).toContain('Cybersecurity / SOC'));
+    await choose(subtype, 'Phishing');
+
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), {
+        ...FORM_CONFIG,
+        version: 7,
+        securityCategoryKey: 'other',
+      });
+    });
+    expect(
+      await within(dialog()).findByText(
+        'Security incidents now go to Other, so the category was changed. Choose a sub-type.',
+      ),
+    ).toBeTruthy();
+    expect(category.textContent).toContain('Other');
+    expect(category.hasAttribute('disabled')).toBe(true);
+    expect(subtype.textContent).toContain('Choose a sub-type…');
+
+    type(within(dialog()).getByLabelText(/^Subject/), 'Suspicious email');
+    await choose(subtype, 'Describe below');
+    await pick(within(dialog()).getByRole('combobox', { name: /Site/ }), /Building 3/);
+    type(within(dialog()).getByLabelText(/^Description/), 'A link asking for passwords.');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Create ticket' }));
+    await waitFor(() => expect(api.createTicket).toHaveBeenCalledTimes(1));
+    expect(api.createTicket.mock.calls[0]?.[0]).toMatchObject({
+      type: 'SECURITY_INCIDENT',
+      categoryId: IDS.other,
+      subtypeId: IDS.describe,
+    });
+  });
+
+  it('the moved-category notice goes once the type changes again', async () => {
+    const { dialog, queryClient } = renderModal();
+    const types = within(dialog()).getByRole('radiogroup', { name: 'Ticket type' });
+    fireEvent.click(radio(types, 'Security Incident'));
+    const category = within(dialog()).getByRole('combobox', { name: /^Category/ });
+    await waitFor(() => expect(category.textContent).toContain('Cybersecurity / SOC'));
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), {
+        ...FORM_CONFIG,
+        version: 7,
+        securityCategoryKey: 'other',
+      });
+    });
+    const moved =
+      'Security incidents now go to Other, so the category was changed. Choose a sub-type.';
+    expect(await within(dialog()).findByText(moved)).toBeTruthy();
+    fireEvent.click(radio(types, 'Incident'));
+    await waitFor(() => expect(within(dialog()).queryByText(moved)).toBeNull());
+  });
+
+  it('says it in Arabic too', async () => {
+    const { dialog, queryClient } = renderModal(CLIENT, 'ar');
+    await choose(within(dialog()).getByRole('combobox', { name: /^الفئة/ }), 'الدوائر');
+    act(() => {
+      queryClient.setQueryData(ticketKeys.formConfig(), withoutCctv(5));
+    });
+    expect(
+      await within(dialog()).findByText(
+        'لم تعد الفئة «الدوائر التلفزيونية والمراقبة بالفيديو» متاحة، لذا أُزيل اختيارها. اختر فئة أخرى.',
+      ),
+    ).toBeTruthy();
   });
 });

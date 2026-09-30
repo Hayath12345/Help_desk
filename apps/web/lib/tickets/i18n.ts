@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import { isApiRequestError } from '@/lib/api/errors';
 import { formatNumber, isolateDirection } from '@/lib/format';
+import { useConfiguredBusinessDayMinutes } from './business-day';
 import { hasArabic, localizedAssetPlaceholder } from './labels';
 import { slaWindowParts } from './sla-format';
 
@@ -51,13 +52,21 @@ export function useTicketValidationMessage(): (
   );
 }
 
-/** "15 min", "1 hour", "2 business days" (Latin digits in both languages, like the design). */
-export function useSlaWindowFormatter(): (minutes: number, businessHoursOnly: boolean) => string {
+/**
+ * "15 min", "1 hour", "2 business days" (Latin digits in both languages, like the design). A
+ * business day is `businessDayMinutes` long when given, else the configured length from the cached
+ * form config (E12), else 9 h.
+ */
+export function useSlaWindowFormatter(
+  businessDayMinutes?: number,
+): (minutes: number, businessHoursOnly: boolean) => string {
   const t = useTranslations('tickets.duration');
   const locale = useLocale();
+  const configured = useConfiguredBusinessDayMinutes();
+  const dayMinutes = businessDayMinutes ?? configured;
   return useCallback(
     (minutes, businessHoursOnly) => {
-      const parts = slaWindowParts(minutes, businessHoursOnly);
+      const parts = slaWindowParts(minutes, businessHoursOnly, dayMinutes);
       const n = (value: number) => formatNumber(value, locale);
       switch (parts.unit) {
         case 'minutes':
@@ -72,7 +81,7 @@ export function useSlaWindowFormatter(): (minutes: number, businessHoursOnly: bo
           return t('hoursMinutes', { hours: n(parts.hours), minutes: n(parts.minutes) });
       }
     },
-    [t, locale],
+    [t, locale, dayMinutes],
   );
 }
 
@@ -88,11 +97,15 @@ export function useSlaWindowFormatter(): (minutes: number, businessHoursOnly: bo
  */
 export function useAssetPlaceholder(): (
   placeholder: string | null | undefined,
+  /** The category's own Arabic example (Phase 4 admin): used as is in the Arabic UI. */
+  placeholderAr?: string | null,
 ) => string | undefined {
   const t = useTranslations('tickets.assetPlaceholder');
   const locale = useLocale();
   return useCallback(
-    (placeholder) => {
+    (placeholder, placeholderAr) => {
+      const arabic = locale === 'ar' ? placeholderAr?.trim() : undefined;
+      if (arabic) return isolateDirection(arabic, 'rtl');
       const text = localizedAssetPlaceholder(placeholder, locale, {
         example: (example) => t('example', { example }),
         optional: t('optional'),

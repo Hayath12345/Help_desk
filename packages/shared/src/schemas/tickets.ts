@@ -159,7 +159,7 @@ export function toWellFormed(value: string): string {
  * A string with control characters removed and lone surrogates replaced, then trimmed (same type
  * for `.shape` reuse).
  */
-const cleanText = () =>
+export const cleanText = () =>
   z
     .string()
     .overwrite((value) => toWellFormed(stripControlChars(value)))
@@ -202,13 +202,31 @@ export const siteRefSchema = z.object({
 });
 export const userRefSchema = z.object({ id: z.uuid(), name: z.string() });
 
+/**
+ * Team and site on a ticket (E6): `isActive` false when the team / site was archived after the
+ * ticket was raised (the ticket still renders it, with an "archived" marker).
+ */
+export const ticketTeamRefSchema = teamRefSchema.extend({ isActive: z.boolean() });
+export const ticketSiteRefSchema = siteRefSchema.extend({ isActive: z.boolean() });
+
 // ───────────── New-ticket form configuration (live DB config) ─────────────
 
+/** A dropdown / multi-select option as the New Ticket form sees it (active options only). */
 export const customFieldOptionSchema = z.object({
   value: z.string(),
   labelEn: z.string(),
   labelAr: z.string(),
 });
+
+/**
+ * An option as stored in `CustomField.options` (JSON). Options are archived one by one, never
+ * removed (E5/E6): an archived option (`isActive: false`) is left out of the form but still labels
+ * the values old tickets hold. Rows written before Phase 4 have no `isActive` (= active).
+ */
+export const storedCustomFieldOptionSchema = customFieldOptionSchema.extend({
+  isActive: z.boolean().default(true),
+});
+export type StoredCustomFieldOption = z.infer<typeof storedCustomFieldOptionSchema>;
 
 export const formCustomFieldSchema = z.object({
   id: z.uuid(),
@@ -237,6 +255,8 @@ export const formCategorySchema = z.object({
   labelAr: z.string(),
   icon: z.string(),
   assetPlaceholder: z.string().nullable(),
+  /** Arabic example for the asset input; null = the English one is shown (bidi-isolated). */
+  assetPlaceholderAr: z.string().nullable(),
   team: teamRefSchema,
   subtypes: z.array(formSubtypeSchema),
   fields: z.array(formCustomFieldSchema),
@@ -259,8 +279,19 @@ export const ticketFormConfigSchema = z.object({
   securityCategoryKey: z.string(),
   /** Shown in the P1 banner ("Call 24/7 SOC"). */
   socPhone: z.string().nullable(),
-  /** Changes whenever config changes (Phase 4 admin edits); the web refetches on config:updated. */
-  version: z.string(),
+  /**
+   * Length of a business day in minutes (the configured opening hours, E12): "N business days"
+   * labels divide SLA minutes of business-hours policies by it. The most common length among the
+   * open weekdays (the longer one on a tie).
+   */
+  businessDayMinutes: z.number().int().positive(),
+  /**
+   * The config generation this was read at (E18). Every admin change bumps it and broadcasts
+   * `config:updated {scope, version}`; a client that receives version N and refetches keeps
+   * refetching (with a small backoff) until this is ≥ N. 0 when the generation is unknown (Redis
+   * unavailable).
+   */
+  version: z.number().int().nonnegative(),
 });
 export type TicketFormConfig = z.infer<typeof ticketFormConfigSchema>;
 
@@ -364,9 +395,9 @@ export const ticketSummaryDtoSchema = z.object({
   channel: z.enum(TICKET_CHANNELS),
   category: categoryRefSchema,
   subtype: subtypeRefSchema.nullable(),
-  team: teamRefSchema,
+  team: ticketTeamRefSchema,
   org: orgRefSchema,
-  site: siteRefSchema.nullable(),
+  site: ticketSiteRefSchema.nullable(),
   requester: userRefSchema.extend({ email: z.email() }),
   assignee: userRefSchema.nullable(),
   tags: z.array(z.string()),
@@ -401,13 +432,25 @@ export const ticketSummaryDtoSchema = z.object({
 });
 export type TicketSummaryDto = z.infer<typeof ticketSummaryDtoSchema>;
 
+/**
+ * A custom-field value on a ticket (E6), labelled even when the field or option was archived since.
+ */
 export const customFieldValueSchema = z.object({
   key: z.string(),
   labelEn: z.string(),
   labelAr: z.string(),
   type: z.enum(CUSTOM_FIELD_TYPES),
   value: z.unknown(),
+  /** false: the field was archived after the value was set. */
+  isActive: z.boolean(),
+  /**
+   * DROPDOWN / MULTI_SELECT: the chosen options in value order, with their labels (an option that
+   * is no longer configured keeps its value as its label and `isActive: false`). null for other
+   * types.
+   */
+  options: z.array(storedCustomFieldOptionSchema.extend({ isActive: z.boolean() })).nullable(),
 });
+export type CustomFieldValue = z.infer<typeof customFieldValueSchema>;
 
 /** Requester card (design right panel): the client organisation and its contract. */
 export const requesterCardSchema = z.object({

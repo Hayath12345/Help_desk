@@ -6,13 +6,15 @@
 //                     thread whose first load is in flight gets it when the load finishes
 // - ticket:updated  → update the ticket detail and every cached list row
 // - queue:updated   → refetch lists and counts (debounced: one burst → one refetch)
-// - config:updated  → refetch the New-ticket configuration
+// - config:updated  → refetch what the scope touches (config-scopes.ts): the New-ticket
+//                     configuration (until it reaches the announced version), form contexts,
+//                     macros, teams, ticket details, admin lists
 // - notification:new → insert into the console bell's list (lib/notifications; deduplicated by
 //                     id, unread count from the push)
 // - room joined     → (first join and every re-join) fetch what the thread may have missed before
 //                     the join: `after` its last known message
-// - after a reconnect (once the rooms are joined again): refetch tickets, lists, counts and
-//   notifications (pushes sent while disconnected were missed).
+// - after a reconnect (once the rooms are joined again): refetch tickets, lists, counts,
+//   notifications and config (pushes sent while disconnected were missed).
 
 import {
   messageDtoSchema,
@@ -35,6 +37,7 @@ import {
 import { ticketKeys } from '@/lib/tickets/keys';
 import type { ThreadMessage } from '@/lib/tickets/types';
 import { getRealtimeClient, type RealtimeClient } from './client';
+import { RECONNECT_CONFIG_KEYS, applyConfigUpdated } from './config-scopes';
 
 const RealtimeContext = createContext<RealtimeClient | null>(null);
 
@@ -130,9 +133,7 @@ export function connectRealtimeToCache(
       refreshCounts.run();
     }),
     client.on('queue:updated', () => refreshLists.run()),
-    client.on('config:updated', () => {
-      void queryClient.invalidateQueries({ queryKey: ticketKeys.formConfig() });
-    }),
+    client.on('config:updated', (payload) => applyConfigUpdated(queryClient, payload)),
     client.on('notification:new', (payload) => {
       const parsed = notificationNewPayloadSchema.safeParse(payload);
       if (parsed.success) applyNewNotification(queryClient, parsed.data);
@@ -145,6 +146,8 @@ export function connectRealtimeToCache(
     client.onReconnect(() => {
       void queryClient.invalidateQueries({ queryKey: ticketKeys.details() });
       void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+      for (const key of RECONNECT_CONFIG_KEYS)
+        void queryClient.invalidateQueries({ queryKey: key });
       refreshLists.run();
     }),
   ];

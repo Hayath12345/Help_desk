@@ -68,8 +68,44 @@ export class Fixtures {
   private readonly categoryIds = new Set<string>();
   private readonly fieldIds = new Set<string>();
   private readonly tagKeys = new Set<string>();
+  private readonly cleanups: Array<() => Promise<unknown>> = [];
 
   constructor(readonly prisma: PrismaClient) {}
+
+  /**
+   * Extra cleanup, run first (newest first) — for rows a test creates that the tracked sets don't
+   * cover (e.g. global macros, escalation rules, AppSettings it changed). Audit rows written by
+   * tracked users are removed anyway.
+   */
+  onCleanup(fn: () => Promise<unknown>): void {
+    this.cleanups.push(fn);
+  }
+
+  /** Categories / custom fields a test creates through the API (deleted in cleanup). */
+  trackCategory(id: string): string {
+    this.categoryIds.add(id);
+    return id;
+  }
+
+  trackField(id: string): string {
+    this.fieldIds.add(id);
+    return id;
+  }
+
+  trackTeam(id: string): string {
+    this.teamIds.add(id);
+    return id;
+  }
+
+  trackOrg(id: string): string {
+    this.orgIds.add(id);
+    return id;
+  }
+
+  trackUser(id: string): string {
+    this.userIds.add(id);
+    return id;
+  }
 
   /** Remember an email whose user the API will create (register / OAuth). */
   trackEmail(email: string): string {
@@ -236,6 +272,7 @@ export class Fixtures {
   }
 
   async cleanup(): Promise<void> {
+    for (const fn of this.cleanups.splice(0).reverse()) await fn();
     const emails = [...this.emails];
     const ids = [...this.userIds];
     const userIds = [
@@ -256,6 +293,25 @@ export class Fixtures {
       },
     });
     await this.prisma.attachment.deleteMany({ where: { uploaderId: { in: userIds } } });
+    // Admin audit rows written by (or about) test users and test rows (append-only in the app).
+    await this.prisma.adminAuditLog.deleteMany({
+      where: {
+        OR: [
+          { actorId: { in: userIds } },
+          {
+            entityId: {
+              in: [
+                ...userIds,
+                ...this.orgIds,
+                ...this.teamIds,
+                ...this.categoryIds,
+                ...this.fieldIds,
+              ],
+            },
+          },
+        ],
+      },
+    });
     if (this.categoryIds.size) {
       const categoryIds = [...this.categoryIds];
       await this.prisma.subtype.deleteMany({ where: { categoryId: { in: categoryIds } } });
@@ -316,6 +372,7 @@ export async function createTestContext(
       | 'realtimeClusterTimeoutMs'
       | 'uploadQuota'
       | 'escalationMinuteMs'
+      | 'adminWriteLimit'
     >;
   } = {},
 ): Promise<TestContext> {

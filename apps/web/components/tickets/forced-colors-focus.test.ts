@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest';
 // flatten backgrounds, so they carry `outline-hidden` under that variant, never unconditionally.
 // Scanned: the console and ticket components, every page under app/ (round-2 verify: the portal's
 // rows and reply box were missed) and, since Phase 3, the shadcn primitives (components/ui) and
-// the shell (components/shell, where the notification bell lives).
+// the shell (components/shell, where the notification bell lives); since Phase 4, the admin kit
+// and sections (components/admin).
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const DIRS = [
@@ -22,6 +23,7 @@ const DIRS = [
   'app',
   'components/ui',
   'components/shell',
+  'components/admin',
 ];
 
 function sources(): { file: string; text: string }[] {
@@ -66,7 +68,7 @@ const tokens = (classes: string) => classes.split(/\s+/);
 describe('forced-colors focus indicators (UI-RR-3)', () => {
   const files = sources();
 
-  it('scans the console, ticket, ui and shell components and the pages', () => {
+  it('scans the console, ticket, ui, shell and admin components and the pages', () => {
     expect(files.map((f) => f.file)).toEqual(
       expect.arrayContaining([
         'components/console/ticket-row.tsx',
@@ -81,6 +83,9 @@ describe('forced-colors focus indicators (UI-RR-3)', () => {
         'components/ui/dropdown-menu.tsx',
         'components/shell/console-search.tsx',
         'components/shell/notification-bell.tsx',
+        'components/admin/kit/admin-table.tsx',
+        'components/admin/kit/admin-sheet.tsx',
+        'components/admin/kit/reorder.tsx',
       ]),
     );
   });

@@ -32,6 +32,7 @@
     "handledBy": "يتولاها {assignee} · {team}",
     "handledByTeam": "يتولاها {team}",
     "opened": "فُتحت {date}",
+    "archived": "{label} (مؤرشف)",
     "markSolved": "تحديد كمحلولة",
     "reopen": "إعادة فتح التذكرة",
     "solvedToast": "تم تحديد التذكرة كمحلولة",

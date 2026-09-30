@@ -261,8 +261,9 @@ export function formatDurationMinutes(minutes: number, locale: Locale): string {
 }
 
 /**
- * Length of one business day in business minutes (Sun–Thu 07:30–16:30 = 9 h, spec §13), as the
- * web app's SLA labels assume.
+ * Default length of one business day in business minutes (Sun–Thu 07:30–16:30 = 9 h, spec §13).
+ * Senders pass the configured length (decision E12: the ticket form config's
+ * `businessDayMinutes`, derived from the business hours); this is only the fallback.
  */
 export const BUSINESS_DAY_MINUTES = 9 * 60;
 const DAY_MINUTES = 24 * 60;
@@ -270,7 +271,8 @@ const DAY_MINUTES = 24 * 60;
 /**
  * An SLA target window from policy minutes: "15 minutes", "4 business hours", "1 business day",
  * "2 days", "1 hour 30 minutes" / "15 دقيقة", "4 ساعات عمل", "يوم عمل واحد". Business-hours
- * policies say "business" for whole hours and days.
+ * policies say "business" for whole hours and days; a business day is `businessDayMinutes` long
+ * (the configured one, E12; 9 h when not given).
  */
 export function formatTargetDuration(
   minutes: number,

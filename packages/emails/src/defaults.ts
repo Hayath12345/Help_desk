@@ -7,8 +7,8 @@ import type { Locale } from '@loons/shared';
 // inactive. CTA labels, the CTA target, the audience and the surface are part of the layout and
 // stay in code.
 //
-// The ticket templates are copies of the seeded rows (packages/db/prisma/seed-data/
-// email-templates.ts): `seed-parity.test.ts` fails when the two drift apart.
+// Every template is a copy of its seeded row (packages/db/prisma/seed-data/email-templates.ts):
+// `seed-parity.test.ts` fails when the two drift apart (the editor would show "Customized").
 
 export const AUTH_EMAIL_TEMPLATE_KEYS = [
   'PASSWORD_RESET',

@@ -201,7 +201,13 @@ async function prepareEmail(
       const config = await ctx.ticketConfig.getFormConfig();
       const policy = config.slaPolicies.find((p) => p.priority === t.priority);
       variables.targetResponse = policy
-        ? formatTargetDuration(policy.firstReplyMins, policy.businessHoursOnly, locale)
+        ? formatTargetDuration(
+            policy.firstReplyMins,
+            policy.businessHoursOnly,
+            locale,
+            // "N business days" in the configured day length (E12), not a fixed 9 h.
+            config.businessDayMinutes,
+          )
         : EMPTY_VALUE;
       variables.socPhone = config.socPhone ?? EMPTY_VALUE;
       break;

@@ -48,6 +48,7 @@ import { useCreateTicket } from '@/lib/tickets/mutations';
 import {
   buildNewTicketSchema,
   countFieldErrors,
+  dropUnavailableOptions,
   effectivePriority,
   emptyCustomFieldValue,
   emptyNewTicketValues,
@@ -211,6 +212,78 @@ export function NewTicketForm({
   // ── Derived display state
   const category = findCategory(config, categoryId);
   const subtype = category?.subtypes.find((s) => s.id === subtypeId);
+
+  // ── Live config (Phase 4, E18): an admin may archive the chosen category / sub-type / an option
+  // of a field, add fields, or change the security category while this form is open. The
+  // refetched config re-renders the same form (the input is kept); a choice that disappeared is
+  // cleared with a polite notice (its label is remembered from the configs this form has seen),
+  // new fields get their empty value, and a Security Incident follows the security category.
+  const seenLabels = useRef(new Map<string, string>());
+  useEffect(() => {
+    for (const c of config.categories) {
+      seenLabels.current.set(c.id, localizedLabel(c, locale));
+      for (const s of c.subtypes) seenLabels.current.set(s.id, localizedLabel(s, locale));
+    }
+  }, [config, locale]);
+  const [configNotice, setConfigNotice] = useState('');
+  useEffect(() => {
+    if (type === 'SECURITY_INCIDENT' && secCategory && categoryId !== secCategory.id) {
+      // The locked category must be the security one: move there (the sub-type was the old one's).
+      setConfigNotice(
+        t('securityCategoryMovedNotice', {
+          category: seenLabels.current.get(secCategory.id) ?? '',
+        }),
+      );
+      setValue('categoryId', secCategory.id, { shouldDirty: true });
+      setValue('subtypeId', '', { shouldDirty: true });
+      return;
+    }
+    if (categoryId && !findCategory(config, categoryId)) {
+      setValue('categoryId', '', { shouldDirty: true });
+      setValue('subtypeId', '', { shouldDirty: true });
+      setConfigNotice(
+        t('categoryGoneNotice', { category: seenLabels.current.get(categoryId) ?? '' }),
+      );
+      return;
+    }
+    const current = findCategory(config, categoryId);
+    if (!current) return;
+    if (subtypeId && !current.subtypes.some((s) => s.id === subtypeId)) {
+      setValue('subtypeId', '', { shouldDirty: true });
+      setConfigNotice(t('subtypeGoneNotice', { subtype: seenLabels.current.get(subtypeId) ?? '' }));
+    }
+    const values = getValues('customFields');
+    const added = current.fields.filter((field) => !(field.key in values));
+    let fields = values;
+    if (added.length) {
+      fields = { ...values };
+      for (const field of added) fields[field.key] = emptyCustomFieldValue(field.type);
+    }
+    // A chosen option that was archived can't be seen or unticked: drop it and say so.
+    const pruned = dropUnavailableOptions(current.fields, fields);
+    if (pruned.changed.length) {
+      setValue('customFields', pruned.values, { shouldDirty: true, shouldValidate: isSubmitted });
+      const names = pruned.changed.map((field) => localizedLabel(field, locale));
+      setConfigNotice(
+        t('optionGoneNotice', {
+          field: new Intl.ListFormat(locale, { type: 'conjunction' }).format(names),
+        }),
+      );
+    } else if (added.length) {
+      setValue('customFields', fields);
+    }
+  }, [
+    config,
+    type,
+    secCategory,
+    categoryId,
+    subtypeId,
+    isSubmitted,
+    locale,
+    getValues,
+    setValue,
+    t,
+  ]);
   const effective = effectivePriority({ priority, categoryId, subtypeId }, config);
   const policy = effective ? config.slaPolicies.find((p) => p.priority === effective) : undefined;
   const isSecurity = type === 'SECURITY_INCIDENT';
@@ -233,6 +306,7 @@ export function NewTicketForm({
     // hidden native <select> fires "change", with '' while its options are being replaced): an
     // echo must not clear the sub-type set with the category.
     if (!next || next === getValues('categoryId')) return;
+    setConfigNotice('');
     setValue('categoryId', next, validateAfterSubmit);
     setValue('subtypeId', '', { shouldDirty: true });
     const nextCategory = findCategory(config, next);
@@ -267,6 +341,9 @@ export function NewTicketForm({
   const changeType = (next: TicketType) => {
     const previous = getValues('type');
     if (next === previous) return;
+    // A notice about the live config (a moved category, a cleared option) is about the form as
+    // it was: the type change says what happens now.
+    setConfigNotice('');
     setValue('type', next, validateAfterSubmit);
     if (!secCategory) {
       if (isSubmitted) void trigger();
@@ -528,7 +605,9 @@ export function NewTicketForm({
               value={subtypeId}
               onValueChange={(next) => {
                 // '' is never a choice: only the native <select>'s echo (see changeCategory).
-                if (next) setValue('subtypeId', next, validateAfterSubmit);
+                if (!next) return;
+                setConfigNotice('');
+                setValue('subtypeId', next, validateAfterSubmit);
               }}
               disabled={!category}
             >
@@ -551,6 +630,18 @@ export function NewTicketForm({
               </SelectContent>
             </Select>
           </FormField>
+        </div>
+
+        {/* Always mounted, so screen readers announce the notice when it appears. */}
+        <div role="status" aria-live="polite" className={cn(!configNotice && 'sr-only')}>
+          {configNotice ? (
+            <p
+              data-slot="config-notice"
+              className="rounded-lg border border-note-border bg-note-bg px-3.5 py-3 text-sm leading-normal text-note-ink-strong"
+            >
+              {configNotice}
+            </p>
+          ) : null}
         </div>
 
         <FormField
@@ -651,7 +742,10 @@ export function NewTicketForm({
             <Input
               {...fieldA11y(fid('asset'), { error: err('assetId') })}
               {...register('assetId')}
-              placeholder={assetPlaceholder(category?.assetPlaceholder) ?? t('assetPlaceholder')}
+              placeholder={
+                assetPlaceholder(category?.assetPlaceholder, category?.assetPlaceholderAr) ??
+                t('assetPlaceholder')
+              }
               maxLength={100}
               autoComplete="off"
               className="font-mono"

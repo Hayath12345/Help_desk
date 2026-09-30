@@ -21,6 +21,7 @@ import { useFormContext, useTeams, useTicketFormConfig } from '@/lib/tickets/que
 import { localizedLabel, placeName, teamName } from '@/lib/tickets/labels';
 import { useViewer } from '@/lib/tickets/viewer';
 import { cn } from '@/lib/utils';
+import { CustomFieldValues } from './custom-field-values';
 import { AssetIdEditor, PropertySelect, TagsEditor, type PropertyOption } from './property-editors';
 import { RequesterCard } from './requester-card';
 import { SlaCard } from './sla-card';
@@ -33,9 +34,13 @@ type StaffStatus = (typeof STAFF_SETTABLE_STATUSES)[number];
 
 /**
  * Console right panel (design 814–882): SLA card, status segmented control, the property editors
- * (priority, assignee, category, sub-type, impact, site, asset ID, tags), "Assign to me" and the
- * requester card. Every change is optimistic (useUpdateTicket: instant, rolled back with a toast
- * if the API refuses it).
+ * (priority, assignee, category, sub-type, impact, site, asset ID, tags), "Assign to me", the
+ * ticket's custom-field values and the requester card. Every change is optimistic
+ * (useUpdateTicket: instant, rolled back with a toast if the API refuses it).
+ *
+ * Archived config (E6): an archived category, sub-type, site, team, field or option stays shown
+ * on the ticket with an "archived" marker, and a ticket on an archived team stays workable — its
+ * members are still offered as assignees (GET /teams?archived=include).
  */
 export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
   const t = useTranslations('console.panel');
@@ -48,6 +53,9 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
   const update = useUpdateTicket();
   const config = useTicketFormConfig();
   const teams = useTeams();
+  const teamArchived = !ticket.team.isActive;
+  const withArchived = useTeams({ includeArchived: true, enabled: teamArchived });
+  const teamList = teamArchived ? withArchived.data : teams.data;
   const sites = useFormContext(ticket.requester.id);
   const localizedAssetPlaceholder = useAssetPlaceholder();
 
@@ -55,9 +63,10 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
     update.mutate({ ticketId: ticket.id, patch, optimistic });
 
   // ── Assignee: members of the ticket's team (+ the current assignee and a super admin viewer).
-  const team = teams.data?.find((candidate) => candidate.id === ticket.team.id);
+  const team = teamList?.find((candidate) => candidate.id === ticket.team.id);
   const assigneeOptions = useMemo<PropertyOption[]>(() => {
-    const suffix = teamName(ticket.team, locale);
+    const name = teamName(ticket.team, locale);
+    const suffix = ticket.team.isActive ? name : t('archived', { label: name });
     const options: PropertyOption[] = [{ value: UNASSIGNED, label: t('unassigned') }];
     const seen = new Set<string>();
     const push = (id: string, name: string, withTeam: boolean) => {
@@ -78,7 +87,7 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
     !!viewer &&
     !isMine &&
     (viewer.role === 'SUPER_ADMIN' ||
-      !teams.data ||
+      !teamList ||
       !!team?.members.some((member) => member.id === viewer.id));
 
   const assign = (id: string | null) => {
@@ -151,14 +160,19 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
       label: placeName(site, locale),
     }));
     if (ticket.site && !options.some((option) => option.value === ticket.site?.id)) {
-      options.unshift({ value: ticket.site.id, label: placeName(ticket.site, locale) });
+      const label = placeName(ticket.site, locale);
+      options.unshift({
+        value: ticket.site.id,
+        label: ticket.site.isActive ? label : t('archived', { label }),
+      });
     }
     return options;
-  }, [siteList, ticket.site, locale]);
+  }, [siteList, ticket.site, locale, t]);
 
   const changeSite = (siteId: string) => {
     const site = siteList?.find((candidate) => candidate.id === siteId);
-    save({ siteId }, site ? { site } : undefined);
+    // A site offered here is an active one (the form context lists active sites only).
+    save({ siteId }, site ? { site: { ...site, isActive: true } } : undefined);
   };
 
   const priorityOptions = PRIORITIES.map<PropertyOption>((priority) => ({
@@ -181,8 +195,12 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
     ? (ticket.status as StaffStatus)
     : '';
 
-  // The category's example in the UI language ("e.g. FW-01" → "مثال: FW-01"; review DA-11).
-  const assetPlaceholder = localizedAssetPlaceholder(category?.assetPlaceholder);
+  // The category's example in the UI language: its Arabic example when set, else the English one
+  // in Arabic words ("e.g. FW-01" → "مثال: FW-01"; review DA-11).
+  const assetPlaceholder = localizedAssetPlaceholder(
+    category?.assetPlaceholder,
+    category?.assetPlaceholderAr,
+  );
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -251,6 +269,8 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
         />
         <TagsEditor label={t('tags')} tags={ticket.tags} onChange={(tags) => save({ tags })} />
       </div>
+
+      <CustomFieldValues fields={ticket.customFields} />
 
       {canTake && viewer ? (
         <Button

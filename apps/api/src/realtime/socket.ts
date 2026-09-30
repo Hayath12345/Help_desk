@@ -140,6 +140,11 @@ export interface Realtime {
   emitToRoom(room: RoomName, event: string, payload: unknown): void;
   emitToUser(userId: string, event: string, payload: unknown): void;
   /**
+   * Emit to every connected socket, on every API instance when the Redis adapter is on (e.g.
+   * `config:updated`, whose payload carries no data a signed-in user may not see).
+   */
+  broadcast(event: string, payload: unknown): void;
+  /**
    * Closes every live socket of the user, on every API instance when the Redis adapter is on.
    * Call after revoking their sessions (sessionVersion bump).
    */
@@ -471,6 +476,9 @@ export function attachRealtime(
     },
     emitToUser(userId, event, payload) {
       io.to(rooms.user(userId)).emit(event, payload);
+    },
+    broadcast(event, payload) {
+      io.emit(event, payload);
     },
     disconnectUser(userId) {
       io.in(rooms.user(userId)).disconnectSockets(true);

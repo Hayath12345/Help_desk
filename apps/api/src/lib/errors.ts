@@ -47,6 +47,8 @@ export const errors = {
       },
     ),
   internal: () => new AppError(500, 'INTERNAL', 'Something went wrong. Please try again.'),
+  notImplemented: (message = 'This part of the admin is not available yet.') =>
+    new AppError(501, 'NOT_IMPLEMENTED', message),
   serviceUnavailable: (retryAfterSeconds: number) =>
     new AppError(
       503,
@@ -122,6 +124,8 @@ export function codeForStatus(status: number): ErrorCode {
       return 'CONFLICT';
     case 429:
       return 'RATE_LIMITED';
+    case 501:
+      return 'NOT_IMPLEMENTED';
     default:
       return status >= 500 ? 'INTERNAL' : 'BAD_REQUEST';
   }

@@ -120,6 +120,7 @@
     "memberOption": "{name} · {team}",
     "subtypeOption": "{label} · {priority}",
     "archived": "{label} (مؤرشف)",
+    "customFields": "الحقول المخصصة",
     "assignToMe": "إسناد إليّ",
     "tagsEditor": {
       "placeholder": "+ وسم",

@@ -1,0 +1,244 @@
+{
+  "validation": {
+    "unknownVariable": "Use only the variables listed for this email: {names}.",
+    "unknownVariableServer": "This text uses a variable this email doesn’t have.",
+    "blockInSubject": "{names} can only be used in the body, not in the subject.",
+    "blockInSubjectServer": "A multi-line variable can only be used in the body.",
+    "malformedPlaceholder": "{names} isn’t a variable: check its braces and name, or insert one from the list.",
+    "malformedPlaceholderServer": "This text has braces that aren’t a variable: check them, or insert variables from the list.",
+    "keyFormat": "Use 2–64 lowercase letters or digits, joined by single hyphens.",
+    "nothingToChange": "Nothing has changed.",
+    "duplicateKey": "This key is already used by another article.",
+    "duplicateKeyArchived": "This key is already used by an archived article. Restore that one, or choose another key."
+  },
+  "emailTemplates": {
+    "tableLabel": "Email templates",
+    "fixedNote": "These twelve emails are built in: you can change their wording, but not add or remove them.",
+    "columns": {
+      "name": "Email",
+      "audience": "Sent to",
+      "status": "Wording",
+      "updated": "Last changed"
+    },
+    "audience": {
+      "user": "One person",
+      "list": "Team email list"
+    },
+    "status": {
+      "customized": "Edited",
+      "builtIn": "Built-in"
+    },
+    "neverEdited": "Never edited",
+    "updatedBy": "{date} by {name}",
+    "keys": {
+      "PASSWORD_RESET": {
+        "title": "Password reset",
+        "description": "Sent when someone asks to reset their password."
+      },
+      "EMAIL_VERIFICATION": {
+        "title": "Email confirmation",
+        "description": "Sent to new portal users to confirm their email address."
+      },
+      "GOOGLE_LINKED": {
+        "title": "Google sign-in added",
+        "description": "Sent when Google sign-in is first added to an account that had a password."
+      },
+      "TICKET_CREATED_CLIENT": {
+        "title": "Request received",
+        "description": "Sent to the client who raised a new ticket."
+      },
+      "TICKET_CREATED_TEAM": {
+        "title": "New ticket for a team",
+        "description": "Sent to the team’s email list when a ticket is routed to it."
+      },
+      "AGENT_REPLY_CLIENT": {
+        "title": "Reply from support",
+        "description": "Sent to the client when an agent replies publicly."
+      },
+      "CLIENT_REPLY_ASSIGNEE": {
+        "title": "Client replied",
+        "description": "Sent to the assigned agent (or the team list) when the client replies."
+      },
+      "SLA_AT_RISK": {
+        "title": "SLA at risk",
+        "description": "Sent to staff when a target is about to be missed."
+      },
+      "SLA_BREACHED": {
+        "title": "SLA breached",
+        "description": "Sent to staff when a target was missed."
+      },
+      "P1_ALERT": {
+        "title": "P1 alert",
+        "description": "Sent to the team when a ticket becomes P1 Critical."
+      },
+      "P1_ESCALATION": {
+        "title": "P1 escalation",
+        "description": "Sent at each escalation step while nobody has acknowledged a P1."
+      },
+      "P4_DAILY_DIGEST": {
+        "title": "P4 daily digest",
+        "description": "Sent to each team’s email list once a day with its new P4 tickets."
+      }
+    },
+    "sheetDescription": "{description} Placeholders in double braces are filled in when the email is sent.",
+    "subject": "Subject",
+    "body": "Body",
+    "bodyHint": "Plain text. Leave a blank line between paragraphs. Links to this app become the button at the end.",
+    "arabicEmptyHint": "Leave the Arabic subject or body empty to send the English text.",
+    "listAudienceNote": "This email goes to a team’s email list and is always sent in English. The Arabic text is kept but not used.",
+    "variables": {
+      "title": "Variables",
+      "hint": "Select a variable to add it where the cursor is.",
+      "listLabel": "Variables of this email",
+      "bodyOnly": "body only",
+      "insert": "Insert {variable}"
+    },
+    "reset": "Reset to default",
+    "resetting": "Resetting…",
+    "resetConfirmTitle": "Reset “{name}” to the built-in text?",
+    "resetConfirmBody": "The English and Arabic subject and body go back to the wording that ships with Loons Help Desk. Your edits are lost.",
+    "resetUnsavedBody": "Your unsaved changes are lost too.",
+    "preview": {
+      "title": "Preview",
+      "description": "Rendered with sample values, exactly like the sent email.",
+      "loading": "Rendering the preview…",
+      "error": "The preview couldn’t be rendered.",
+      "retry": "Try again",
+      "frameTitle": "Preview of the {language} email",
+      "subject": "Subject",
+      "englishFallback": "The Arabic subject or body is empty, so this email goes out in English. The preview shows the English text.",
+      "languages": {
+        "en": "English",
+        "ar": "Arabic"
+      }
+    },
+    "toast": {
+      "saved": "“{name}” saved",
+      "reset": "“{name}” reset to the built-in text"
+    }
+  },
+  "helpCenter": {
+    "tableLabel": "Help-center articles",
+    "portalNote": "Clients see published articles on the portal’s Help center page, in their language.",
+    "columns": {
+      "title": "Title",
+      "status": "Status",
+      "key": "Key",
+      "updated": "Last changed"
+    },
+    "status": {
+      "published": "Published",
+      "draft": "Draft"
+    },
+    "emptyTitle": "No articles yet",
+    "emptyDescription": "Use Create new to write the first question and answer.",
+    "createTitle": "New article",
+    "createDescription": "Write the question as the title and the answer as the text.",
+    "editDescription": "Changes to a published article show in the portal as soon as you save.",
+    "fields": {
+      "title": "Title",
+      "body": "Article text",
+      "bodyHint": "Plain text. Leave a blank line between paragraphs.",
+      "published": "Published",
+      "publishedHint": "Drafts are only visible here, in the admin."
+    },
+    "arabicEmptyHint": "Leave the Arabic empty to show clients who use Arabic the English article.",
+    "preview": {
+      "title": "Preview",
+      "description": "As clients see it in the Help center.",
+      "empty": "Write a title and text to see the preview.",
+      "englishFallback": "No Arabic text yet: clients who use Arabic see the English article.",
+      "draft": "Draft — clients can’t see this article yet."
+    },
+    "orderChanged": "Someone else changed the order meanwhile. The list was reloaded — try again.",
+    "toast": {
+      "published": "“{label}” published",
+      "unpublished": "“{label}” moved to drafts"
+    }
+  },
+  "auditLog": {
+    "tableLabel": "Audit log entries",
+    "readOnly": "Read-only: entries can’t be changed or deleted. Secrets are never recorded — webhook addresses keep only their host and phone numbers are masked.",
+    "columns": {
+      "when": "When",
+      "who": "Changed by",
+      "action": "Action",
+      "record": "Record",
+      "changes": "Changed"
+    },
+    "actions": {
+      "CREATE": "Created",
+      "UPDATE": "Updated",
+      "ARCHIVE": "Archived",
+      "RESTORE": "Restored",
+      "REORDER": "Reordered",
+      "DELETE": "Removed",
+      "APPROVE": "Approved",
+      "REJECT": "Rejected"
+    },
+    "entities": {
+      "Category": "Category",
+      "Subtype": "Sub-type",
+      "CustomField": "Custom field",
+      "CategoryField": "Field on a category",
+      "Macro": "Macro",
+      "SlaPolicy": "SLA policy",
+      "BusinessHours": "Business hours",
+      "Holiday": "Holiday",
+      "EscalationRule": "Escalation rule",
+      "Team": "Team",
+      "TeamMember": "Team member",
+      "User": "Staff account",
+      "Organization": "Organisation",
+      "Site": "Site",
+      "EmailTemplate": "Email template",
+      "HelpArticle": "Help article",
+      "AppSetting": "Setting"
+    },
+    "unknownActor": "Deleted account or system",
+    "fieldsChanged": "{count, plural, one {# field} other {# fields}}",
+    "noFieldsChanged": "—",
+    "filters": {
+      "label": "Filter the audit log",
+      "entity": "Record type",
+      "anyEntity": "All record types",
+      "action": "Action",
+      "anyAction": "All actions",
+      "actor": "Changed by",
+      "anyActor": "Anyone",
+      "actorDisabled": "{name} (disabled)",
+      "timeZone": "Days and times are in {timeZone} time.",
+      "from": "From",
+      "to": "To",
+      "toHint": "Up to and including this day.",
+      "clear": "Clear filters",
+      "record": "Only record {id}",
+      "removeRecord": "Show every record"
+    },
+    "emptyTitle": "No changes recorded yet",
+    "emptyDescription": "Every change made in the admin appears here.",
+    "emptyFilteredTitle": "No entries match",
+    "emptyFilteredDescription": "Try other filters, or clear them.",
+    "loadMore": "Load older entries",
+    "loadingMore": "Loading…",
+    "loadMoreError": "Older entries couldn’t be loaded.",
+    "detail": {
+      "description": "{entity} · {when}",
+      "who": "Changed by",
+      "when": "When",
+      "record": "Record",
+      "recordId": "Record ID",
+      "requestId": "Request ID",
+      "changes": "Changes",
+      "field": "Field",
+      "before": "Before",
+      "after": "After",
+      "noFields": "No field values were recorded for this change.",
+      "onlyThis": "Show this record’s history",
+      "empty": "(empty)",
+      "yes": "Yes",
+      "no": "No",
+      "order": "Order"
+    }
+  }
+}

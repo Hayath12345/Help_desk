@@ -132,7 +132,10 @@ export async function processNotificationEvent(
             context: {
               p1Since: t.p1Since.toISOString(),
               step: 1,
-              ...(first && next ? { escalationMins: next.afterMins - first.afterMins } : {}),
+              // Never negative: a chain whose delays go down fires the next step at once.
+              ...(first && next
+                ? { escalationMins: Math.max(0, next.afterMins - first.afterMins) }
+                : {}),
             },
           },
           recipientMasked: address,

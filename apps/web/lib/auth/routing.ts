@@ -1,15 +1,7 @@
 // Coarse, pure routing rules used by proxy.ts (and unit-tested). Layouts ALSO enforce access
 // server-side with requireUser() — this is the first line, not the only one.
-import {
-  ADMIN_SECTIONS,
-  TEAM_LEAD_ADMIN_SECTIONS,
-  WEB_ROUTES,
-  homePathFor,
-  isStaffRole,
-  type AdminSection,
-  type Role,
-  type UserStatus,
-} from '@loons/shared';
+import { WEB_ROUTES, homePathFor, isStaffRole, type Role, type UserStatus } from '@loons/shared';
+import { canOpenAdminSection, isAdminSection, type AdminSlug } from '../admin/sections';
 import { safeCallbackUrl } from './callback-url';
 import { STAFF_PROVIDER_IDS } from './provider-ids';
 
@@ -85,10 +77,10 @@ function isApiRoute(pathname: string): boolean {
   return matchesPrefix(pathname, '/api');
 }
 
-function adminSectionOf(pathname: string): AdminSection | null {
+function adminSectionOf(pathname: string): AdminSlug | null {
   if (!matchesPrefix(pathname, WEB_ROUTES.admin)) return null;
   const segment = pathname.slice(WEB_ROUTES.admin.length + 1).split('/')[0] ?? '';
-  return (ADMIN_SECTIONS as readonly string[]).includes(segment) ? (segment as AdminSection) : null;
+  return isAdminSection(segment) ? segment : null;
 }
 
 /** The routing fields of a session user, or null when the session is incomplete. */
@@ -149,7 +141,7 @@ export function canAccess(pathname: string, user: RoutingUser): boolean {
     if (user.role !== 'TEAM_LEAD') return false;
     const section = adminSectionOf(pathname);
     // The admin index and unknown paths (404s) are fine; known sections follow the allow-list.
-    return section === null || TEAM_LEAD_ADMIN_SECTIONS.includes(section);
+    return section === null || canOpenAdminSection('TEAM_LEAD', section);
   }
   return true;
 }
