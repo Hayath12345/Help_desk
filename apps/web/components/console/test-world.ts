@@ -4,17 +4,32 @@
 // Not imported by application code.
 
 import {
+  AGENT_QUEUE_CAPACITY,
+  QUEUE_TABS,
+  QUEUE_TAB_VIEWS,
+  REPORT_PERIOD_DAYS,
+  UNASSIGNED_FILTER,
   formatTicketNumber,
+  hasBreachedSla,
   isActiveStatus,
   isSlaAtRiskOrBreached,
   parseTicketNumber,
   statusAfterMessage,
   type AcknowledgeTicketResponse,
+  type BulkTicketOutcome,
+  type BulkTicketResult,
+  type BulkTicketsInput,
   type CreateMessageInput,
+  type CustomerList,
+  type CustomerOrg,
   type FormContext,
   type MacroDto,
   type MessageDto,
   type Priority,
+  type QueueCounts,
+  type QueueFilterOptions,
+  type ReportPeriod,
+  type ReportsSummary,
   type StaffView,
   type TeamWithMembers,
   type TicketCounts,
@@ -24,6 +39,7 @@ import {
   type TicketStatus,
   type TicketSummaryDto,
   type UpdateTicketInput,
+  type Workload,
 } from '@loons/shared';
 import { ApiRequestError } from '@/lib/api/errors';
 import { toSummary } from '@/lib/tickets/cache';
@@ -514,7 +530,21 @@ export interface InboxWorld {
   updateTicket: (ticketId: string, patch: UpdateTicketInput) => TicketDetailDto;
   /** POST /tickets/:id/acknowledge, like the API: idempotent, P1 only (409 otherwise). */
   acknowledge: (ticketId: string) => AcknowledgeTicketResponse;
+  /** GET /tickets/queue-counts (Phase 5 F3): each tab's count for the filters + search. */
+  queueCounts: (filters: TicketListFilters) => QueueCounts;
+  /** GET /tickets/workload (F5): every team member, open / at-risk assigned tickets. */
+  workload: () => Workload;
+  /** GET /tickets/filter-options (F4): the world's categories (all active). */
+  filterOptions: () => QueueFilterOptions;
+  /** POST /tickets/bulk (F6), like the API: per ticket; CLOSED → conflict, unknown → not_found. */
+  bulk: (input: BulkTicketsInput) => BulkTicketResult;
   formContext: (requesterId: string) => FormContext;
+  /** GET /customers (Phase 5 F8): requesters by name, paged by `pageSize`, counts per requester. */
+  customers: (search: string, cursor: string | null) => CustomerList;
+  /** GET /customers/orgs/:id (404 for an unknown id). */
+  customerOrg: (id: string) => CustomerOrg;
+  /** GET /reports/summary (F10–F12) computed from the world's tickets (every ticket visible). */
+  reportsSummary: (period: ReportPeriod) => ReportsSummary;
   macros: MacroDto[];
   teams: TeamWithMembers[];
   config: TicketFormConfig;
@@ -642,6 +672,8 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         { step: 2, afterMins: 5 },
         { step: 3, afterMins: 15 },
       ],
+      // Server-computed next escalation step (Phase 5 F15); not modelled by the world yet.
+      p1NextStep: null,
     };
   };
 
@@ -721,6 +753,23 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
     due(t),
     Date.parse(t.createdAt),
   ];
+  // The API's `priority` sort (Phase 5 F3): done tickets last, P1 → P4, paused after running,
+  // the next due date, created.
+  const priorityKey = (t: TicketDetailDto): [number, number, number, number, number] => [
+    isActiveStatus(t.status) ? 0 : 1,
+    Number(t.priority.slice(1)),
+    t.status === 'PENDING' && !firstReplyRunning(t) ? 1 : 0,
+    due(t),
+    Date.parse(t.createdAt),
+  ];
+  // Team queue filters (Phase 5 F4), ANDed like the API's; `assigneeId=none` = unassigned.
+  const matchesQueueFilters = (t: TicketDetailDto, filters: TicketListFilters) =>
+    (!filters.priority || t.priority === filters.priority) &&
+    (!filters.categoryId || t.category.id === filters.categoryId) &&
+    (!filters.assigneeId ||
+      (filters.assigneeId === UNASSIGNED_FILTER
+        ? !t.assignee
+        : t.assignee?.id === filters.assigneeId));
   const compare = (a: number[], b: number[]) => {
     for (let i = 0; i < a.length; i += 1) {
       const d = (a[i] ?? 0) - (b[i] ?? 0);
@@ -752,12 +801,17 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
       const rows = tickets
         .filter((t) => !filters.view || inView(t, filters.view, now))
         .filter((t) => !filters.teamId || t.team.id === filters.teamId)
+        // Company view (Phase 5 F9): no view = every status.
+        .filter((t) => !filters.orgId || t.org.id === filters.orgId)
+        .filter((t) => matchesQueueFilters(t, filters))
         .filter((t) => matches(t, filters.search ?? ''))
-        .sort((a, b) =>
-          (filters.sort ?? 'sla') === 'sla'
+        .sort((a, b) => {
+          const sort = filters.sort ?? 'sla';
+          if (sort === 'priority') return compare(priorityKey(a), priorityKey(b));
+          return sort === 'sla'
             ? compare(slaKey(a), slaKey(b))
-            : Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-        );
+            : Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+        });
       const start = cursor ? Number(cursor) : 0;
       const page = rows.slice(start, start + pageSize);
       const next = start + pageSize < rows.length ? String(start + pageSize) : null;
@@ -838,6 +892,81 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
       touch(ticket);
       return { ticket: structuredClone(ticket), alreadyAcknowledged: false };
     },
+    queueCounts(filters) {
+      const now = clock();
+      const count = (view: StaffView) =>
+        tickets.filter(
+          (t) =>
+            inView(t, view, now) &&
+            matchesQueueFilters(t, filters) &&
+            matches(t, filters.search ?? ''),
+        ).length;
+      const tabs = Object.fromEntries(QUEUE_TABS.map((tab) => [tab, count(QUEUE_TAB_VIEWS[tab])]));
+      return { tabs: tabs as QueueCounts['tabs'] };
+    },
+    workload() {
+      const now = clock();
+      const people = new Map<string, Workload['agents'][number]>();
+      for (const { members, ...ref } of WORLD_TEAM_LIST) {
+        const teamRef = { id: ref.id, key: ref.key, nameEn: ref.nameEn, nameAr: ref.nameAr };
+        for (const member of members) {
+          const entry = people.get(member.id) ?? {
+            id: member.id,
+            name: member.name,
+            teams: [],
+            open: 0,
+            atRisk: 0,
+          };
+          entry.teams.push(teamRef);
+          people.set(member.id, entry);
+        }
+      }
+      const agents = [...people.values()].map((agent) => {
+        const own = tickets.filter((t) => isActiveStatus(t.status) && t.assignee?.id === agent.id);
+        const atRisk = own.filter((t) => isSlaAtRiskOrBreached(t, now)).length;
+        return { ...agent, open: own.length, atRisk };
+      });
+      agents.sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+      return { capacity: AGENT_QUEUE_CAPACITY, agents };
+    },
+    filterOptions() {
+      return {
+        categories: config.categories.map(({ id, key, labelEn, labelAr, icon }) => ({
+          id,
+          key,
+          labelEn,
+          labelAr,
+          icon,
+          isActive: true,
+        })),
+      };
+    },
+    bulk({ ids, action }) {
+      const results = ids.map((id): BulkTicketOutcome => {
+        const ticket = find(id);
+        if (!ticket) {
+          return { id, ok: false, error: { reason: 'not_found', message: 'Ticket not found' } };
+        }
+        if (ticket.status === 'CLOSED') {
+          return { id, ok: false, error: { reason: 'conflict', message: 'Closed' } };
+        }
+        let changed = false;
+        if (action === 'assignToMe') {
+          changed = ticket.assignee?.id !== viewer.id || ticket.status === 'NEW';
+          ticket.assignee = { id: viewer.id, name: viewer.name };
+          if (ticket.status === 'NEW') ticket.status = 'OPEN';
+        } else if (ticket.status !== 'SOLVED') {
+          changed = true;
+          ticket.status = 'SOLVED';
+          ticket.solvedAt = iso(clock());
+          ticket.slaPausedAt = null;
+        }
+        if (changed) touch(ticket);
+        return { id, ok: true, changed };
+      });
+      const updated = results.filter((r) => r.ok).length;
+      return { results, updated, failed: results.length - updated };
+    },
     updateTicket(ticketId, patch) {
       const ticket = find(ticketId) ?? notFound();
       if (patch.tags?.includes('fail')) {
@@ -896,6 +1025,114 @@ export function createInboxWorld(options: WorldOptions = {}): InboxWorld {
         sites: org.sites,
       };
     },
+    customers(search, cursor) {
+      const term = search.trim().toLowerCase();
+      const rows = Object.values(REQUESTERS)
+        .map((r) => ({ requester: r, org: ORGS[r.org] }))
+        .filter(
+          ({ requester, org }) =>
+            !term ||
+            [requester.name, requester.email, org.name, org.nameAr ?? ''].some((text) =>
+              text.toLowerCase().includes(term),
+            ),
+        )
+        .sort((a, b) => a.requester.name.localeCompare(b.requester.name));
+      const start = cursor ? Number(cursor) : 0;
+      const page = rows.slice(start, start + pageSize);
+      return {
+        items: page.map(({ requester, org }) => {
+          const own = tickets.filter((t) => t.requester.id === requester.id);
+          return {
+            id: requester.id,
+            name: requester.name,
+            email: requester.email,
+            org: worldCustomerOrg(org),
+            open: own.filter((t) => isActiveStatus(t.status)).length,
+            total: own.length,
+          };
+        }),
+        nextCursor: start + pageSize < rows.length ? String(start + pageSize) : null,
+        totals: {
+          requesters: rows.length,
+          companies: new Set(rows.map(({ org }) => org.id)).size,
+        },
+      };
+    },
+    customerOrg(id) {
+      const org = Object.values(ORGS).find((o) => o.id === id.toLowerCase());
+      if (!org) throw new ApiRequestError(404, 'NOT_FOUND', 'Organisation not found');
+      return worldCustomerOrg(org);
+    },
+    reportsSummary(period) {
+      const now = clock();
+      const from = now - REPORT_PERIOD_DAYS[period] * 24 * 60 * MIN;
+      const open = tickets.filter((t) => isActiveStatus(t.status));
+      const replied = tickets.filter(
+        (t) => t.firstRepliedAt && Date.parse(t.firstRepliedAt) >= from,
+      );
+      const minutes = replied.map((t) =>
+        Math.floor((Date.parse(t.firstRepliedAt!) - Date.parse(t.createdAt)) / MIN),
+      );
+      const categories = config.categories.map((c) => ({
+        category: { id: c.id, key: c.key, labelEn: c.labelEn, labelAr: c.labelAr, icon: c.icon },
+        isActive: true,
+      }));
+      // Archived categories that still have open tickets come after the active ones.
+      for (const t of open) {
+        if (!categories.some((c) => c.category.id === t.category.id)) {
+          const { id, key, labelEn, labelAr, icon } = t.category;
+          categories.push({ category: { id, key, labelEn, labelAr, icon }, isActive: false });
+        }
+      }
+      return {
+        period,
+        timeZone: 'Asia/Qatar',
+        from: iso(from),
+        generatedAt: iso(now),
+        tiles: {
+          open: open.length,
+          p1Open: open.filter((t) => t.priority === 'P1').length,
+          breached: tickets.filter((t) => hasBreachedSla(t, now)).length,
+          unassigned: open.filter((t) => !t.assignee).length,
+          solved: tickets.filter(
+            (t) => !isActiveStatus(t.status) && t.solvedAt && Date.parse(t.solvedAt) >= from,
+          ).length,
+          firstReply: {
+            averageMinutes: minutes.length
+              ? Math.round(minutes.reduce((sum, m) => sum + m, 0) / minutes.length)
+              : null,
+            tickets: minutes.length,
+          },
+        },
+        byCategory: categories.map(({ category, isActive }) => ({
+          category: { ...category, isActive },
+          open: open.filter((t) => t.category.id === category.id).length,
+        })),
+      };
+    },
+  };
+}
+
+/** A world organisation as the Customers API returns it (every AMC in the world is current). */
+function worldCustomerOrg(org: (typeof ORGS)[OrgKey]): CustomerOrg {
+  return {
+    id: org.id,
+    name: org.name,
+    nameAr: org.nameAr,
+    contractType: org.contractType,
+    amcExpiry: org.amcExpiry,
+    amcExpired: false,
+    isActive: true,
+  };
+}
+
+/** The Team queue filters and search of a GET /tickets or /tickets/queue-counts query string. */
+function queueFilterParams(q: URLSearchParams): TicketListFilters {
+  return {
+    priority: (q.get('priority') as Priority | null) ?? undefined,
+    categoryId: q.get('categoryId') ?? undefined,
+    assigneeId: q.get('assigneeId') ?? undefined,
+    search: q.get('search') ?? undefined,
   };
 }
 
@@ -918,21 +1155,38 @@ export function worldRequest(
     if (url.pathname === '/tickets/form-context') {
       return world.formContext(q.get('requesterId') ?? '');
     }
+    if (url.pathname === '/customers') {
+      return clone(world.customers(q.get('search') ?? '', q.get('cursor')));
+    }
+    if (parts[0] === 'customers' && parts[1] === 'orgs' && parts.length === 3) {
+      return { org: clone(world.customerOrg(decodeURIComponent(parts[2] ?? ''))) };
+    }
+    if (url.pathname === '/reports/summary') {
+      return clone(world.reportsSummary((q.get('period') as ReportPeriod | null) ?? '30d'));
+    }
     if (url.pathname === '/tickets') {
       const filters: TicketListFilters = {
         view: (q.get('view') as StaffView | null) ?? undefined,
         teamId: q.get('teamId') ?? undefined,
-        search: q.get('search') ?? undefined,
-        sort: (q.get('sort') as 'sla' | 'recent' | null) ?? undefined,
+        orgId: q.get('orgId') ?? undefined,
+        ...queueFilterParams(q),
+        sort: (q.get('sort') as TicketListFilters['sort'] | null) ?? undefined,
       };
       return clone(world.listTickets(filters, q.get('cursor')));
     }
+    // Team queue (Phase 5 F3–F5).
+    if (url.pathname === '/tickets/queue-counts') return world.queueCounts(queueFilterParams(q));
+    if (url.pathname === '/tickets/workload') return clone(world.workload());
+    if (url.pathname === '/tickets/filter-options') return clone(world.filterOptions());
     if (parts[0] === 'tickets' && parts[2] === 'messages') {
       return { items: clone(world.listMessages(parts[1] ?? '', q.get('after'))) };
     }
     if (parts[0] === 'tickets' && parts.length === 2) {
       return { ticket: clone(world.getTicket(decodeURIComponent(parts[1] ?? ''))) };
     }
+  }
+  if (method === 'POST' && url.pathname === '/tickets/bulk') {
+    return world.bulk(body as BulkTicketsInput);
   }
   if (method === 'POST' && parts[0] === 'tickets' && parts[2] === 'acknowledge') {
     return world.acknowledge(parts[1] ?? '');

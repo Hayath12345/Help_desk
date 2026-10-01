@@ -376,6 +376,8 @@ export function makeDetail(overrides: Partial<TicketDetailDto> = {}): TicketDeta
       { step: 2, afterMins: 5 },
       { step: 3, afterMins: 15 },
     ],
+    // Server-computed next escalation step (Phase 5 F15); none by default.
+    p1NextStep: null,
     ...overrides,
   };
 }

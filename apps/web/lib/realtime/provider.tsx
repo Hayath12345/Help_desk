@@ -5,7 +5,9 @@
 // - message:new     → insert into that ticket's thread (deduplicated by id and clientTempId); a
 //                     thread whose first load is in flight gets it when the load finishes
 // - ticket:updated  → update the ticket detail and every cached list row
-// - queue:updated   → refetch lists and counts (debounced: one burst → one refetch)
+// - queue:updated   → refetch lists and counts, the Team queue's list, tab counts and agent cards
+//                     (debounced: one burst → one refetch); reports and
+//                     customer lists too (Phase 5 F16, their own debounce; also after a reconnect)
 // - config:updated  → refetch what the scope touches (config-scopes.ts): the New-ticket
 //                     configuration (until it reaches the announced version), form contexts,
 //                     macros, teams, ticket details, admin lists
@@ -23,8 +25,11 @@ import {
 } from '@loons/shared';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useMemo } from 'react';
+import { customerKeys } from '@/lib/customers/keys';
 import { applyNewNotification } from '@/lib/notifications/cache';
 import { notificationKeys } from '@/lib/notifications/keys';
+import { invalidateQueueLive } from '@/lib/queue/keys';
+import { reportKeys } from '@/lib/reports/keys';
 import { fetchAllMessages } from '@/lib/tickets/api';
 import {
   applyTicketSummary,
@@ -47,21 +52,47 @@ export function useRealtimeClient(): RealtimeClient | null {
 }
 
 const LIST_REFRESH_DEBOUNCE_MS = 400;
+/** Under steady traffic the lists still refresh at least this often. */
+export const LIST_REFRESH_MAX_WAIT_MS = 2_000;
+/**
+ * Reports and Customers (Phase 5 F16) aggregate over many tickets and a bulk action emits one
+ * `queue:updated` per ticket (up to 50): one refetch per burst.
+ */
+export const VIEWS_REFRESH_DEBOUNCE_MS = 1_000;
+/** Under steady traffic reports and customers still refresh at least this often. */
+export const VIEWS_REFRESH_MAX_WAIT_MS = 5_000;
 
-function debounce(fn: () => void, ms: number): { run: () => void; cancel: () => void } {
+/**
+ * Trailing debounce with a maximum wait: a burst of calls runs `fn` once, `ms` after the last
+ * one — and at the latest `maxWaitMs` after the first, so steady traffic (a Super Admin is in
+ * every team room) can't postpone the refresh indefinitely.
+ */
+function debounce(
+  fn: () => void,
+  ms: number,
+  maxWaitMs: number,
+): { run: () => void; cancel: () => void } {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstCall: number | null = null;
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    firstCall = null;
+  };
   return {
     run: () => {
+      const now = Date.now();
+      firstCall ??= now;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        fn();
-      }, ms);
+      timer = setTimeout(
+        () => {
+          cancel();
+          fn();
+        },
+        Math.max(0, Math.min(ms, firstCall + maxWaitMs - now)),
+      );
     },
-    cancel: () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-    },
+    cancel,
   };
 }
 
@@ -97,13 +128,33 @@ export function connectRealtimeToCache(
   client: RealtimeClient,
   queryClient: QueryClient,
 ): () => void {
-  const refreshLists = debounce(() => {
-    void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
-    void queryClient.invalidateQueries({ queryKey: ticketKeys.counts() });
-  }, LIST_REFRESH_DEBOUNCE_MS);
-  const refreshCounts = debounce(() => {
-    void queryClient.invalidateQueries({ queryKey: ticketKeys.counts() });
-  }, LIST_REFRESH_DEBOUNCE_MS);
+  const refreshLists = debounce(
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.counts() });
+      // Team queue (Phase 5 F16): its list, tab counts and agent cards (['queue', …] keys).
+      invalidateQueueLive(queryClient);
+    },
+    LIST_REFRESH_DEBOUNCE_MS,
+    LIST_REFRESH_MAX_WAIT_MS,
+  );
+  const refreshCounts = debounce(
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.counts() });
+    },
+    LIST_REFRESH_DEBOUNCE_MS,
+    LIST_REFRESH_MAX_WAIT_MS,
+  );
+  // Reports (tiles, by category) and the customer lists' ticket counts: after queue changes and a
+  // reconnect (their own keys; the org look-up follows `form-context` only).
+  const refreshViews = debounce(
+    () => {
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
+      void queryClient.invalidateQueries({ queryKey: customerKeys.lists() });
+    },
+    VIEWS_REFRESH_DEBOUNCE_MS,
+    VIEWS_REFRESH_MAX_WAIT_MS,
+  );
 
   const offs = [
     client.on('message:new', (payload) => {
@@ -133,6 +184,8 @@ export function connectRealtimeToCache(
       refreshCounts.run();
     }),
     client.on('queue:updated', () => refreshLists.run()),
+    client.on('queue:updated', () => refreshViews.run()),
+    client.onReconnect(() => refreshViews.run()),
     client.on('config:updated', (payload) => applyConfigUpdated(queryClient, payload)),
     client.on('notification:new', (payload) => {
       const parsed = notificationNewPayloadSchema.safeParse(payload);
@@ -156,6 +209,7 @@ export function connectRealtimeToCache(
     offs.forEach((off) => off());
     refreshLists.cancel();
     refreshCounts.cancel();
+    refreshViews.cancel();
   };
 }
 

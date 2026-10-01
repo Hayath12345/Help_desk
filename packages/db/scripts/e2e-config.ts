@@ -4,7 +4,8 @@
 // `e2e-` prefix is not enough: admin keys are generated from English labels, so "E2E encryption"
 // becomes `e2e-encryption` (review api-setup-1). The spec creates no macros, so none are removed.
 // Their audit rows go too. The config cache is busted afterwards so no API instance keeps serving
-// them (packages/db cannot import the API: the caller passes the Redis helper).
+// them (packages/db cannot import the API: the caller passes the Redis helper). Phase 5: the help
+// article the done-when spec publishes (key exactly `e2e-<Date.now()>`) goes too.
 import type { Prisma, PrismaClient } from '../src/index.ts';
 
 export const E2E_CONFIG_KEY_PREFIX = 'e2e-';
@@ -103,6 +104,42 @@ export async function removeE2eConfig(
       keptCategories: kept.map((c) => c.key),
       keptFields,
     };
+  });
+}
+
+// ───────────── Help articles (Phase 5 done-when spec) ─────────────
+
+/**
+ * The key of the help article the Phase 5 spec publishes: exactly `e2e-<Date.now()>` (no suffix).
+ * Articles the admin makes get keys from their English titles ("E2E encryption" →
+ * `e2e-encryption`) and are never removed.
+ */
+const E2E_HELP_ARTICLE_KEY = /^e2e-\d{13}$/;
+
+export function isE2eHelpArticleKey(key: string): boolean {
+  return E2E_HELP_ARTICLE_KEY.test(key);
+}
+
+/**
+ * Deletes the help articles the Playwright suite created (keys `e2e-<13 digits>` only, narrowed
+ * further by `isKey`) and their audit rows, in one transaction. Returns how many went. Nothing
+ * else references an article, so none is ever kept.
+ */
+export async function removeE2eHelpArticles(
+  db: PrismaClient,
+  options: RemoveE2eConfigOptions = {},
+): Promise<number> {
+  const isKey = (key: string) => isE2eHelpArticleKey(key) && (options.isKey?.(key) ?? true);
+  return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const ids = (
+      await tx.helpArticle.findMany({ where: e2eConfigKeyWhere(), select: { id: true, key: true } })
+    )
+      .filter((a) => isKey(a.key))
+      .map((a) => a.id);
+    if (ids.length === 0) return 0;
+    await tx.adminAuditLog.deleteMany({ where: { entityId: { in: ids } } });
+    const { count } = await tx.helpArticle.deleteMany({ where: { id: { in: ids } } });
+    return count;
   });
 }
 

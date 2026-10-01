@@ -1,6 +1,7 @@
 import { NextIntlClientProvider } from 'next-intl';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Logo } from '@/components/common/logo';
 import { Input } from '@/components/ui/input';
 import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
@@ -219,6 +220,13 @@ describe('placeholder and search contrast (A11Y-1)', () => {
       expect(classes(field)).toContain('placeholder:text-ink-muted');
       expect(field.attrs.class).not.toContain('ink-subtle');
     }
+  });
+
+  it('shows the logo suffix (the portal’s “Support”) at ink-muted, never ink-subtle', () => {
+    const html = render(<Logo suffix="Support" compact />);
+    const suffix = find(html, (el) => el.tag === 'span' && classes(el).includes('font-normal'));
+    expect(classes(suffix)).toContain('text-ink-muted');
+    expect(html).not.toContain('ink-subtle');
   });
 
   it('keeps the console search placeholder and glyph at ink-muted', () => {

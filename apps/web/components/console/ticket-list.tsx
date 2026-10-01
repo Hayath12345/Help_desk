@@ -10,6 +10,7 @@ import { LoadingRegion, TicketListRowSkeleton } from '@/components/common/skelet
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { INBOX_LIST_TITLE_ID } from './inbox-focus';
 import { TicketRow } from './ticket-row';
 
 const SKELETON_ROWS = 7;
@@ -21,6 +22,8 @@ export interface TicketListProps {
   count: number | null;
   /** Rendered instead of the title below 1180 px (the Views column collapses into a select). */
   viewSelect: React.ReactNode;
+  /** Shown under the header at every width, e.g. the company view's "Clear" chip (Phase 5 F9). */
+  filter?: React.ReactNode;
   sort: TicketSort;
   onSortChange: (sort: TicketSort) => void;
   items: readonly TicketSummaryDto[];
@@ -51,6 +54,7 @@ export function TicketList({
   title,
   count,
   viewSelect,
+  filter,
   sort,
   onSortChange,
   items,
@@ -168,12 +172,14 @@ export function TicketList({
 
   return (
     <section
-      aria-labelledby="inbox-list-title"
+      aria-labelledby={INBOX_LIST_TITLE_ID}
       className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden', className)}
     >
       <div className="flex items-center justify-between gap-2.5 border-b border-divider px-5 py-[18px]">
         <h2
-          id="inbox-list-title"
+          id={INBOX_LIST_TITLE_ID}
+          // Focus target when the control that was focused goes away (focusInboxList).
+          tabIndex={-1}
           className="flex min-w-0 items-baseline gap-1.5 text-[17px] font-semibold whitespace-nowrap text-ink max-[1179px]:sr-only"
         >
           <span className="truncate">{title}</span>
@@ -194,6 +200,7 @@ export function TicketList({
           <ChevronDown aria-hidden="true" className="size-3.5" />
         </button>
       </div>
+      {filter}
       <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
         {body}
       </div>

@@ -4,6 +4,7 @@ import {
   canReplyPublic,
   canSeeInternalNotes,
   isStaff,
+  slaMinutesBetween,
   statusAfterMessage,
   type Actor,
   type BusinessCalendar,
@@ -213,8 +214,20 @@ export function createMessagesService(deps: {
           if (staff && input.type === 'PUBLIC') {
             if (!t.firstRepliedAt) {
               data.firstRepliedAt = now;
+              // Also on the SLA clock of the priority and calendar in force now (24/7 or business
+              // minutes): the Reports average (F11) uses it, so a later priority change or
+              // calendar edit doesn't re-measure a reply that was already sent.
+              const policy = (await ticketConfig.getFormConfig()).slaPolicies.find(
+                (p) => p.priority === t.priority,
+              );
               event('FIRST_REPLY', null, null, {
                 minutesToFirstReply: Math.round((now.getTime() - t.createdAt.getTime()) / 60_000),
+                slaMinutesToFirstReply: slaMinutesBetween(
+                  t.createdAt,
+                  now,
+                  await getCalendar(),
+                  policy?.businessHoursOnly ?? false,
+                ),
                 messageId: message.id,
               });
             }

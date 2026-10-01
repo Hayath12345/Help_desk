@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  TICKET_LIST_SORTS,
+  TICKET_SORTS,
   clientCanSetStatus,
+  hasBreachedSla,
   isSlaAtRiskOrBreached,
+  isSlaOverdue,
   slaState,
   staffCanSetStatus,
   statusAfterMessage,
@@ -193,5 +197,90 @@ describe('slaState', () => {
     const open = slaState(base({}), NOW);
     expect(open.kind === 'firstReply' && open.resolution?.remainingMs).toBe(235 * MIN);
     expect(open).not.toHaveProperty('resolutionPaused');
+  });
+});
+
+describe('isSlaOverdue / hasBreachedSla (Reports "SLA breached", Phase 5 F10)', () => {
+  it('overdue: the running clock past its due date (first reply also while PENDING)', () => {
+    expect(isSlaOverdue(base({}), NOW)).toBe(false);
+    expect(isSlaOverdue(base({ firstReplyDueAt: new Date(NOW - MIN) }), NOW)).toBe(true);
+    // At risk is not overdue.
+    expect(isSlaOverdue(base({ firstReplyAtRiskAt: new Date(NOW - MIN) }), NOW)).toBe(false);
+    // An unanswered PENDING ticket keeps its first-reply clock.
+    expect(
+      isSlaOverdue(base({ status: 'PENDING', firstReplyDueAt: new Date(NOW - MIN) }), NOW),
+    ).toBe(true);
+    const replied = { firstRepliedAt: new Date(NOW - 2 * MIN) };
+    expect(isSlaOverdue(base({ ...replied, resolveDueAt: new Date(NOW - MIN) }), NOW)).toBe(true);
+    // PENDING after the reply: the resolution clock is paused.
+    expect(
+      isSlaOverdue(base({ ...replied, status: 'PENDING', resolveDueAt: new Date(NOW - MIN) }), NOW),
+    ).toBe(false);
+    expect(isSlaOverdue(base({ ...replied, resolveDueAt: null }), NOW)).toBe(false);
+    expect(
+      isSlaOverdue(base({ status: 'SOLVED', firstReplyDueAt: new Date(NOW - MIN) }), NOW),
+    ).toBe(false);
+  });
+
+  it('breached: active and (the stored flag or overdue now)', () => {
+    expect(hasBreachedSla(base({}), NOW)).toBe(false);
+    expect(hasBreachedSla(base({ slaBreached: true }), NOW)).toBe(true);
+    expect(hasBreachedSla(base({ firstReplyDueAt: new Date(NOW - MIN) }), NOW)).toBe(true);
+    // Flagged, but paused or done tickets: only the flag counts, and only while active.
+    expect(
+      hasBreachedSla(
+        base({ status: 'PENDING', firstRepliedAt: new Date(NOW - 2 * MIN), slaBreached: true }),
+        NOW,
+      ),
+    ).toBe(true);
+    expect(hasBreachedSla(base({ status: 'SOLVED', slaBreached: true }), NOW)).toBe(false);
+    expect(hasBreachedSla(base({ status: 'CLOSED', slaBreached: true }), NOW)).toBe(false);
+  });
+
+  it('breached: a target met late counts even when the worker never flagged it', () => {
+    // First reply sent after its due date (between two SLA scans, or with the worker down).
+    const late = { firstReplyDueAt: new Date(NOW - 3 * MIN), firstRepliedAt: new Date(NOW - MIN) };
+    expect(hasBreachedSla(base(late), NOW)).toBe(true);
+    expect(
+      hasBreachedSla(base({ ...late, status: 'PENDING', slaPausedAt: new Date(NOW) }), NOW),
+    ).toBe(true);
+    // On time: not breached.
+    expect(
+      hasBreachedSla(
+        base({ firstReplyDueAt: new Date(NOW - MIN), firstRepliedAt: new Date(NOW - 3 * MIN) }),
+        NOW,
+      ),
+    ).toBe(false);
+    // Paused (PENDING) after the resolution due date passed: breached; paused before it: not.
+    const replied = { firstRepliedAt: new Date(NOW - 10 * MIN), status: 'PENDING' as const };
+    expect(
+      hasBreachedSla(
+        base({
+          ...replied,
+          resolveDueAt: new Date(NOW - 5 * MIN),
+          slaPausedAt: new Date(NOW - 2 * MIN),
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+    expect(
+      hasBreachedSla(
+        base({
+          ...replied,
+          resolveDueAt: new Date(NOW - 2 * MIN),
+          slaPausedAt: new Date(NOW - 5 * MIN),
+        }),
+        NOW,
+      ),
+    ).toBe(false);
+    // Done tickets never count.
+    expect(hasBreachedSla(base({ ...late, status: 'SOLVED' }), NOW)).toBe(false);
+  });
+});
+
+describe('ticket list sorts', () => {
+  it('the Inbox toggle keeps its two sorts; GET /tickets also takes priority', () => {
+    expect(TICKET_SORTS).toEqual(['sla', 'recent']);
+    expect(TICKET_LIST_SORTS).toEqual(['sla', 'recent', 'priority']);
   });
 });

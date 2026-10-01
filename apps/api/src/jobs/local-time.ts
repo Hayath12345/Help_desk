@@ -44,18 +44,28 @@ function offsetMs(instant: Date, timeZone: string): number {
   return asUtc - Math.floor(instant.getTime() / 1000) * 1000;
 }
 
-/** The instant at which the local clock in `timeZone` reads `hhmm` on `date`. */
+const DAY_MS = 86_400_000;
+
+/**
+ * The instant at which the local clock in `timeZone` reads `hhmm` on `date`. Across a DST change
+ * (like java.time and Temporal's "compatible"): a time that occurs twice resolves to the earlier
+ * instant; a time the clocks skip (e.g. midnight in America/Santiago on the first day of summer
+ * time) resolves to the same wall time moved later by the gap — so a skipped midnight gives the
+ * day's first instant, never one on the previous day.
+ */
 export function zonedInstant(date: string, hhmm: string, timeZone: string): Date {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
   const match = HH_MM.exec(hhmm);
   if (!match) throw new RangeError(`zonedInstant: "${hhmm}" is not HH:mm`);
-  const guess = Date.UTC(y, m - 1, d, Number(match[1]), Number(match[2]));
-  const first = offsetMs(new Date(guess), timeZone);
-  let instant = guess - first;
-  // Across a DST change the offset at the result can differ from the one at the guess.
-  const second = offsetMs(new Date(instant), timeZone);
-  if (second !== first) instant = guess - second;
-  return new Date(instant);
+  const wall = Date.UTC(y, m - 1, d, Number(match[1]), Number(match[2]));
+  // The offsets in force a day before and a day after (time zones never change twice a day).
+  const before = wall - offsetMs(new Date(wall - DAY_MS), timeZone);
+  const after = wall - offsetMs(new Date(wall + DAY_MS), timeZone);
+  // A candidate is real when the local clock reads the wall time at it.
+  const real = [before, after].filter((c) => c + offsetMs(new Date(c), timeZone) === wall);
+  if (real.length > 0) return new Date(Math.min(...real));
+  // Skipped: the offset before the change moves the wall time later by the gap.
+  return new Date(before);
 }
 
 /** `date` plus `days` calendar days. */

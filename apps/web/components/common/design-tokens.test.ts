@@ -86,6 +86,23 @@ describe('design tokens: tokens.ts ↔ tokens.css', () => {
   });
 });
 
+describe('design tokens: control borders ≥ 3:1 (WCAG 1.4.11 non-text contrast)', () => {
+  // The checkbox's unchecked border is its only visible boundary (UI gap G9).
+  const checkbox = readFileSync(new URL('../ui/checkbox.tsx', import.meta.url), 'utf8');
+  const border = /\bborder border-([a-z-]+) /.exec(checkbox)?.[1] ?? '';
+  const backgrounds: [label: string, bg: string][] = [
+    ['surface', palette.surface],
+    ['row hover (surface-muted)', palette.surfaceMuted],
+    ['selected row (brand-wash-subtle)', cssColors.get('brand-wash-subtle') ?? ''],
+    ['page', palette.page],
+  ];
+
+  it.each(backgrounds)('checkbox border on %s', (_label, bg) => {
+    expect(cssColors.get(border), `--color-${border}`).toBeDefined();
+    expect(contrast(cssColors.get(border)!, bg)).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('design tokens: text contrast ≥ 4.5:1 (WCAG AA)', () => {
   const textPairs: [label: string, fg: string, bg: string][] = [
     ...Object.entries(statusColors).map(

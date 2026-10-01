@@ -10,16 +10,20 @@ import { createAdminServices, type AdminServices } from './admin/index.ts';
 import type { Broadcast } from './admin/config-changes.ts';
 import { createAttachmentsService, type AttachmentsService } from './attachments.service.ts';
 import { createAuthService, type AuthService } from './auth.service.ts';
+import { createCustomersService, type CustomersService } from './customers.service.ts';
 import { createDirectoryService, type DirectoryService } from './directory.service.ts';
 import {
   createEmailVerificationService,
   type EmailVerificationService,
 } from './email-verification.service.ts';
+import { createHelpService, type HelpService } from './help.service.ts';
 import { createMeService, type MeService } from './me.service.ts';
 import { createMessagesService, type MessagesService } from './messages.service.ts';
 import { createNotificationsService, type NotificationsService } from './notifications.service.ts';
 import { createNotifier, type Notifier } from './notifier.ts';
 import { createPasswordResetService, type PasswordResetService } from './password-reset.service.ts';
+import { createQueueService, type QueueService } from './queue.service.ts';
+import { createReportsService, type ReportsService } from './reports.service.ts';
 import {
   createSessionsService,
   type SessionsService,
@@ -28,6 +32,7 @@ import {
 import type { SlaMath } from './sla.ts';
 import type { TicketRealtime } from './ticket-access.ts';
 import { createTicketConfigService, type TicketConfigService } from './ticket-config.service.ts';
+import { createTicketEventsService, type TicketEventsService } from './ticket-events.service.ts';
 import { createTicketsService, type TicketsService } from './tickets.service.ts';
 
 export {
@@ -57,6 +62,16 @@ export interface Services {
   notifier: Notifier;
   /** Phase 4 admin: writer (transaction + audit + after-commit), config changes, sections. */
   admin: AdminServices;
+  /** Phase 5 Team queue: tab counts, agent workload, filter options, bulk actions. */
+  queue: QueueService;
+  /** Phase 5 staff activity timeline (TicketEvents). */
+  ticketEvents: TicketEventsService;
+  /** Phase 5 Reports. */
+  reports: ReportsService;
+  /** Phase 5 Customers (requesters with ticket counts, organisation look-up). */
+  customers: CustomersService;
+  /** Phase 5 portal Help center (published articles). */
+  help: HelpService;
 }
 
 export function createServices(deps: {
@@ -111,6 +126,7 @@ export function createServices(deps: {
     realtime: deps.ticketRealtime,
     notifier,
     logger: deps.logger.child({ svc: 'tickets' }),
+    escalationMinuteMs: deps.escalationMinuteMs,
   });
   return {
     auth: createAuthService({
@@ -152,6 +168,15 @@ export function createServices(deps: {
       uploadQuota: deps.uploadQuota,
     }),
     directory: createDirectoryService({ prisma: deps.prisma }),
+    queue: createQueueService({
+      prisma: deps.prisma,
+      tickets,
+      logger: deps.logger.child({ svc: 'queue' }),
+    }),
+    ticketEvents: createTicketEventsService({ prisma: deps.prisma }),
+    reports: createReportsService({ prisma: deps.prisma, ticketConfig }),
+    customers: createCustomersService({ prisma: deps.prisma, ticketConfig }),
+    help: createHelpService({ prisma: deps.prisma }),
     notifications: createNotificationsService({ prisma: deps.prisma }),
     notifier,
     admin: createAdminServices({

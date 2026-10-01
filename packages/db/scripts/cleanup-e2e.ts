@@ -4,14 +4,15 @@
 // deliveries / in-app notifications and their queued or delayed BullMQ jobs (Phase 3: nothing of
 // a removed ticket fires later), and (Phase 4) the config rows the admin spec created — keys of
 // the exact shape it generates, `e2e-<Date.now()>[-panel]`: categories with their sub-types and
-// field links, custom fields — after which the config cache is busted. Run by the Playwright
-// global teardown:
+// field links, custom fields — after which the config cache is busted, and (Phase 5) the help
+// articles the spec published, keys exactly `e2e-<Date.now()>`. Run by the Playwright global
+// teardown:
 // `pnpm --filter @loons/db db:cleanup-e2e`.
 // Development / test databases only.
 import { S3Client } from '@aws-sdk/client-s3';
 import { isNonProductionEnv } from '../prisma/seed-data/options.ts';
 import { createPrismaClient, type Prisma } from '../src/index.ts';
-import { bustConfigCache, removeE2eConfig } from './e2e-config.ts';
+import { bustConfigCache, removeE2eConfig, removeE2eHelpArticles } from './e2e-config.ts';
 import { attachmentObjectTargets, deleteObjects, s3FromEnv } from './e2e-objects.ts';
 import { e2eTicketWhere, e2eUserWhere, isE2eTicket } from './e2e-users.ts';
 
@@ -107,6 +108,10 @@ async function main(): Promise<void> {
         `[cleanup-e2e] kept e2e custom fields other tickets hold values for: ${config.keptFields.join(', ')}`,
       );
     }
+
+    // Help articles of the Phase 5 spec (keys exactly `e2e-<Date.now()>`).
+    const articles = await removeE2eHelpArticles(db);
+    process.stdout.write(`[cleanup-e2e] removed ${articles} e2e help article(s)\n`);
   } finally {
     await db.$disconnect();
   }

@@ -13,3 +13,7 @@ export * from './schemas/auth.ts';
 export * from './schemas/tickets.ts';
 export * from './schemas/notifications.ts';
 export * from './schemas/admin/index.ts';
+export * from './schemas/queue.ts';
+export * from './schemas/reports.ts';
+export * from './schemas/customers.ts';
+export * from './schemas/help.ts';

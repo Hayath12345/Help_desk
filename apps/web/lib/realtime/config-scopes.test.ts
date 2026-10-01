@@ -2,6 +2,7 @@ import { CONFIG_SCOPES, type ConfigScope } from '@loons/shared';
 import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { adminKeys } from '@/lib/admin/keys';
+import { helpKeys } from '@/lib/help/keys';
 import { requiredFormConfigVersion } from '@/lib/tickets/config-version';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { FORM_CONFIG } from '@/lib/tickets/test-fixtures';
@@ -81,8 +82,9 @@ describe('config:updated scope → query keys (E18)', () => {
       exclude: [ticketKeys.formConfig(), ticketKeys.details()],
     },
     'help-center': {
-      include: [adminKeys.section('help-center')],
-      exclude: [ticketKeys.formConfig()],
+      // The portal Help center too, in every language (Phase 5 F13).
+      include: [adminKeys.section('help-center'), helpKeys.all],
+      exclude: [ticketKeys.formConfig(), ticketKeys.details()],
     },
     settings: { include: [adminKeys.section('settings'), ticketKeys.formConfig()] },
     audit: { include: [adminKeys.section('audit-log')], exclude: [ticketKeys.formConfig()] },
@@ -161,5 +163,24 @@ describe('config:updated scope → query keys (E18)', () => {
     expect(has([...RECONNECT_CONFIG_KEYS], ticketKeys.formConfig())).toBe(true);
     expect(has([...RECONNECT_CONFIG_KEYS], ticketKeys.formContexts())).toBe(true);
     expect(has([...RECONNECT_CONFIG_KEYS], adminKeys.all)).toBe(true);
+    // The portal Help center (clients too): an article published while offline shows (F13).
+    expect(has([...RECONNECT_CONFIG_KEYS], helpKeys.all)).toBe(true);
+  });
+
+  it('help-center refreshes the portal articles in every language, and nothing else of the portal', () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(helpKeys.articles('en'), { locale: 'en', items: [] });
+    queryClient.setQueryData(helpKeys.articles('ar'), { locale: 'ar', items: [] });
+    queryClient.setQueryData(ticketKeys.detail('LG-1'), {});
+    const stale = (key: QueryKey) => queryClient.getQueryState(key)?.isInvalidated === true;
+    applyConfigUpdated(queryClient, { scope: 'help-center', version: 3 });
+    expect(stale(helpKeys.articles('en'))).toBe(true);
+    expect(stale(helpKeys.articles('ar'))).toBe(true);
+    expect(stale(ticketKeys.detail('LG-1'))).toBe(false);
+    // Other scopes leave the articles alone.
+    const other = new QueryClient();
+    other.setQueryData(helpKeys.articles('en'), { locale: 'en', items: [] });
+    applyConfigUpdated(other, { scope: 'macros', version: 4 });
+    expect(other.getQueryState(helpKeys.articles('en'))?.isInvalidated).toBe(false);
   });
 });

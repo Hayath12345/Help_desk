@@ -85,7 +85,8 @@ export function ViewsSidebar({
           {t('views')}
         </Kicker>
         {STAFF_VIEWS.map((view) => {
-          const active = !state.teamId && state.view === view;
+          // The company view (Phase 5 F9) replaces every view while it is on.
+          const active = !state.teamId && !state.orgId && state.view === view;
           return (
             <a
               key={view}
@@ -141,14 +142,18 @@ export interface ViewSelectProps {
   counts: StaffCounts | undefined;
   /** Label of the selected team when the counts don't list it (yet). */
   teamLabel?: string;
+  /** The company view's title (Phase 5 F9): an extra option while `state.orgId` is set. */
+  companyLabel?: string;
   onChange: (target: { view: StaffView } | { teamId: string }) => void;
 }
 
 /** Below 1180 px the Views column becomes this select (design `sc-raw-select` 737). */
-export function ViewSelect({ state, counts, teamLabel, onChange }: ViewSelectProps) {
+export function ViewSelect({ state, counts, teamLabel, companyLabel, onChange }: ViewSelectProps) {
   const t = useTranslations('console.inbox');
   const locale = useLocale();
-  const value = state.teamId ? `team:${state.teamId}` : `view:${state.view}`;
+  let value = `view:${state.view}`;
+  if (state.orgId) value = `org:${state.orgId}`;
+  else if (state.teamId) value = `team:${state.teamId}`;
   const withCount = (label: string, count: number | undefined) =>
     count === undefined ? label : t('viewOption', { label, count: formatNumber(count, locale) });
   // Team names can end in a parenthesised acronym ("مركز العمليات الأمنية (SOC)"), so their count
@@ -171,6 +176,8 @@ export function ViewSelect({ state, counts, teamLabel, onChange }: ViewSelectPro
       <SelectTrigger
         size="sm"
         aria-label={t('chooseView')}
+        // Focus target in place of the list heading below 1180 px (inbox-focus.ts).
+        data-inbox-view-select=""
         className="w-full min-w-0 border-line text-[15px] font-semibold"
       >
         <SelectValue />
@@ -195,6 +202,12 @@ export function ViewSelect({ state, counts, teamLabel, onChange }: ViewSelectPro
             {selectedTeamMissing ? (
               <SelectItem value={value}>{teamLabel ?? t('team')}</SelectItem>
             ) : null}
+          </SelectGroup>
+        ) : null}
+        {state.orgId ? (
+          <SelectGroup>
+            <SelectLabel>{t('company.title')}</SelectLabel>
+            <SelectItem value={value}>{companyLabel ?? t('company.title')}</SelectItem>
           </SelectGroup>
         ) : null}
       </SelectContent>

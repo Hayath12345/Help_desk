@@ -65,6 +65,9 @@
     "emptyTitle": "No articles yet",
     "emptyDescription": "We’re preparing answers to common questions. In the meantime, open a ticket and our team will help you directly.",
     "stillNeedTitle": "Still need help?",
-    "stillNeedDescription": "Open a ticket and our team will pick it up."
+    "stillNeedDescription": "Open a ticket and our team will pick it up.",
+    "loading": "Loading articles…",
+    "loadFailed": "The articles couldn’t be loaded.",
+    "retry": "Try again"
   }
 }

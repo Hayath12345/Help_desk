@@ -6,15 +6,24 @@ import { z } from 'zod';
 import {
   CONTRACT_TYPES,
   CUSTOM_FIELD_TYPES,
+  ESCALATION_CHANNELS,
+  ESCALATION_TARGET_TYPES,
   IMPACTS,
   MESSAGE_TYPES,
   PRIORITIES,
   ROLES,
+  SLA_TARGETS,
   TICKET_CHANNELS,
+  TICKET_EVENT_TYPES,
   TICKET_STATUSES,
   TICKET_TYPES,
 } from '../enums.ts';
-import { CLIENT_TABS, STAFF_SETTABLE_STATUSES, STAFF_VIEWS, TICKET_SORTS } from '../tickets.ts';
+import {
+  CLIENT_TABS,
+  STAFF_SETTABLE_STATUSES,
+  STAFF_VIEWS,
+  TICKET_LIST_SORTS,
+} from '../tickets.ts';
 
 const isoDate = z.iso.datetime({ offset: true });
 const nullableIso = isoDate.nullable();
@@ -471,6 +480,25 @@ export const p1ChainStepSchema = z.object({
 });
 export type P1ChainStep = z.infer<typeof p1ChainStepSchema>;
 
+/**
+ * The next P1 escalation step as the worker will fire it (Phase 5 F15): the first rule of the
+ * chain in force that has not fired in the current P1 period — fired rules are read from the
+ * period's escalation events, so an admin reorder mid-chain never shows (or pages) a rule twice.
+ */
+export const p1NextStepSchema = z.object({
+  /** The step number it will be recorded as (`p1EscalationStep` after it fires). */
+  step: z.number().int().positive(),
+  /** The escalation rule that will fire, and its place in the chain now. */
+  ruleId: z.uuid(),
+  ruleStep: z.number().int().positive(),
+  targetType: z.enum(ESCALATION_TARGET_TYPES),
+  /** Minutes after `p1Since`. */
+  afterMins: z.number().int().nonnegative(),
+  /** `p1Since + afterMins` (in the past when it is overdue: it fires at once). */
+  dueAt: isoDate,
+});
+export type P1NextStep = z.infer<typeof p1NextStepSchema>;
+
 export const ticketDetailDtoSchema = ticketSummaryDtoSchema.extend({
   description: z.string(),
   assetId: z.string().nullable(),
@@ -486,26 +514,54 @@ export const ticketDetailDtoSchema = ticketSummaryDtoSchema.extend({
    * loaded (the chain only changes with the Phase 4 admin).
    */
   p1Chain: z.array(p1ChainStepSchema).nullable(),
+  /**
+   * Staff only: the next escalation step the worker will fire (`p1NextStepSchema`); null for
+   * clients, and when nothing more will fire — not a P1, no P1 period, acknowledged, solved /
+   * closed, or every rule of the chain has fired.
+   */
+  p1NextStep: p1NextStepSchema.nullable(),
 });
 export type TicketDetailDto = z.infer<typeof ticketDetailDtoSchema>;
 
 // ───────────── List / counts ─────────────
 
+/** `assigneeId=none`: tickets nobody is assigned to (Team queue "Unassigned" filter). */
+export const UNASSIGNED_FILTER = 'none';
+
+/**
+ * Staff filters of GET /tickets and GET /tickets/queue-counts (Phase 5 F4, F9). Each one is ANDed
+ * onto what the caller may see (never widening it); clients' requests ignore them.
+ */
+export const ticketFilterFieldsSchema = z.object({
+  teamId: z.uuid().optional(),
+  priority: z.enum(PRIORITIES).optional(),
+  categoryId: z.uuid().optional(),
+  /** A staff member's id, or `none` for unassigned tickets. */
+  assigneeId: z.union([z.uuid(), z.literal(UNASSIGNED_FILTER)]).optional(),
+  /** The client organisation ("company view", F9). */
+  orgId: z.uuid().optional(),
+  requesterId: z.uuid().optional(),
+  search: cleanText().max(100).optional(),
+});
+export type TicketFilterFields = z.infer<typeof ticketFilterFieldsSchema>;
+
 /**
  * GET /tickets
  * - Clients: `tab` (all|active|solved) over tickets they requested (`scope=mine`, default) or their
  *   whole organisation (`scope=org`).
- * - Staff: `view` (mine|unassigned|risk|p1|open|solved) or `teamId`, within what they may see.
+ * - Staff: `view` (mine|unassigned|risk|p1|open|solved), `teamId` and the Phase 5 filters
+ *   (`priority`, `categoryId`, `assigneeId` — `none` = unassigned —, `orgId`, `requesterId`), all
+ *   ANDed within what they may see.
  * `search` matches subject, LG number, requester name/email. `sort=sla` (default for staff):
  * solved last, then first-reply pending before replied, then the next due date ascending.
+ * `sort=priority`: solved last, then P1 → P4, then the next due date ascending, then created.
+ * `sort=recent`: most recently updated first.
  */
-export const listTicketsQuerySchema = z.object({
+export const listTicketsQuerySchema = ticketFilterFieldsSchema.extend({
   view: z.enum(STAFF_VIEWS).optional(),
-  teamId: z.uuid().optional(),
   tab: z.enum(CLIENT_TABS).optional(),
   scope: z.enum(['mine', 'org']).optional(),
-  search: cleanText().max(100).optional(),
-  sort: z.enum(TICKET_SORTS).optional(),
+  sort: z.enum(TICKET_LIST_SORTS).optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(TICKET_LIMITS.listPageMax).optional().default(50),
 });
@@ -687,3 +743,104 @@ export type TeamWithMembers = z.infer<typeof teamWithMembersSchema>;
 /** `:ref` path param: a ticket uuid or its "LG-4817" / "4817" number. */
 export const ticketRefParamSchema = z.object({ ref: z.string().trim().min(1).max(64) });
 export const idParamSchema = z.object({ id: z.uuid() });
+
+// ───────────── Activity timeline (Phase 5 F14) ─────────────
+
+/**
+ * One side (before / after) of a ticket event, with ids resolved to labels — archived teams,
+ * categories, sub-types, sites and disabled users included (`isActive` false). `removed`: the id
+ * no longer exists (a deleted user). `text`: the asset id, or a stored value the API could not
+ * read as its type.
+ */
+export const ticketEventValueSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('status'), value: z.enum(TICKET_STATUSES) }),
+  z.object({ kind: z.literal('priority'), value: z.enum(PRIORITIES) }),
+  z.object({ kind: z.literal('impact'), value: z.enum(IMPACTS) }),
+  z.object({
+    kind: z.literal('user'),
+    id: z.uuid(),
+    name: z.string(),
+    /** false: the account is disabled or awaiting approval now. */
+    isActive: z.boolean(),
+  }),
+  z.object({ kind: z.literal('team'), ...ticketTeamRefSchema.shape }),
+  z.object({ kind: z.literal('category'), ...categoryRefSchema.shape }),
+  z.object({ kind: z.literal('subtype'), ...subtypeRefSchema.shape }),
+  z.object({ kind: z.literal('site'), ...ticketSiteRefSchema.shape }),
+  /** An escalation step number (ESCALATED from / to). */
+  z.object({ kind: z.literal('step'), value: z.number().int().nonnegative() }),
+  /** The full tag set (TAGS_CHANGED from / to). */
+  z.object({ kind: z.literal('tags'), value: z.array(z.string()) }),
+  z.object({ kind: z.literal('text'), value: z.string() }),
+  z.object({
+    kind: z.literal('removed'),
+    entity: z.enum(['user', 'team', 'category', 'subtype', 'site']),
+    id: z.string(),
+  }),
+]);
+export type TicketEventValue = z.infer<typeof ticketEventValueSchema>;
+
+/**
+ * Event details, by type (only these keys are ever sent):
+ * - CREATED: `priority`, `type`, `channel`, `category`, `subtype` (resolved like from / to);
+ * - TAGS_CHANGED: `added`, `removed`;
+ * - CUSTOM_FIELDS_CHANGED: `fields` (the changed fields, labelled; values are never copied);
+ * - FIRST_REPLY: `minutesToFirstReply` (wall clock);
+ * - SLA_AT_RISK / SLA_BREACHED: `target`, `dueAt`;
+ * - ESCALATED: `step`, `targetType`, `channels`;
+ * - P1_ACKNOWLEDGED: `step`, `minutesToAcknowledge`;
+ * - AUTO_CLOSED: `days` (the auto-close setting then).
+ */
+export const ticketEventMetaSchema = z.object({
+  priority: z.enum(PRIORITIES).optional(),
+  type: z.enum(TICKET_TYPES).optional(),
+  channel: z.enum(TICKET_CHANNELS).optional(),
+  category: ticketEventValueSchema.optional(),
+  subtype: ticketEventValueSchema.optional(),
+  added: z.array(z.string()).optional(),
+  removed: z.array(z.string()).optional(),
+  fields: z
+    .array(
+      z.object({
+        key: z.string(),
+        labelEn: z.string(),
+        labelAr: z.string(),
+        isActive: z.boolean(),
+      }),
+    )
+    .optional(),
+  minutesToFirstReply: z.number().optional(),
+  target: z.enum(SLA_TARGETS).optional(),
+  dueAt: isoDate.optional(),
+  step: z.number().int().nonnegative().optional(),
+  targetType: z.enum(ESCALATION_TARGET_TYPES).optional(),
+  channels: z.array(z.enum(ESCALATION_CHANNELS)).optional(),
+  minutesToAcknowledge: z.number().nullable().optional(),
+  days: z.number().optional(),
+});
+export type TicketEventMeta = z.infer<typeof ticketEventMetaSchema>;
+
+export const ticketEventDtoSchema = z.object({
+  id: z.uuid(),
+  type: z.enum(TICKET_EVENT_TYPES),
+  /** Who made the change; null for the system (SLA worker, escalation, auto-close). */
+  actor: messageAuthorSchema.nullable(),
+  from: ticketEventValueSchema.nullable(),
+  to: ticketEventValueSchema.nullable(),
+  meta: ticketEventMetaSchema,
+  createdAt: isoDate,
+});
+export type TicketEventDto = z.infer<typeof ticketEventDtoSchema>;
+
+/** GET /tickets/:id/events — staff only, newest first, cursor-paged. */
+export const ticketEventsQuerySchema = z.object({
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+export type TicketEventsQuery = z.infer<typeof ticketEventsQuerySchema>;
+
+export const ticketEventListSchema = z.object({
+  items: z.array(ticketEventDtoSchema),
+  nextCursor: z.string().nullable(),
+});
+export type TicketEventList = z.infer<typeof ticketEventListSchema>;

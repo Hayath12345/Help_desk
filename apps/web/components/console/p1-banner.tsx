@@ -1,6 +1,6 @@
 'use client';
 
-import type { P1ChainStep, TicketSummaryDto } from '@loons/shared';
+import type { P1ChainStep, P1NextStep, TicketSummaryDto } from '@loons/shared';
 import { BellRing, CircleCheck } from 'lucide-react';
 import { useLocale, useNow, useTranslations } from 'next-intl';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
@@ -18,6 +18,8 @@ type P1Fields = Pick<
 > & {
   /** The team's P1 chain (ticket detail only; a list row has none). */
   p1Chain?: readonly P1ChainStep[] | null;
+  /** The next step the worker will fire, computed by the server (ticket detail only; F15). */
+  p1NextStep?: P1NextStep | null;
 };
 
 export type P1BannerModel =
@@ -32,7 +34,10 @@ export type P1BannerModel =
       elapsedMs: number | null;
       /** Steps in the team's chain (null while the detail with the chain isn't loaded). */
       stepCount: number | null;
-      /** When the next step fires (epoch ms); null at the end of the chain or without it. */
+      /**
+       * When the next step fires (epoch ms) — the detail's `p1NextStep.dueAt`, in the past when
+       * the step is overdue (it fires at once); null when nothing more will fire, or on a list row.
+       */
       nextAt: number | null;
     }
   | { kind: 'acknowledged'; by: string | null; at: string };
@@ -41,9 +46,10 @@ export type P1BannerModel =
  * What the conversation header shows about a P1's acknowledgement (docs/PHASE3_CONTRACT.md → Web,
  * D5/D16): nothing unless the ticket is P1; "Acknowledged by X · time" once acknowledged; the
  * red banner with the Acknowledge button while it isn't — unless it is already solved or closed
- * (nothing escalates then). "Step N of M" and the next step's time come from the team's chain
- * (`p1Chain` on the ticket detail; team rules replace the global chain, D3; each step fires
- * `afterMins` after `p1Since`); a list row alone shows "step N".
+ * (nothing escalates then). "Step N of M" counts the team's chain (`p1Chain` on the ticket detail;
+ * team rules replace the global chain, D3). When the next step fires is the server's `p1NextStep`
+ * (Phase 5 F15: the first rule of the chain in force that has not fired in this P1 period, so an
+ * admin reorder mid-chain never shows a rule twice or skips one). A list row alone shows "step N".
  */
 export function p1BannerModel(ticket: P1Fields, now: number): P1BannerModel | null {
   if (ticket.priority !== 'P1') return null;
@@ -56,13 +62,13 @@ export function p1BannerModel(ticket: P1Fields, now: number): P1BannerModel | nu
     return { kind: 'unacknowledged', step: null, elapsedMs: null, stepCount: null, nextAt: null };
   }
   const chain = ticket.p1Chain && ticket.p1Chain.length > 0 ? ticket.p1Chain : null;
-  const next = chain?.find((r) => r.step > ticket.p1EscalationStep) ?? null;
+  const nextAt = ticket.p1NextStep ? Date.parse(ticket.p1NextStep.dueAt) : Number.NaN;
   return {
     kind: 'unacknowledged',
     step: ticket.p1EscalationStep,
     elapsedMs: Math.max(0, now - since),
     stepCount: chain ? chain.length : null,
-    nextAt: next ? since + next.afterMins * 60_000 : null,
+    nextAt: Number.isNaN(nextAt) ? null : nextAt,
   };
 }
 

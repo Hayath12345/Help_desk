@@ -7,6 +7,7 @@ import {
   canSeeInternalNotes,
   canUpdateTicket,
   clientCanSetStatus,
+  isActiveStatus,
   isStaff,
   isSuperAdmin,
   staffCanSetStatus,
@@ -24,7 +25,7 @@ import {
   type UpdateTicketInput,
 } from '@loons/shared';
 import { errors, type ValidationIssue } from '../lib/errors.ts';
-import { loadP1Chain } from '../lib/escalation.ts';
+import { MINUTE_MS, loadP1Chain, pendingEscalation } from '../lib/escalation.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import { attachmentLinkIssues, linkAttachments } from './attachments.service.ts';
 import { customFieldValueOptions, validateCustomFields } from './custom-fields.ts';
@@ -68,6 +69,15 @@ export const SECURITY_TAG = 'security';
 
 type EventInput = Omit<Prisma.TicketEventCreateManyInput, 'ticketId'>;
 
+/** Server-side extras of `update` (not part of the PATCH body). */
+export interface UpdateTicketOptions {
+  /**
+   * When the update assigns the ticket and it is NEW, also move it to OPEN (the console's "Assign
+   * to me" does the same; used by the Team queue's bulk "Assign to me", F6).
+   */
+  openIfNew?: boolean;
+}
+
 export interface TicketsService {
   create(actor: Actor, input: CreateTicketInput): Promise<TicketDetailDto>;
   list(actor: Actor, query: ListTicketsQuery): Promise<TicketList>;
@@ -75,6 +85,16 @@ export interface TicketsService {
   /** By uuid or LG number; 404 when the caller can't see it. */
   get(actor: Actor, ref: string): Promise<TicketDetailDto>;
   update(actor: Actor, ticketId: string, input: UpdateTicketInput): Promise<TicketDetailDto>;
+  /**
+   * `update` with server-side options, also saying whether anything changed (false: the ticket
+   * already was that way — nothing written, no event, nothing emitted).
+   */
+  updateTracked(
+    actor: Actor,
+    ticketId: string,
+    input: UpdateTicketInput,
+    options?: UpdateTicketOptions,
+  ): Promise<{ ticket: TicketDetailDto; changed: boolean }>;
   /**
    * Acknowledges a P1 (staff who can see it, D5). Idempotent: a second call changes nothing and
    * answers with the first acknowledger (`alreadyAcknowledged: true`). Not a P1 / closed ⇒ 409.
@@ -141,8 +161,11 @@ export function createTicketsService(deps: {
   /** Notification producers, called after each commit (D15). */
   notifier: Notifier;
   logger: Logger;
+  /** Length of an escalation "minute" for `p1NextStep.dueAt` (tests shrink it; default 60 000 ms). */
+  escalationMinuteMs?: number | undefined;
 }): TicketsService {
   const { prisma, ticketConfig, sla, realtime, notifier, logger } = deps;
+  const minuteMs = deps.escalationMinuteMs ?? MINUTE_MS;
 
   /** Realtime failures never fail a request whose changes have committed. */
   function emit(what: string, fn: () => void): void {
@@ -178,7 +201,14 @@ export function createTicketsService(deps: {
     });
     const values = jsonObject(row.customFields);
     const keys = Object.keys(values);
-    const [config, attachments, fields, links, sitesCount, otherTicketsCount, chain] =
+    // A P1 period the worker still escalates: its fired steps decide the next one (F15).
+    const escalating =
+      staffView &&
+      row.priority === 'P1' &&
+      row.p1Since !== null &&
+      row.p1AckedAt === null &&
+      isActiveStatus(row.status);
+    const [config, attachments, fields, links, sitesCount, otherTicketsCount, chain, escalated] =
       await Promise.all([
         ticketConfig.getFormConfig(),
         prisma.attachment.findMany({
@@ -220,7 +250,17 @@ export function createTicketsService(deps: {
           : Promise.resolve(0),
         // The P1 banner's "step N of M · next at …" (staff only; D3 team rules replace global).
         staffView ? loadP1Chain(prisma, row.teamId) : Promise.resolve(null),
+        escalating
+          ? prisma.ticketEvent.findMany({
+              where: { ticketId, type: 'ESCALATED' },
+              select: { toValue: true, meta: true },
+            })
+          : Promise.resolve([]),
       ]);
+    const next =
+      escalating && chain && row.p1Since
+        ? pendingEscalation(chain, escalated, row.p1Since, row.p1EscalationStep)
+        : null;
     const order = new Map(links.map((l) => [l.fieldId, l.sortOrder]));
     const customFields = fields
       .slice()
@@ -259,6 +299,17 @@ export function createTicketsService(deps: {
       },
       sla: policyFor(config, row.priority),
       p1Chain: chain ? chain.map((r) => ({ step: r.step, afterMins: r.afterMins })) : null,
+      p1NextStep:
+        next && row.p1Since
+          ? {
+              step: next.step,
+              ruleId: next.rule.id,
+              ruleStep: next.rule.step,
+              targetType: next.rule.targetType,
+              afterMins: next.rule.afterMins,
+              dueAt: new Date(row.p1Since.getTime() + next.rule.afterMins * minuteMs).toISOString(),
+            }
+          : null,
     };
   }
 
@@ -431,11 +482,12 @@ export function createTicketsService(deps: {
 
   // ───────────── Update ─────────────
 
-  async function update(
+  async function updateTracked(
     actor: Actor,
     ticketId: string,
     input: UpdateTicketInput,
-  ): Promise<TicketDetailDto> {
+    options: UpdateTicketOptions = {},
+  ): Promise<{ ticket: TicketDetailDto; changed: boolean }> {
     const scope = await loadVisibleTicket(prisma, actor, ticketId);
     const staff = isStaff(actor);
     const requested = (Object.keys(input) as Array<keyof UpdateTicketInput>).filter(
@@ -582,19 +634,24 @@ export function createTicketsService(deps: {
         event('PRIORITY_CHANGED', t.priority, priority);
       }
 
-      // Status.
-      if (input.status !== undefined && input.status !== t.status) {
+      // Status. Assigning a NEW ticket with `openIfNew` (bulk "Assign to me") also opens it, as the
+      // console panel does — decided here, under the row lock, on the current status.
+      const nextStatus =
+        input.status === undefined && options.openIfNew && input.assigneeId && t.status === 'NEW'
+          ? 'OPEN'
+          : input.status;
+      if (nextStatus !== undefined && nextStatus !== t.status) {
         const allowed = staff
-          ? staffCanSetStatus(t.status, input.status)
-          : clientCanSetStatus(t.status, input.status);
+          ? staffCanSetStatus(t.status, nextStatus)
+          : clientCanSetStatus(t.status, nextStatus);
         if (!allowed) {
-          throw errors.conflict(`The status can't change from ${t.status} to ${input.status}`);
+          throw errors.conflict(`The status can't change from ${t.status} to ${nextStatus}`);
         }
         Object.assign(
           data,
           await statusChangeData({
             from: t.status,
-            to: input.status,
+            to: nextStatus,
             now,
             resolveDueAt,
             resolveAtRiskAt,
@@ -605,7 +662,7 @@ export function createTicketsService(deps: {
             math: sla,
           }),
         );
-        event('STATUS_CHANGED', t.status, input.status);
+        event('STATUS_CHANGED', t.status, nextStatus);
       }
 
       // Assignee: active staff on the ticket's (new) team, or a super admin; null unassigns.
@@ -758,7 +815,7 @@ export function createTicketsService(deps: {
         ...outcome.priorityChange,
       });
     }
-    return result;
+    return { ticket: result, changed: outcome.changed };
   }
 
   // ───────────── P1 acknowledge (D5) ─────────────
@@ -821,7 +878,8 @@ export function createTicketsService(deps: {
 
   return {
     create,
-    update,
+    updateTracked,
+    update: async (actor, ticketId, input) => (await updateTracked(actor, ticketId, input)).ticket,
     acknowledge,
     summary,
 

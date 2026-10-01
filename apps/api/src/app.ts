@@ -26,10 +26,13 @@ import { attachWorkerBridge } from './realtime/worker-bridge.ts';
 import { adminRoutes, type AdminRoutesOptions } from './routes/admin/index.ts';
 import { attachmentRoutes } from './routes/attachments.ts';
 import { configRoutes } from './routes/config.ts';
+import { customerRoutes } from './routes/customers.ts';
 import { healthRoutes } from './routes/health.ts';
+import { helpRoutes } from './routes/help.ts';
 import { internalAuthRoutes } from './routes/internal/auth.ts';
 import { meRoutes } from './routes/me.ts';
 import { notificationRoutes } from './routes/notifications.ts';
+import { reportRoutes } from './routes/reports.ts';
 import { staffRoutes } from './routes/staff.ts';
 import { ticketRoutes } from './routes/tickets.ts';
 import { createServices } from './services/index.ts';
@@ -189,6 +192,9 @@ export async function buildApp(deps: AppDeps) {
   await app.register(attachmentRoutes);
   await app.register(staffRoutes);
   await app.register(notificationRoutes);
+  await app.register(reportRoutes);
+  await app.register(customerRoutes);
+  await app.register(helpRoutes);
   await app.register(adminRoutes, {
     prefix: '/admin',
     ...(deps.adminWriteLimit ? { writeLimit: deps.adminWriteLimit } : {}),

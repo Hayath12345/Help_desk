@@ -3,12 +3,15 @@ import { Prisma, type PrismaClient } from '@loons/db';
 import {
   ACTIVE_STATUSES,
   DONE_STATUSES,
+  PRIORITIES,
+  UNASSIGNED_FILTER,
   isActive,
   parseTicketNumber,
   type Actor,
   type ListTicketsQuery,
+  type QueueCounts,
   type StaffView,
-  type TicketSort,
+  type TicketListSort,
   type TicketStatus,
 } from '@loons/shared';
 import { errors } from '../lib/errors.ts';
@@ -74,6 +77,32 @@ export function atRiskSql(now: Date): Sql {
     WHEN t."status" = 'PENDING'::"TicketStatus" THEN FALSE
     ELSE (t."resolveDueAt" IS NOT NULL AND ${clock(sql`t."resolveDueAt"`, sql`t."resolveAtRiskAt"`)})
   END))`;
+}
+
+/**
+ * SQL twin of `isSlaOverdue`: the running clock (first reply while unanswered — also while
+ * PENDING —, else resolution unless PENDING) has passed its due date.
+ */
+export function overdueSql(now: Date): Sql {
+  const nowTs = sqlTimestamp(now);
+  return sql`(${ACTIVE_SQL} AND (CASE
+    WHEN ${FIRST_REPLY_RUNNING} THEN t."firstReplyDueAt" < ${nowTs}
+    WHEN t."status" = 'PENDING'::"TicketStatus" THEN FALSE
+    ELSE COALESCE(t."resolveDueAt" < ${nowTs}, FALSE)
+  END))`;
+}
+
+/**
+ * SQL twin of `hasBreachedSla` (Reports "SLA breached", F10): an active ticket with the stored
+ * (sticky) breach flag, overdue now on its running clock, or with a target met late — the first
+ * reply sent after its due date, or a PENDING pause (resolution clock stopped) that began after
+ * the resolution due date — even when the SLA scan never flagged it (a reply between two scans,
+ * the worker down).
+ */
+export function breachedSql(now: Date): Sql {
+  const lateFirstReply = sql`COALESCE(t."firstRepliedAt" > t."firstReplyDueAt", FALSE)`;
+  const pausedLate = sql`(t."status" = 'PENDING'::"TicketStatus" AND COALESCE(t."slaPausedAt" > t."resolveDueAt", FALSE))`;
+  return sql`(${ACTIVE_SQL} AND (t."slaBreached" OR ${overdueSql(now)} OR ${lateFirstReply} OR ${pausedLate}))`;
 }
 
 export function staffViewSql(view: StaffView, actor: Actor, now: Date): Sql {
@@ -143,6 +172,17 @@ const cursorSchema = z.discriminatedUnion('s', [
     ]),
   }),
   z.object({ s: z.literal('recent'), k: z.tuple([epochMsSchema, z.uuid()]) }),
+  z.object({
+    s: z.literal('priority'),
+    k: z.tuple([
+      z.number().int().min(0).max(1),
+      z.enum(PRIORITIES),
+      z.number().int().min(0).max(1),
+      epochMsSchema.nullable(),
+      epochMsSchema,
+      z.uuid(),
+    ]),
+  }),
 ]);
 type Cursor = z.infer<typeof cursorSchema>;
 
@@ -150,7 +190,7 @@ export function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-function decodeCursor(raw: string, sort: TicketSort): Cursor {
+function decodeCursor(raw: string, sort: TicketListSort): Cursor {
   let parsed: ReturnType<typeof cursorSchema.safeParse> | null = null;
   try {
     parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')));
@@ -180,13 +220,37 @@ interface RecentKeyRow {
 
 const epochMs = (expr: Sql) => sql`(EXTRACT(EPOCH FROM ${expr}) * 1000)::float8`;
 
+/** The filters of a ticket list (GET /tickets without sort and paging; the queue's tab counts). */
+export type TicketListFilter = Partial<
+  Pick<
+    ListTicketsQuery,
+    | 'view'
+    | 'tab'
+    | 'scope'
+    | 'search'
+    | 'teamId'
+    | 'priority'
+    | 'categoryId'
+    | 'assigneeId'
+    | 'orgId'
+    | 'requesterId'
+  >
+>;
+
 export interface ListFilterInput {
   actor: Actor;
-  query: ListTicketsQuery;
+  query: TicketListFilter;
   now: Date;
 }
 
-/** The WHERE conditions of GET /tickets for the caller (without the cursor). */
+/** Tickets with the requester joined as `r` (search matches the requester's name and email). */
+const LIST_FROM = sql`FROM "Ticket" t JOIN "User" r ON r."id" = t."requesterId"`;
+
+/**
+ * The WHERE conditions of GET /tickets for the caller (without the cursor). Every filter is ANDed
+ * onto the visibility rule, so none can widen what the caller sees; the staff filters (view, team,
+ * priority, category, assignee, organisation, requester) are ignored for clients.
+ */
 export function listConditions({ actor, query, now }: ListFilterInput): Sql[] {
   const conditions: Sql[] = [visibleSql(actor)];
   if (actor.role === 'CLIENT') {
@@ -198,21 +262,89 @@ export function listConditions({ actor, query, now }: ListFilterInput): Sql[] {
   } else {
     if (query.view) conditions.push(staffViewSql(query.view, actor, now));
     if (query.teamId) conditions.push(sql`t."teamId" = ${query.teamId}::uuid`);
+    if (query.priority) conditions.push(sql`t."priority" = ${query.priority}::"Priority"`);
+    if (query.categoryId) conditions.push(sql`t."categoryId" = ${query.categoryId}::uuid`);
+    if (query.assigneeId === UNASSIGNED_FILTER) conditions.push(sql`t."assigneeId" IS NULL`);
+    else if (query.assigneeId) conditions.push(sql`t."assigneeId" = ${query.assigneeId}::uuid`);
+    if (query.orgId) conditions.push(sql`t."orgId" = ${query.orgId}::uuid`);
+    if (query.requesterId) conditions.push(sql`t."requesterId" = ${query.requesterId}::uuid`);
   }
   if (query.search) conditions.push(searchSql(query.search));
   return conditions;
 }
 
+/**
+ * priority: done last, P1 → P4 (enum order), paused after running within a priority (a PENDING
+ * ticket waiting on the client keeps a stale resolution due date that must not put it first —
+ * as in the Inbox SLA sort), then the next SLA due date, created, id.
+ */
+const PRIORITY_KEYS = {
+  done: SLA_KEYS.done,
+  priority: sql`t."priority"`,
+  paused: SLA_KEYS.paused,
+};
+
+interface PriorityKeyRow {
+  id: string;
+  k_done: number;
+  k_priority: (typeof PRIORITIES)[number];
+  k_paused: number;
+  k_due: number | null;
+  k_created: number;
+}
+
 /** Ids of one page of GET /tickets, in order, and the cursor of the next page. */
 export async function listTicketIds(
   db: PrismaClient,
-  input: ListFilterInput,
+  input: { actor: Actor; query: ListTicketsQuery; now: Date },
 ): Promise<{ ids: string[]; nextCursor: string | null }> {
   const { actor, query } = input;
-  const sort: TicketSort = query.sort ?? (actor.role === 'CLIENT' ? 'recent' : 'sla');
+  const sort: TicketListSort = query.sort ?? (actor.role === 'CLIENT' ? 'recent' : 'sla');
   const conditions = listConditions(input);
   const limit = query.limit;
-  const from = sql`FROM "Ticket" t JOIN "User" r ON r."id" = t."requesterId"`;
+  const from = LIST_FROM;
+
+  if (sort === 'priority') {
+    if (query.cursor) {
+      const [done, priority, paused, due, created, id] = decodeCursor(query.cursor, 'priority')
+        .k as [number, string, number, number | null, number, string];
+      const dueSql = due === null ? sql`'infinity'::timestamp` : sqlTimestamp(due);
+      conditions.push(
+        sql`(${PRIORITY_KEYS.done}, ${PRIORITY_KEYS.priority}, ${PRIORITY_KEYS.paused}, ${SLA_DUE_SORT}, t."createdAt", t."id") > (${done}::int, ${priority}::"Priority", ${paused}::int, ${dueSql}, ${sqlTimestamp(created)}, ${id}::uuid)`,
+      );
+    }
+    const rows = await db.$queryRaw<PriorityKeyRow[]>`
+      SELECT t."id",
+        ${PRIORITY_KEYS.done} AS k_done,
+        ${PRIORITY_KEYS.priority}::text AS k_priority,
+        ${PRIORITY_KEYS.paused} AS k_paused,
+        ${epochMs(SLA_KEYS.due)} AS k_due,
+        ${epochMs(sql`t."createdAt"`)} AS k_created
+      ${from}
+      WHERE ${Prisma.join(conditions, ' AND ')}
+      ORDER BY ${PRIORITY_KEYS.done} ASC, ${PRIORITY_KEYS.priority} ASC, ${PRIORITY_KEYS.paused} ASC,
+        ${SLA_DUE_SORT} ASC, t."createdAt" ASC, t."id" ASC
+      LIMIT ${limit + 1}::int`;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      ids: page.map((r) => r.id),
+      nextCursor:
+        rows.length > limit && last
+          ? encodeCursor({
+              s: 'priority',
+              k: [
+                last.k_done,
+                last.k_priority,
+                last.k_paused,
+                last.k_due === null ? null : Math.round(last.k_due),
+                Math.round(last.k_created),
+                last.id,
+              ],
+            })
+          : null,
+    };
+  }
 
   if (sort === 'sla') {
     if (query.cursor) {
@@ -307,6 +439,48 @@ export async function staffViewCounts(
     FROM "Ticket" t
     WHERE ${visibleSql(actor)}`;
   return row ?? { mine: 0, unassigned: 0, risk: 0, p1: 0, open: 0, solved: 0 };
+}
+
+/**
+ * Team queue tab counts (F3) for the list filters and search: each is the length of GET /tickets
+ * with the same filters and the tab's view (same conditions, same requester join).
+ */
+export async function queueTabCounts(
+  db: PrismaClient,
+  actor: Actor,
+  filters: Omit<TicketListFilter, 'view' | 'tab' | 'scope'>,
+  now: Date,
+): Promise<QueueCounts['tabs']> {
+  const conditions = listConditions({ actor, query: filters, now });
+  const count = (view: StaffView) =>
+    sql`count(*) FILTER (WHERE ${staffViewSql(view, actor, now)})::int`;
+  const [row] = await db.$queryRaw<Array<QueueCounts['tabs']>>`
+    SELECT ${count('open')} AS open, ${count('unassigned')} AS unassigned,
+      ${count('risk')} AS breaching, ${count('solved')} AS solved
+    ${LIST_FROM}
+    WHERE ${Prisma.join(conditions, ' AND ')}`;
+  return row ?? { open: 0, unassigned: 0, breaching: 0, solved: 0 };
+}
+
+/**
+ * Open tickets assigned to each of `assigneeIds` that the caller can see, and how many of them
+ * are "Breaching soon" (the `risk` view) — the agent cards (F5).
+ */
+export async function assigneeWorkload(
+  db: PrismaClient,
+  actor: Actor,
+  assigneeIds: readonly string[],
+  now: Date,
+): Promise<Map<string, { open: number; atRisk: number }>> {
+  if (assigneeIds.length === 0) return new Map();
+  const rows = await db.$queryRaw<Array<{ assigneeId: string; open: number; atRisk: number }>>`
+    SELECT t."assigneeId" AS "assigneeId", count(*)::int AS open,
+      count(*) FILTER (WHERE ${atRiskSql(now)})::int AS "atRisk"
+    FROM "Ticket" t
+    WHERE ${visibleSql(actor)} AND ${ACTIVE_SQL}
+      AND t."assigneeId" = ANY(${[...assigneeIds]}::uuid[])
+    GROUP BY t."assigneeId"`;
+  return new Map(rows.map((r) => [r.assigneeId, { open: r.open, atRisk: r.atRisk }]));
 }
 
 /** Active tickets per team, within what the caller can see. */

@@ -24,7 +24,8 @@ import type { AdminContext } from './write.ts';
 
 type Tx = Prisma.TransactionClient;
 
-const ARTICLE_ORDER = [
+/** Active articles' order (also the portal's, services/help.service.ts). */
+export const ARTICLE_ORDER = [
   { sortOrder: 'asc' },
   { createdAt: 'asc' },
   { id: 'asc' },

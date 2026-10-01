@@ -19,6 +19,7 @@ describe('parseInboxParams', () => {
     expect(parseInboxParams(new URLSearchParams())).toEqual({
       view: 'mine',
       teamId: null,
+      orgId: null,
       ticket: null,
       q: '',
     });
@@ -34,7 +35,7 @@ describe('parseInboxParams', () => {
         q: ' nvr ',
       }),
     );
-    expect(state).toEqual({ view: 'risk', teamId: TEAM, ticket: 'LG-4817', q: 'nvr' });
+    expect(state).toEqual({ view: 'risk', teamId: TEAM, orgId: null, ticket: 'LG-4817', q: 'nvr' });
   });
 
   it('ignores unknown views, malformed teams and oversized values', () => {
@@ -67,7 +68,13 @@ describe('inboxHref', () => {
   });
 
   it('round-trips through parseInboxParams', () => {
-    const state = { view: 'solved' as const, teamId: null, ticket: 'LG-4771', q: 'camera' };
+    const state = {
+      view: 'solved' as const,
+      teamId: null,
+      orgId: null,
+      ticket: 'LG-4771',
+      q: 'camera',
+    };
     const url = new URL(inboxHref(state), 'http://x');
     expect(parseInboxParams(url.searchParams)).toEqual(state);
   });
@@ -83,6 +90,40 @@ describe('listFiltersFor', () => {
       search: undefined,
       sort: 'recent',
     });
+  });
+});
+
+describe('company view (Phase 5 F9)', () => {
+  const ORG = fixtureId(601);
+
+  it('reads ?org= (a uuid) and lets it replace the team; malformed ids are ignored', () => {
+    const state = parseInboxParams(
+      new URLSearchParams({ view: 'open', team: TEAM, org: ORG.toUpperCase(), q: 'nvr' }),
+    );
+    expect(state).toEqual({ view: 'open', teamId: null, orgId: ORG, ticket: null, q: 'nvr' });
+    expect(parseInboxParams(new URLSearchParams({ org: 'hamad' })).orgId).toBeNull();
+  });
+
+  it('keeps the view underneath the company in the URL and round-trips', () => {
+    expect(inboxHref({ orgId: ORG })).toBe(`/console/inbox?org=${ORG}`);
+    const state = { view: 'solved' as const, teamId: null, orgId: ORG, ticket: 'LG-4771', q: 'x' };
+    const href = inboxHref(state);
+    expect(href).toBe(`/console/inbox?view=solved&org=${ORG}&ticket=LG-4771&q=x`);
+    expect(parseInboxParams(new URL(href, 'http://x').searchParams)).toEqual(state);
+    expect(inboxHref({ view: 'risk', teamId: TEAM, orgId: ORG })).toBe(
+      `/console/inbox?view=risk&org=${ORG}`,
+    );
+  });
+
+  it('lists every ticket of the company (orgId, no view: all statuses) with the search and sort', () => {
+    const state = parseInboxParams(new URLSearchParams({ view: 'p1', org: ORG, q: 'fw' }));
+    expect(listFiltersFor(state, 'recent')).toEqual({ orgId: ORG, search: 'fw', sort: 'recent' });
+  });
+
+  it('clearing the company returns to the view it replaced', () => {
+    window.history.replaceState(null, '', `/console/inbox?view=open&org=${ORG}&ticket=LG-4817`);
+    updateInboxUrl({ orgId: null, ticket: null });
+    expect(window.location.search).toBe('?view=open');
   });
 });
 
@@ -109,7 +150,13 @@ describe('updateInboxUrl', () => {
     updateInboxUrl({ q: 'nvr', ticket: null }, 'replace');
     expect(window.location.search).toBe('?view=risk&q=nvr');
     expect(window.history.length).toBe(before + 1);
-    expect(currentInboxState()).toEqual({ view: 'risk', teamId: null, ticket: null, q: 'nvr' });
+    expect(currentInboxState()).toEqual({
+      view: 'risk',
+      teamId: null,
+      orgId: null,
+      ticket: null,
+      q: 'nvr',
+    });
   });
 
   it('does nothing when the state is unchanged', () => {

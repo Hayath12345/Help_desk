@@ -1,7 +1,16 @@
 import { DelayedError, type Job } from 'bullmq';
 import type { Prisma } from '@loons/db';
 import { ESCALATION_LIMITS } from '@loons/shared';
-import { escalationDelayMs, loadP1Chain, type EscalationRuleRow } from '../lib/escalation.ts';
+import {
+  escalationDelayMs,
+  firedRuleIds,
+  firedSteps,
+  loadP1Chain,
+  nextJobStep,
+  pendingEscalation,
+  type EscalatedEventRow,
+  type EscalationRuleRow,
+} from '../lib/escalation.ts';
 import { escalationJobId, type EscalationJob } from '../lib/job-data.ts';
 import {
   createInApp,
@@ -52,64 +61,15 @@ export function earlyToleranceMs(minuteMs: number): number {
 
 const DONE = ['SOLVED', 'CLOSED'] as const;
 
-/** A step recorded in a P1 period: the job number it fired as and the rule it paged. */
-interface FiredStep {
-  step: number;
-  ruleId: string | null;
-}
-
-/** The steps an ESCALATED event list records for the P1 period that started at `p1Since`. */
-function firedSteps(
-  events: ReadonlyArray<{ toValue: string | null; meta: Prisma.JsonValue }>,
-  p1Since: Date,
-): FiredStep[] {
-  const period = p1Since.toISOString();
-  const out: FiredStep[] = [];
-  for (const e of events) {
-    const meta = (e.meta ?? {}) as { p1Since?: unknown; ruleId?: unknown };
-    if (meta.p1Since !== period) continue;
-    out.push({
-      step: Number(e.toValue),
-      ruleId: typeof meta.ruleId === 'string' ? meta.ruleId : null,
-    });
-  }
-  return out;
-}
-
-/**
- * The rules of `chain` that already fired in the period: by rule id. A period whose steps were
- * counted but never recorded (no event: set by hand) falls back to the step numbers.
- */
-function firedRuleIds(
-  chain: readonly EscalationRuleRow[],
-  fired: readonly FiredStep[],
-  p1EscalationStep: number,
-): Set<string> {
-  if (fired.length === 0) {
-    return new Set(chain.filter((r) => r.step <= p1EscalationStep).map((r) => r.id));
-  }
-  const ids = new Set<string>();
-  for (const f of fired) {
-    const id = f.ruleId ?? chain.find((r) => r.step === f.step)?.id;
-    if (id) ids.add(id);
-  }
-  return ids;
-}
-
-/** The job number of the next step: never at or below the steps already counted. */
-function nextJobStep(next: EscalationRuleRow, counted: number): number {
-  return Math.max(next.step, counted + 1);
-}
-
 async function loadFiredSteps(
   db: WorkerContext['prisma'],
   ticketIds: readonly string[],
-): Promise<Map<string, Array<{ toValue: string | null; meta: Prisma.JsonValue }>>> {
+): Promise<Map<string, EscalatedEventRow[]>> {
   const events = await db.ticketEvent.findMany({
     where: { ticketId: { in: [...ticketIds] }, type: 'ESCALATED' },
     select: { ticketId: true, toValue: true, meta: true },
   });
-  const byTicket = new Map<string, Array<{ toValue: string | null; meta: Prisma.JsonValue }>>();
+  const byTicket = new Map<string, EscalatedEventRow[]>();
   for (const e of events) {
     const list = byTicket.get(e.ticketId) ?? [];
     list.push(e);
@@ -405,15 +365,11 @@ export async function resumeStalledEscalations(
       chain = await loadP1Chain(ctx.prisma, t.teamId);
       chains.set(t.teamId, chain);
     }
-    // The next rule to fire and its job number, as the last step that fired scheduled it.
-    const fired = firedRuleIds(
-      chain,
-      firedSteps(events.get(t.id) ?? [], t.p1Since),
-      t.p1EscalationStep,
-    );
-    const next = chain.find((r) => !fired.has(r.id));
-    if (!next) continue;
-    const step = nextJobStep(next, t.p1EscalationStep);
+    // The next rule to fire and its job number, as the last step that fired scheduled it (the
+    // ticket detail shows the same step, `p1NextStep`).
+    const pending = pendingEscalation(chain, events.get(t.id) ?? [], t.p1Since, t.p1EscalationStep);
+    if (!pending) continue;
+    const { rule: next, step } = pending;
     const lateMs = now.getTime() - (t.p1Since.getTime() + next.afterMins * ctx.minuteMs);
     if (lateMs < 0) continue; // not due yet
     const graceMs = ESCALATION_NET_GRACE_MINUTES * ctx.minuteMs;

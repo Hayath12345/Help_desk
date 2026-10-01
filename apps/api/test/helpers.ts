@@ -447,6 +447,34 @@ export async function mintToken(
     .sign(new TextEncoder().encode(options.secret ?? config.jwt.secret));
 }
 
+const RELEASE_LOCK = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0`;
+
+/**
+ * A lock shared by the test files of one `vitest run` (Redis `SET NX PX`), for suites that change
+ * one global list of the shared dev database (the help center: `admin-help-center`,
+ * `help-articles`, `help-e2e-cleanup`): a file holding it runs alone, the others wait (up to
+ * `waitMs`). Register the returned release with `fixtures.onCleanup` first, so it runs after the
+ * file's own cleanup; a dead worker's lock expires after `ttlMs`.
+ */
+export async function acquireTestLock(
+  redis: Redis,
+  name: string,
+  { ttlMs = 180_000, waitMs = 50_000 } = {},
+): Promise<() => Promise<void>> {
+  const run = process.env.LOONS_TEST_RUN;
+  const key = `loons-test:${run ? `${run}:` : ''}lock:${name}`;
+  const token = rand(8);
+  const deadline = Date.now() + waitMs;
+  while ((await redis.set(key, token, 'PX', ttlMs, 'NX')) !== 'OK') {
+    if (Date.now() > deadline) throw new Error(`test lock "${name}" is still held by another file`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return async () => {
+    await redis.eval(RELEASE_LOCK, 1, key, token);
+  };
+}
+
 /** Addresses handed out by `randomIp` (198.18.0.0/15, the benchmarking range; no .0 / .255). */
 const IP_POOL = 2 * 256 * 254;
 let ipSeq = Math.floor(Math.random() * IP_POOL);

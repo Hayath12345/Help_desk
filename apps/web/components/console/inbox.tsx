@@ -6,11 +6,14 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalStorageState } from '@/hooks/use-local-storage-state';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { useCustomerOrg } from '@/lib/customers/queries';
 import { fetchTicket } from '@/lib/tickets/api';
 import { ticketKeys } from '@/lib/tickets/keys';
-import { teamName } from '@/lib/tickets/labels';
+import { placeName, teamName } from '@/lib/tickets/labels';
 import { loadThread, useTicketCounts, useTickets } from '@/lib/tickets/queries';
 import { cn } from '@/lib/utils';
+import { CompanyFilter } from './company-filter';
+import { focusInboxList } from './inbox-focus';
 import { ConversationPane } from './conversation';
 import {
   inboxHref,
@@ -37,7 +40,8 @@ type Target = { view: StaffView } | { teamId: string };
 /**
  * Agent inbox (design 707–890, docs/PHASE2_CONTRACT.md → Agent console): Views + Teams with live
  * counts, the ticket list (SLA order or most recent), and the selected ticket's conversation and
- * properties. All state lives in the URL (`?view=&team=&ticket=&q=`) and changes through the
+ * properties; `?org=` lists one company's tickets (Phase 5 F9, from Customers or the requester
+ * card). All state lives in the URL (`?view=&team=&org=&ticket=&q=`) and changes through the
  * History API, so selecting a ticket never reloads the page. Layout as in the design: three
  * columns from 1180 px, the Views column becomes a select below that, and below 860 px only the
  * list or the conversation shows.
@@ -50,6 +54,8 @@ export function Inbox() {
   const [sort, setSort] = useLocalStorageState<TicketSort>(INBOX_SORT_KEY, 'sla', isTicketSort);
   const counts = useTicketCounts();
   const staffCounts = counts.data?.kind === 'staff' ? counts.data : undefined;
+  // Company view (Phase 5 F9): its title comes from the organisation, also from a shared URL.
+  const company = useCustomerOrg(state.orgId);
   const list = useTickets(listFiltersFor(state, sort), { keepPrevious: true });
   const items = list.data?.items ?? EMPTY;
   const wide = useMediaQuery('(min-width: 860px)');
@@ -115,10 +121,11 @@ export function Inbox() {
     }
   };
 
+  // A view or a team replaces the company view.
   const patchFor = (target: Target) =>
     'teamId' in target
-      ? { teamId: target.teamId, ticket: null }
-      : { view: target.view, teamId: null, ticket: null };
+      ? { teamId: target.teamId, orgId: null, ticket: null }
+      : { view: target.view, teamId: null, orgId: null, ticket: null };
 
   const navigate = (target: Target, event?: React.MouseEvent<HTMLAnchorElement>) => {
     if (event) {
@@ -147,13 +154,13 @@ export function Inbox() {
   );
 
   const team = state.teamId ? staffCounts?.teams.find((tm) => tm.id === state.teamId) : undefined;
-  const title = state.teamId
-    ? team
-      ? teamName(team, locale)
-      : t('team')
-    : t(`view.${state.view}`);
+  let title: string;
+  if (state.orgId) title = company.data ? placeName(company.data, locale) : t('company.title');
+  else if (state.teamId) title = team ? teamName(team, locale) : t('team');
+  else title = t(`view.${state.view}`);
   let count: number | null;
-  if (state.q) count = settled && !list.hasNextPage ? items.length : null;
+  // Searches and the company view have no server count: the rows, once they are all loaded.
+  if (state.q || state.orgId) count = settled && !list.hasNextPage ? items.length : null;
   else if (state.teamId) count = team?.count ?? null;
   else count = staffCounts?.views[state.view] ?? null;
 
@@ -184,8 +191,24 @@ export function Inbox() {
             state={state}
             counts={staffCounts}
             teamLabel={title}
+            companyLabel={state.orgId ? title : undefined}
             onChange={(target) => navigate(target)}
           />
+        }
+        filter={
+          state.orgId ? (
+            <CompanyFilter
+              href={inboxHref({ ...state, orgId: null, ticket: null })}
+              onClear={(event) => {
+                if (!isPlainClick(event)) return;
+                event.preventDefault();
+                openedFromList.current = false;
+                updateInboxUrl({ orgId: null, ticket: null }, 'push');
+                // The chip goes away with the company view: keep the focus on the list.
+                focusInboxList();
+              }}
+            />
+          ) : null
         }
         sort={sort}
         onSortChange={setSort}

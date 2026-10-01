@@ -54,7 +54,13 @@
     "nothingHere": "لا شيء هنا",
     "noMatchView": "لا توجد تذاكر تطابق طريقة العرض هذه.",
     "noMatchSearch": "لا توجد تذاكر في طريقة العرض هذه تطابق «{query}».",
-    "selectTicket": "اختر تذكرة لعرض المحادثة."
+    "selectTicket": "اختر تذكرة لعرض المحادثة.",
+    "company": {
+      "title": "الجهة",
+      "note": "كل تذاكر هذه الجهة بجميع حالاتها",
+      "clear": "مسح",
+      "clearLabel": "مسح تصفية الجهة"
+    }
   },
   "ticket": {
     "backToList": "العودة إلى القائمة",
@@ -142,25 +148,47 @@
     "accountManager": "مدير الحساب",
     "otherTickets": "تذاكر أخرى",
     "sites": "{count, plural, zero {لا مواقع} one {موقع واحد} two {موقعان} few {{n} مواقع} many {{n} موقعًا} other {{n} موقع}}",
-    "others": "{count, plural, =0 {لا توجد} other {{n} من هذا العميل}}",
+    "others": "{count, plural, =0 {عرض العميل} other {{n} من هذا العميل}}",
     "none": "—"
   },
   "queue": {
     "title": "قائمة الفريق",
     "allTeams": "كل الفرق",
-    "unassigned": "غير مسندة",
+    "yourTeams": "فرقك",
+    "subtitle": "{scope} · {count, plural, zero {لا توجد تذاكر غير مسندة} one {تذكرة واحدة غير مسندة} two {تذكرتان غير مسندتين} few {{n} تذاكر غير مسندة} many {{n} تذكرة غير مسندة} other {{n} تذكرة غير مسندة}}",
     "agentsLabel": "عبء عمل الوكلاء",
-    "tabsLabel": "عوامل تصفية القائمة",
+    "agentsHint": "اختر وكيلًا لعرض تذاكره فقط، واختره مرة أخرى لعرض تذاكر الجميع.",
+    "agentsFailed": "تعذّر تحميل عبء عمل الوكلاء.",
+    "agent": {
+      "openCount": "{count, plural, zero {لا تذاكر مفتوحة} one {تذكرة مفتوحة واحدة} two {تذكرتان مفتوحتان} few {{n} تذاكر مفتوحة} many {{n} تذكرة مفتوحة} other {{n} تذكرة مفتوحة}}",
+      "atRisk": "{count, plural, one {تذكرة واحدة معرضة للخطر} two {تذكرتان معرضتان للخطر} few {{n} تذاكر معرضة للخطر} many {{n} تذكرة معرضة للخطر} other {{n} تذكرة معرضة للخطر}}",
+      "onTrack": "ضمن المسار",
+      "capacity": "السعة {n}",
+      "note": "{status} · {capacity}",
+      "moreTeams": "{team} ⁦+{n}⁩"
+    },
+    "tabsLabel": "طرق عرض القائمة",
     "tabs": {
       "open": "كل المفتوحة",
       "unassigned": "غير مسندة",
       "breaching": "على وشك التجاوز",
       "solved": "تم الحل"
     },
+    "filtersLabel": "عوامل التصفية",
     "filters": {
-      "priority": "الأولوية: الكل",
-      "category": "الفئة: الكل",
-      "assignee": "المسؤول: الجميع"
+      "priorityLabel": "تصفية حسب الأولوية",
+      "categoryLabel": "تصفية حسب الفئة",
+      "assigneeLabel": "تصفية حسب المسؤول",
+      "priorityAny": "الأولوية: الكل",
+      "priority": "الأولوية: {value}",
+      "categoryAny": "الفئة: الكل",
+      "category": "الفئة: {value}",
+      "assigneeAny": "المسؤول: الجميع",
+      "assignee": "المسؤول: {value}",
+      "unassigned": "غير مسندة",
+      "archived": "{label} (مؤرشفة)",
+      "unknownCategory": "فئة أخرى",
+      "unknownAssignee": "شخص آخر"
     },
     "columns": {
       "priority": "الأولوية",
@@ -169,6 +197,39 @@
       "firstReplySla": "مهلة الرد الأول",
       "assignee": "المسؤول",
       "status": "الحالة"
+    },
+    "listLabel": "تذاكر قائمة الفريق",
+    "selectAll": "تحديد كل التذاكر المعروضة",
+    "selectAllShort": "تحديد الكل",
+    "selectRow": "تحديد التذكرة ⁦{ref}⁩",
+    "assigneeNone": "غير مسندة",
+    "noMatch": "لا توجد تذاكر تطابق عوامل التصفية.",
+    "loadFailed": "تعذّر تحميل التذاكر.",
+    "retry": "حاول مرة أخرى",
+    "loadMore": "عرض المزيد من التذاكر",
+    "loadingMore": "جارٍ تحميل المزيد من التذاكر…",
+    "bulk": {
+      "label": "إجراءات جماعية",
+      "selected": "{count, plural, one {تذكرة واحدة محددة} two {تذكرتان محددتان} few {{n} تذاكر محددة} many {{n} تذكرة محددة} other {{n} تذكرة محددة}}",
+      "assignToMe": "إسناد إليّ",
+      "markSolved": "تحديد كمحلولة",
+      "clear": "مسح",
+      "working": "{count, plural, one {جارٍ تحديث تذكرة واحدة…} two {جارٍ تحديث تذكرتين…} few {جارٍ تحديث {n} تذاكر…} many {جارٍ تحديث {n} تذكرة…} other {جارٍ تحديث {n} تذكرة…}}",
+      "assigned": "{count, plural, one {تم إسناد تذكرة واحدة إليك} two {تم إسناد تذكرتين إليك} few {تم إسناد {n} تذاكر إليك} many {تم إسناد {n} تذكرة إليك} other {تم إسناد {n} تذكرة إليك}}",
+      "solved": "{count, plural, one {تم تحديد تذكرة واحدة كمحلولة} two {تم تحديد تذكرتين كمحلولتين} few {تم تحديد {n} تذاكر كمحلولة} many {تم تحديد {n} تذكرة كمحلولة} other {تم تحديد {n} تذكرة كمحلولة}}",
+      "alreadyAssigned": "{count, plural, one {كانت تذكرة واحدة مسندة إليك من قبل} two {كانت تذكرتان مسندتين إليك من قبل} few {كانت {n} تذاكر مسندة إليك من قبل} many {كانت {n} تذكرة مسندة إليك من قبل} other {كانت {n} تذكرة مسندة إليك من قبل}}",
+      "alreadySolved": "{count, plural, one {كانت تذكرة واحدة محلولة من قبل} two {كانت تذكرتان محلولتين من قبل} few {كانت {n} تذاكر محلولة من قبل} many {كانت {n} تذكرة محلولة من قبل} other {كانت {n} تذكرة محلولة من قبل}}",
+      "both": "{first} · {second}",
+      "failed": "{count, plural, one {تعذّر تغيير تذكرة واحدة} two {تعذّر تغيير تذكرتين} few {تعذّر تغيير {n} تذاكر} many {تعذّر تغيير {n} تذكرة} other {تعذّر تغيير {n} تذكرة}}",
+      "partial": "{updated} · {failed}",
+      "reason": {
+        "not_found": "لم تعد التذكرة ⁦{ref}⁩ متاحة لك.",
+        "forbidden": "ليست لديك صلاحية تغيير التذكرة ⁦{ref}⁩.",
+        "conflict": "التذكرة ⁦{ref}⁩ مغلقة، لذا لا يمكن تغييرها.",
+        "invalid": "لا يمكن تغيير التذكرة ⁦{ref}⁩ بهذه الطريقة.",
+        "invalidAssign": "لا يمكن إسناد التذكرة ⁦{ref}⁩ إليك لأنك لست ضمن فريقها.",
+        "internal": "حدث خطأ في التذكرة ⁦{ref}⁩. حاول مرة أخرى."
+      }
     },
     "loading": "جارٍ تحميل قائمة الفريق…"
   },
@@ -181,7 +242,20 @@
       "open": "مفتوحة",
       "total": "الإجمالي"
     },
-    "loading": "جارٍ تحميل العملاء…"
+    "loading": "جارٍ تحميل العملاء…",
+    "summary": "{requesters, plural, zero {{r} مقدم طلب} one {مقدم طلب واحد} two {مقدما طلب} few {{r} مقدمي طلبات} many {{r} مقدم طلب} other {{r} مقدم طلب}} من {companies, plural, zero {{c} جهة} one {جهة واحدة} two {جهتين} few {{c} جهات} many {{c} جهة} other {{c} جهة}}",
+    "summaryNone": "لا يوجد مقدمو طلبات",
+    "searchLabel": "البحث في العملاء",
+    "searchPlaceholder": "ابحث بالاسم أو البريد الإلكتروني أو الجهة…",
+    "rowLabel": "{name}: عرض تذاكر {company}",
+    "noMatch": "لا يوجد عملاء يطابقون «{query}».",
+    "noMatchHint": "جرّب اسمًا أو بريدًا إلكترونيًا أو جهة أخرى.",
+    "emptyTitle": "لا يوجد عملاء بعد",
+    "emptyDescription": "يظهر مقدمو الطلبات من العملاء هنا بعد اعتماد حساباتهم.",
+    "loadFailed": "تعذّر تحميل العملاء.",
+    "retry": "حاول مرة أخرى",
+    "loadMore": "تحميل المزيد",
+    "loadingMore": "جارٍ تحميل المزيد من العملاء…"
   },
   "reports": {
     "title": "التقارير",
@@ -190,10 +264,25 @@
       "p1Open": "P1 مفتوحة",
       "breached": "تجاوز مهلة الخدمة",
       "unassigned": "غير مسندة",
-      "solved": "تم الحل"
+      "solved": "تم الحل",
+      "firstReply": "متوسط وقت الرد الأول"
     },
     "byCategory": "التذاكر المفتوحة حسب الفئة",
-    "loading": "جارٍ تحميل التقارير…"
+    "loading": "جارٍ تحميل التقارير…",
+    "scopeAll": "كل الفرق",
+    "scopeMine": "فرقك",
+    "period": {
+      "label": "الفترة",
+      "7d": "آخر 7 أيام",
+      "30d": "آخر 30 يومًا",
+      "90d": "آخر 90 يومًا"
+    },
+    "firstReplyNote": "{count, plural, =0 {لا توجد ردود أولى} one {تذكرة واحدة} two {تذكرتان} few {{n} تذاكر} many {{n} تذكرة} other {{n} تذكرة}} · {period}",
+    "noAverage": "لا توجد بيانات",
+    "archived": "{label} <muted>(مؤرشفة)</muted>",
+    "noCategories": "لا توجد فئات بعد.",
+    "loadFailed": "تعذّر تحميل التقارير.",
+    "retry": "حاول مرة أخرى"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -223,6 +312,73 @@
       "P1_ACKNOWLEDGED": "{hasActor, select, yes {أكّد {actor} استلام تذكرة P1 <ticket>{ref}</ticket>} other {تم تأكيد استلام تذكرة P1 <ticket>{ref}</ticket>}}",
       "generic": "تحديث على <ticket>{ref}</ticket>"
     }
+  },
+  "activity": {
+    "title": "النشاط",
+    "listLabel": "نشاط التذكرة، الأحدث أولًا",
+    "loading": "جارٍ تحميل النشاط…",
+    "loadFailed": "تعذّر تحميل النشاط.",
+    "loadMoreFailed": "تعذّر تحميل النشاط الأقدم.",
+    "retry": "حاول مرة أخرى",
+    "empty": "لا يوجد نشاط بعد.",
+    "showMore": "عرض النشاط الأقدم",
+    "loadingMore": "جارٍ تحميل النشاط الأقدم…",
+    "system": "النظام",
+    "disabled": "{name} (معطّل)",
+    "archived": {
+      "team": "{label} (مؤرشف)",
+      "category": "{label} (مؤرشفة)",
+      "subtype": "{label} (مؤرشف)",
+      "site": "{label} (مؤرشف)",
+      "field": "{label} (مؤرشف)"
+    },
+    "none": "لا شيء",
+    "removed": {
+      "user": "مستخدم محذوف",
+      "team": "فريق محذوف",
+      "category": "فئة محذوفة",
+      "subtype": "نوع فرعي محذوف",
+      "site": "موقع محذوف"
+    },
+    "fields": {
+      "status": "الحالة",
+      "priority": "الأولوية",
+      "impact": "التأثير",
+      "team": "الفريق",
+      "category": "الفئة",
+      "subtype": "النوع الفرعي",
+      "site": "الموقع",
+      "assetId": "رقم الأصل",
+      "type": "نوع التذكرة"
+    },
+    "fieldChanged": "تغيير {field} من {from} إلى {to}",
+    "fieldSet": "تعيين {field}: {to}",
+    "fieldCleared": "إزالة {field} (السابق: {from})",
+    "fieldChangedPlain": "تغيير {field}",
+    "created": "أُنشئت التذكرة بأولوية {priority}",
+    "createdPlain": "أُنشئت التذكرة",
+    "reopened": "أُعيد فتح التذكرة",
+    "autoClosed": "أُغلقت تلقائيًا",
+    "autoClosedAfter": "{count, plural, zero {أُغلقت تلقائيًا بعد حلّها} one {أُغلقت تلقائيًا بعد يوم من حلّها} two {أُغلقت تلقائيًا بعد يومين من حلّها} few {أُغلقت تلقائيًا بعد {n} أيام من حلّها} many {أُغلقت تلقائيًا بعد {n} يومًا من حلّها} other {أُغلقت تلقائيًا بعد {n} يوم من حلّها}}",
+    "assigned": "أُسندت إلى {to}",
+    "unassigned": "أُلغي إسنادها (كانت مسندة إلى {from})",
+    "reassigned": "أُعيد إسنادها من {from} إلى {to}",
+    "assigneeChanged": "تغيير المسؤول",
+    "tagsAdded": "إضافة وسوم: {tags}",
+    "tagsRemoved": "إزالة وسوم: {tags}",
+    "tagsChanged": "إضافة وسوم: {added}؛ وإزالة: {removed}",
+    "tagsChangedPlain": "تغيير الوسوم",
+    "customFields": "تغيير الحقول المخصصة: {fields}",
+    "customFieldsPlain": "تغيير الحقول المخصصة",
+    "firstReply": "أُرسل الرد الأول",
+    "firstReplyAfter": "أُرسل الرد الأول بعد {duration}",
+    "slaAtRisk": "{target, select, FIRST_REPLY {مهلة الرد الأول معرضة للخطر} RESOLUTION {مهلة الحل معرضة للخطر} other {مهلة الخدمة معرضة للخطر}}",
+    "slaBreached": "{target, select, FIRST_REPLY {تم تجاوز مهلة الرد الأول} RESOLUTION {تم تجاوز مهلة الحل} other {تم تجاوز مهلة الخدمة}}",
+    "escalated": "تم تصعيد P1 إلى المرحلة {step}",
+    "escalatedPlain": "تم تصعيد P1",
+    "acknowledged": "تم تأكيد استلام P1",
+    "acknowledgedAfter": "تم تأكيد استلام P1 بعد {duration}",
+    "updated": "تحديث على التذكرة"
   },
   "p1": {
     "title": "لم يتم تأكيد استلام P1",

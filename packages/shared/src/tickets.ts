@@ -63,8 +63,16 @@ export type StaffView = (typeof STAFF_VIEWS)[number];
 export const CLIENT_TABS = ['all', 'active', 'solved'] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
 
+/** The Inbox sort toggle (a per-agent preference). */
 export const TICKET_SORTS = ['sla', 'recent'] as const;
 export type TicketSort = (typeof TICKET_SORTS)[number];
+
+/**
+ * Every order `GET /tickets` accepts: the Inbox sorts plus `priority` (Team queue, Phase 5 F3:
+ * done last, then P1 → P4, then the next SLA due date, then created).
+ */
+export const TICKET_LIST_SORTS = [...TICKET_SORTS, 'priority'] as const;
+export type TicketListSort = (typeof TICKET_LIST_SORTS)[number];
 
 // ───────────── SLA display state ─────────────
 
@@ -166,4 +174,38 @@ export function isSlaAtRiskOrBreached(t: SlaFields, now: number = Date.now()): b
   if (s.kind === 'firstReply') return s.clock.atRisk || s.clock.overdue;
   if (s.kind === 'replied') return !!s.resolution && (s.resolution.atRisk || s.resolution.overdue);
   return false;
+}
+
+/**
+ * The running clock has passed its due date: the first reply while unanswered (also while
+ * PENDING), else the resolution clock unless it is paused (PENDING after the first reply). Done
+ * tickets are never overdue.
+ */
+export function isSlaOverdue(t: SlaFields, now: number = Date.now()): boolean {
+  const s = slaState(t, now);
+  if (s.kind === 'firstReply') return s.clock.overdue;
+  if (s.kind === 'replied') return !!s.resolution?.overdue;
+  return false;
+}
+
+/**
+ * Reports "SLA breached" tile (Phase 5 F10): an active ticket that has breached a target — the
+ * stored `slaBreached` flag (sticky, set by the SLA worker), a due date already passed without
+ * the reply / resolution (`isSlaOverdue`), or a target met late that the worker never flagged
+ * (the first reply sent after its due date; a PENDING pause begun after the resolution due date).
+ * The API's SQL twin is `breachedSql`.
+ */
+export function hasBreachedSla(t: SlaFields, now: number = Date.now()): boolean {
+  if (!isActiveStatus(t.status)) return false;
+  const late = (due: string | Date | null, met: string | Date | null) => {
+    const d = toMs(due);
+    const m = toMs(met);
+    return d !== null && m !== null && m > d;
+  };
+  return (
+    t.slaBreached ||
+    isSlaOverdue(t, now) ||
+    late(t.firstReplyDueAt, t.firstRepliedAt) ||
+    (t.status === 'PENDING' && late(t.resolveDueAt, t.slaPausedAt))
+  );
 }

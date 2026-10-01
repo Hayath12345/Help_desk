@@ -5,7 +5,7 @@ import {
   type Actor,
   type HelpArticleAdminDto,
 } from '@loons/shared';
-import { createTestContext, rand, type TestContext } from './helpers.ts';
+import { acquireTestLock, createTestContext, rand, type TestContext } from './helpers.ts';
 import { apiAs, persona, type Persona } from './ticket-world.ts';
 
 // Admin — Help center (decision E15): articles in English and Arabic, drafts and published ones,
@@ -30,6 +30,8 @@ describe('admin help center', () => {
   beforeAll(async () => {
     ctx = await createTestContext();
     const f = ctx.fixtures;
+    // Other files add help articles too (Phase 5 portal tests): one file at a time.
+    f.onCleanup(await acquireTestLock(ctx.redis, 'help-center'));
     const staffDomain = ctx.config.staffEmailDomain;
     const team = await f.team();
     const sa = await f.staff({ staffDomain, role: 'SUPER_ADMIN' });

@@ -8,6 +8,7 @@ import {
 } from '@/lib/notifications/cache';
 import { notificationKeys } from '@/lib/notifications/keys';
 import { makeNotification, makePages } from '@/lib/notifications/test-fixtures';
+import { QUEUE_LIVE_KEYS, queueKeys } from '@/lib/queue/keys';
 import { updateThread, upsertThreadMessage } from '@/lib/tickets/cache';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { loadThread } from '@/lib/tickets/queries';
@@ -15,7 +16,7 @@ import { IDS, fixtureId, makeDetail, makeMessage, makeSummary } from '@/lib/tick
 import type { ThreadMessage, TicketPages } from '@/lib/tickets/types';
 import { RealtimeClient } from './client';
 import { fakeSocketFactory, type FakeSocket } from './fake-socket';
-import { connectRealtimeToCache } from './provider';
+import { LIST_REFRESH_MAX_WAIT_MS, connectRealtimeToCache } from './provider';
 
 const api = vi.hoisted(() => ({ fetchAllMessages: vi.fn() }));
 vi.mock('@/lib/tickets/api', async (importOriginal) => ({ ...(await importOriginal()), ...api }));
@@ -116,9 +117,33 @@ describe('realtime → query cache', () => {
     }
     expect(invalidate).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(400);
-    expect(invalidate).toHaveBeenCalledTimes(2);
+    // Inbox lists + counts, and the Team queue's list, tab counts and agent cards (Phase 5 F16).
+    expect(invalidate).toHaveBeenCalledTimes(5);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.lists() });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.counts() });
+    for (const queryKey of QUEUE_LIVE_KEYS) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+    // The queue's filter options follow config changes, not ticket changes.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: queueKeys.filterOptions() });
+  });
+
+  it('keeps refreshing the lists under steady queue:updated traffic (at least every 2 s)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const { socket, invalidate } = setup();
+    const listRefreshes = () =>
+      invalidate.mock.calls.filter(
+        ([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(ticketKeys.lists()),
+      ).length;
+    // One event every 300 ms for 5.1 s: without a maximum wait the 400 ms debounce never fires
+    // (authz gap #8: a Super Admin is in every team room).
+    for (let i = 0; i < 17; i += 1) {
+      socket.receive('queue:updated', { teamId: 't', ticketId: IDS.ticket, reason: 'message' });
+      await vi.advanceTimersByTimeAsync(300);
+    }
+    expect(listRefreshes()).toBeGreaterThanOrEqual(2);
+    // Once the traffic stops, the last burst still refreshes once.
+    const before = listRefreshes();
+    await vi.advanceTimersByTimeAsync(LIST_REFRESH_MAX_WAIT_MS);
+    expect(listRefreshes()).toBe(before + 1);
   });
 
   it('refetches what the scope of config:updated touches (Phase 4, E18)', () => {

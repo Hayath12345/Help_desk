@@ -1,9 +1,12 @@
 'use client';
 
 // URL state of the agent inbox (docs/PHASE2_CONTRACT.md → Agent console):
-//   /console/inbox?view=&team=&ticket=&q=
+//   /console/inbox?view=&team=&org=&ticket=&q=
 // - view    one of STAFF_VIEWS (default "mine"; omitted from the URL when default)
 // - team    a team id (uuid) — replaces the view while set (design: Teams column)
+// - org     a client organisation id (uuid) — the company view (Phase 5 F9): every ticket of that
+//           company, any status. Replaces the view and the team while set; the view stays in the
+//           URL, so clearing the company returns to it.
 // - ticket  the open conversation ("LG-4817" or a uuid)
 // - q       the top-bar search (≤ 100 characters, like the API)
 // Changes go through the native History API, which Next.js syncs with useSearchParams(), so
@@ -23,6 +26,11 @@ export interface InboxState {
   view: StaffView;
   /** Team id; when set the list shows that team's active tickets instead of `view`. */
   teamId: string | null;
+  /**
+   * Client organisation id (company view, F9); when set the list shows all of that company's
+   * tickets (any status) instead of `view` or `teamId`.
+   */
+  orgId: string | null;
   /** Normalised ticket reference ("LG-4817" or a lower-case uuid). */
   ticket: string | null;
   q: string;
@@ -46,11 +54,15 @@ interface ParamsLike {
 export function parseInboxParams(params: ParamsLike | null | undefined): InboxState {
   const view = params?.get('view');
   const team = params?.get('team')?.trim() ?? '';
+  const org = params?.get('org')?.trim() ?? '';
   const ticket = params?.get('ticket')?.trim() ?? '';
   const q = params?.get('q') ?? '';
+  const orgId = UUID.test(org) ? org.toLowerCase() : null;
   return {
     view: isStaffView(view) ? view : DEFAULT_VIEW,
-    teamId: UUID.test(team) ? team.toLowerCase() : null,
+    // The company view replaces the team (one list at a time).
+    teamId: !orgId && UUID.test(team) ? team.toLowerCase() : null,
+    orgId,
     ticket: ticket && ticket.length <= 64 ? normalizeTicketRef(ticket) : null,
     q: q.trim().slice(0, SEARCH_MAX),
   };
@@ -59,7 +71,11 @@ export function parseInboxParams(params: ParamsLike | null | undefined): InboxSt
 /** `?view=…&ticket=…` for a state (defaults omitted, stable order); '' for the default state. */
 export function inboxQuery(state: Partial<InboxState>): string {
   const params = new URLSearchParams();
-  if (state.teamId) params.set('team', state.teamId);
+  if (state.orgId) {
+    // The view is kept underneath the company view: clearing the company returns to it.
+    if (state.view && state.view !== DEFAULT_VIEW) params.set('view', state.view);
+    params.set('org', state.orgId);
+  } else if (state.teamId) params.set('team', state.teamId);
   else if (state.view && state.view !== DEFAULT_VIEW) params.set('view', state.view);
   if (state.ticket) params.set('ticket', state.ticket);
   const q = state.q?.trim().slice(0, SEARCH_MAX);
@@ -76,10 +92,15 @@ export function inboxHref(state: Partial<InboxState>): string {
 /**
  * The GET /tickets filters of the list for a state. A team shows its active tickets (design:
  * `act(t) && team`), so it is combined with the "open" view — the same set the team count covers.
+ * A company (F9) lists every ticket of that organisation: `orgId` without a view (all statuses).
  */
 export function listFiltersFor(state: InboxState, sort: TicketSort): TicketListFilters {
+  let target: TicketListFilters;
+  if (state.orgId) target = { orgId: state.orgId };
+  else if (state.teamId) target = { teamId: state.teamId, view: 'open' };
+  else target = { view: state.view };
   return {
-    ...(state.teamId ? { teamId: state.teamId, view: 'open' as const } : { view: state.view }),
+    ...target,
     search: state.q || undefined,
     sort,
   };

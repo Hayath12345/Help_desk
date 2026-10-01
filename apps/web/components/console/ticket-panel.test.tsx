@@ -183,6 +183,17 @@ describe('TicketPanel with archived config (E6)', () => {
   });
 });
 
+describe('TicketPanel activity timeline (Phase 5 F14)', () => {
+  it('ends with the collapsed Activity section, which loads nothing until opened', () => {
+    renderPanel(makeDetail({ team: { ...TEAMS.soc, isActive: true } }));
+    const toggle = screen.getByRole('button', { name: 'Activity' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const sections = document.querySelectorAll('section');
+    expect(sections[sections.length - 1]?.hasAttribute('data-activity')).toBe(true);
+    expect(api.get).not.toHaveBeenCalled();
+  });
+});
+
 describe('formatCustomFieldValue', () => {
   const words = { yes: 'Yes', no: 'No', archived: (l: string) => `${l} (archived)` };
   it('formats every type', () => {

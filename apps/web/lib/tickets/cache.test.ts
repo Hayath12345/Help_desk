@@ -153,6 +153,47 @@ describe('ticket caches', () => {
     const older = makeSummary({ status: 'NEW', updatedAt: '2026-09-22T00:00:00.000Z' });
     expect(applyTicketSummary(qc, older)).toBe(false);
     expect(findCachedTicket(qc, older.id)?.status).toBe('OPEN');
+    // Even when it would move the P1 fields: an older push never triggers a reload.
+    const olderStep = makeSummary({ p1EscalationStep: 2, updatedAt: '2026-09-22T00:00:00.000Z' });
+    expect(applyTicketSummary(qc, olderStep)).toBe(false);
+  });
+
+  // Phase 5 F15: the detail's `p1NextStep` is computed by the server from these summary fields; a
+  // push that changes one of them must reload the detail even with the same `updatedAt`.
+  const P1_CHANGES: [string, Partial<ReturnType<typeof makeSummary>>][] = [
+    ['a step fired', { p1EscalationStep: 1 }],
+    ['acknowledged', { p1AckedAt: '2026-09-23T12:06:00.000Z' }],
+    ['downgraded', { priority: 'P2' }],
+    ['a new P1 period', { p1Since: '2026-09-23T12:03:00.000Z' }],
+    ['solved', { status: 'SOLVED' }],
+  ];
+  for (const [what, change] of P1_CHANGES) {
+    it(`asks for the detail again when a push changes the next P1 step's inputs: ${what}`, () => {
+      const { qc, detail } = seeded();
+      // Same updatedAt as the cached detail: only the P1 fields tell it apart.
+      expect(applyTicketSummary(qc, makeSummary({ ...change, updatedAt: detail.updatedAt }))).toBe(
+        true,
+      );
+      // The merge still happens (the summary fields are the server's).
+      const [key, value] = Object.entries(change)[0]!;
+      expect((findCachedTicket(qc, detail.id) as Record<string, unknown>)[key]).toEqual(value);
+    });
+  }
+
+  it('does not ask for the detail again for a same-time push that leaves the P1 inputs alone', () => {
+    const { qc, detail } = seeded();
+    const same = makeSummary({ subject: 'Renamed', tags: ['vpn'], updatedAt: detail.updatedAt });
+    expect(applyTicketSummary(qc, same)).toBe(false);
+    expect(findCachedTicket(qc, detail.id)?.subject).toBe('Renamed');
+  });
+
+  it('list rows alone never ask for a detail reload', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(ticketKeys.list({ view: 'open' }), pages([makeSummary()]));
+    expect(applyTicketSummary(qc, makeSummary({ p1EscalationStep: 2 }))).toBe(false);
+    expect(
+      applyTicketSummary(qc, makeSummary({ status: 'PENDING', updatedAt: '2026-09-23T13:00:00Z' })),
+    ).toBe(false);
   });
 
   it('applyTicketDetail replaces the detail and the list rows', () => {

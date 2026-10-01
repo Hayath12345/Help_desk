@@ -14,6 +14,7 @@ import {
   useState,
 } from 'react';
 import { INBOX_PATH, SEARCH_MAX, inboxHref, updateInboxUrl } from '@/components/console/inbox-url';
+import { QUEUE_PATH, updateQueueUrl } from '@/lib/queue/url';
 import { cn } from '@/lib/utils';
 
 interface ConsoleSearchState {
@@ -32,6 +33,8 @@ export const SEARCH_DEBOUNCE_MS = 300;
  * The console's ticket search. The box in the top bar is the inbox's `?q=`:
  * - on /console/inbox, typing updates `q` (History API replace, after a short pause) and drops
  *   `ticket`, so the list refilters in place; Back / Forward and links update the box;
+ * - on /console/queue the box is the Team queue's `?q=` the same way: the queue filters in place
+ *   (Phase 5 F4; its tab and filters stay);
  * - on the other console pages, searching opens the inbox's "All open" view with that query
  *   (design: searching from Customers / Reports jumps to the inbox).
  */
@@ -40,7 +43,8 @@ export function ConsoleSearchProvider({ children }: { children: React.ReactNode 
   const searchParams = useSearchParams();
   const router = useRouter();
   const onInbox = pathname === INBOX_PATH;
-  const urlQuery = onInbox ? (searchParams?.get('q') ?? '').slice(0, SEARCH_MAX) : '';
+  const onQueue = pathname === QUEUE_PATH;
+  const urlQuery = onInbox || onQueue ? (searchParams?.get('q') ?? '').slice(0, SEARCH_MAX) : '';
 
   // What the box shows. `synced` is the URL value it was last aligned with: when the URL
   // changes by itself (Back, a link, the view select), the box follows it.
@@ -63,11 +67,13 @@ export function ConsoleSearchProvider({ children }: { children: React.ReactNode 
       const q = value.trim().slice(0, SEARCH_MAX);
       if (onInbox) {
         updateInboxUrl({ q, ticket: null }, 'replace');
+      } else if (onQueue) {
+        updateQueueUrl({ q }, 'replace');
       } else if (q) {
         router.push(inboxHref({ view: 'open', q }) as Route);
       }
     },
-    [onInbox, router],
+    [onInbox, onQueue, router],
   );
 
   const setQuery = useCallback(
@@ -115,6 +121,7 @@ export function ConsoleSearchBox({ className }: { className?: string }) {
   return (
     <div
       role="search"
+      aria-label={t('label')}
       className={cn(
         'flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface-muted px-2.5 transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-brand focus-within:ring-3 focus-within:ring-brand-tint focus-within:outline-hidden',
         className,

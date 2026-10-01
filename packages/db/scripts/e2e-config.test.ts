@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bustConfigCache, e2eConfigKeyWhere, isE2eConfigKey } from './e2e-config.ts';
+import {
+  bustConfigCache,
+  e2eConfigKeyWhere,
+  isE2eConfigKey,
+  isE2eHelpArticleKey,
+} from './e2e-config.ts';
 
 describe('E2E config rows (cleanup-e2e, Phase 4 admin spec)', () => {
   it('matches only keys the admin spec generates', () => {
@@ -25,6 +30,23 @@ describe('E2E config rows (cleanup-e2e, Phase 4 admin spec)', () => {
       expect(isE2eConfigKey(key), key).toBe(false);
     }
     expect(e2eConfigKeyWhere()).toEqual({ key: { startsWith: 'e2e-' } });
+  });
+
+  it('help articles: only the exact `e2e-<13 digits>` key the Phase 5 spec publishes', () => {
+    expect(isE2eHelpArticleKey('e2e-1790000000000')).toBe(true);
+    for (const key of [
+      'e2e-1790000000000-panel', // a Phase 4 custom-field shape, never an article's
+      'e2e-1790000000000-2',
+      'e2e-179000000000',
+      'e2e-17900000000000',
+      'e2e-encryption',
+      'e2e-',
+      'E2E-1790000000000',
+      'x-e2e-1790000000000',
+      'report-critical-security-incident',
+    ]) {
+      expect(isE2eHelpArticleKey(key), key).toBe(false);
+    }
   });
 
   it('busts the config cache like an admin change: generation first, then the cached entries', async () => {

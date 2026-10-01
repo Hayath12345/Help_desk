@@ -31,6 +31,41 @@ describe('local time helpers', () => {
       '2026-12-01T07:30:00.000Z',
     );
     expect(() => zonedInstant('2026-12-01', '7:30', 'Asia/Qatar')).toThrow(RangeError);
+  });
+
+  it('DST: a skipped time moves later by the gap; a repeated time is the earlier instant', () => {
+    // America/Santiago skips 00:00–01:00 on 6 September 2026 (UTC−4 → UTC−3): the day starts at
+    // 01:00 local, never 23:00 the day before.
+    expect(zonedInstant('2026-09-06', '00:00', 'America/Santiago').toISOString()).toBe(
+      '2026-09-06T04:00:00.000Z',
+    );
+    expect(zonedInstant('2026-09-06', '00:30', 'America/Santiago').toISOString()).toBe(
+      '2026-09-06T04:30:00.000Z',
+    );
+    expect(zonedInstant('2026-09-06', '01:00', 'America/Santiago').toISOString()).toBe(
+      '2026-09-06T04:00:00.000Z',
+    );
+    expect(zonedInstant('2026-09-05', '23:59', 'America/Santiago').toISOString()).toBe(
+      '2026-09-06T03:59:00.000Z',
+    );
+    // London skips 01:00–02:00 on 29 March 2026 (GMT → BST).
+    expect(zonedInstant('2026-03-29', '01:30', 'Europe/London').toISOString()).toBe(
+      '2026-03-29T01:30:00.000Z',
+    );
+    expect(zonedInstant('2026-03-29', '00:00', 'Europe/London').toISOString()).toBe(
+      '2026-03-29T00:00:00.000Z',
+    );
+    // Santiago repeats 23:00–24:00 on 4 April 2026 (UTC−3 → UTC−4): the first 23:30.
+    expect(zonedInstant('2026-04-04', '23:30', 'America/Santiago').toISOString()).toBe(
+      '2026-04-05T02:30:00.000Z',
+    );
+    expect(zonedInstant('2026-04-05', '00:00', 'America/Santiago').toISOString()).toBe(
+      '2026-04-05T04:00:00.000Z',
+    );
+    // London repeats 01:00–02:00 on 25 October 2026 (BST → GMT): the BST one.
+    expect(zonedInstant('2026-10-25', '01:30', 'Europe/London').toISOString()).toBe(
+      '2026-10-25T00:30:00.000Z',
+    );
     expect(hhmmOr('08:15', '07:30')).toBe('08:15');
     expect(hhmmOr('25:00', '07:30')).toBe('07:30');
     expect(hhmmOr(730, '07:30')).toBe('07:30');

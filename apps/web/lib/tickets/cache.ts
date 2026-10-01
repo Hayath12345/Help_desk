@@ -169,6 +169,7 @@ const DETAIL_ONLY_KEYS = [
   'requesterCard',
   'sla',
   'p1Chain',
+  'p1NextStep',
 ] as const satisfies readonly (keyof TicketDetailDto)[];
 
 /** The summary part of a detail DTO (what list rows hold). */
@@ -226,18 +227,38 @@ export function updateTicketEverywhere(
 }
 
 /**
+ * Summary fields the server derives the detail's `p1NextStep` from (Phase 5 F15): a step firing,
+ * an acknowledgement, a new P1 period, a priority or status change.
+ */
+const P1_NEXT_STEP_INPUTS = [
+  'priority',
+  'status',
+  'p1Since',
+  'p1EscalationStep',
+  'p1AckedAt',
+] as const satisfies readonly (keyof TicketSummaryDto)[];
+
+/**
  * Writes a server summary (realtime `ticket:updated`, message responses) into every cached copy
- * of that ticket, unless the cached copy is newer. Returns true when a cached detail was older —
- * its detail-only fields (description, custom fields, SLA policy…) may be stale then.
+ * of that ticket, unless the cached copy is newer. Returns true when a cached detail must be
+ * refetched: it was older — its detail-only fields (description, custom fields, SLA policy…) may
+ * be stale then — or the summary changes what its `p1NextStep` is computed from (checked on the
+ * fields themselves, so the P1 banner's next step never outlives the step, whatever `updatedAt`).
  */
 export function applyTicketSummary(queryClient: QueryClient, summary: TicketSummaryDto): boolean {
-  let detailWasOlder = false;
+  let detailStale = false;
   updateTicketEverywhere(queryClient, summary.id, (ticket) => {
     if (!isSameOrNewer(summary, ticket)) return ticket;
-    if ('requesterCard' in ticket && summary.updatedAt !== ticket.updatedAt) detailWasOlder = true;
+    if (
+      'requesterCard' in ticket &&
+      (summary.updatedAt !== ticket.updatedAt ||
+        P1_NEXT_STEP_INPUTS.some((key) => summary[key] !== ticket[key]))
+    ) {
+      detailStale = true;
+    }
     return { ...ticket, ...summary };
   });
-  return detailWasOlder;
+  return detailStale;
 }
 
 /** Writes a full server detail (PATCH / create responses) into every cached copy. */

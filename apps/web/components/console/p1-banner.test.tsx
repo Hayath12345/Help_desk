@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
-import type { AcknowledgeTicketResponse, TicketDetailDto } from '@loons/shared';
+import type { AcknowledgeTicketResponse, P1NextStep, TicketDetailDto } from '@loons/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError } from '@/lib/api/errors';
+import { RealtimeClient } from '@/lib/realtime/client';
+import { fakeSocketFactory } from '@/lib/realtime/fake-socket';
+import { connectRealtimeToCache } from '@/lib/realtime/provider';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { useTicket } from '@/lib/tickets/queries';
-import { IDS, makeDetail, makeSummary } from '@/lib/tickets/test-fixtures';
+import { IDS, fixtureId, makeDetail, makeSummary } from '@/lib/tickets/test-fixtures';
 import arCommon from '@/messages/ar/common.json';
 import arConsole from '@/messages/ar/console.json';
 import arErrors from '@/messages/ar/errors.json';
@@ -25,11 +28,14 @@ const api = vi.hoisted(() => ({
   answer: null as null | (() => unknown),
   hold: false,
   release: null as null | (() => void),
+  /** GET /tickets/LG-4771 answers this detail when set (a refetch). */
+  detail: null as null | TicketDetailDto,
 }));
 vi.mock('@/lib/api/browser', () => ({
   apiClient: {
     get: vi.fn(async (path: string) => {
       api.calls.push({ method: 'GET', path });
+      if (path === '/tickets/LG-4771' && api.detail) return { ticket: api.detail };
       throw new ApiRequestError(404, 'NOT_FOUND', 'not in this test');
     }),
     post: vi.fn(async (path: string) => {
@@ -57,9 +63,21 @@ beforeEach(() => {
   api.answer = null;
   api.hold = false;
   api.release = null;
+  api.detail = null;
   toast.mockReset();
 });
 afterEach(cleanup);
+
+/** The server's next step (F15): the operations manager (step 3) at 12:15 UTC by default. */
+const nextStep = (overrides: Partial<P1NextStep> = {}): P1NextStep => ({
+  step: 3,
+  ruleId: fixtureId(1301),
+  ruleStep: 3,
+  targetType: 'USER',
+  afterMins: 15,
+  dueAt: '2026-09-23T12:15:00.000Z',
+  ...overrides,
+});
 
 const acked = (overrides: Partial<TicketDetailDto> = {}): TicketDetailDto =>
   makeDetail({
@@ -138,31 +156,68 @@ describe('p1BannerModel', () => {
     });
   });
 
-  it('with the team’s chain (detail): step N of M and when the next step fires (D3)', () => {
-    const since = Date.parse('2026-09-23T12:00:00.000Z');
-    expect(p1BannerModel(makeDetail({ p1EscalationStep: 1 }), now)).toMatchObject({
+  it('detail: step N of M from the team’s chain (D3), the next step from the server (F15)', () => {
+    const due = nextStep({ step: 2, ruleStep: 2, afterMins: 5, dueAt: '2026-09-23T12:05:00.000Z' });
+    expect(p1BannerModel(makeDetail({ p1EscalationStep: 1, p1NextStep: due }), now)).toMatchObject({
       step: 1,
       stepCount: 3,
-      nextAt: since + 5 * 60_000,
+      nextAt: Date.parse('2026-09-23T12:05:00.000Z'),
     });
-    // Team rules replace the global chain: its own steps and times.
+    // Team rules replace the global chain: its length is the count.
     const own = makeDetail({
       p1EscalationStep: 1,
       p1Chain: [
         { step: 1, afterMins: 0 },
         { step: 4, afterMins: 30 },
       ],
+      p1NextStep: nextStep({
+        step: 2,
+        ruleStep: 2,
+        afterMins: 30,
+        dueAt: '2026-09-23T12:30:00.000Z',
+      }),
     });
-    expect(p1BannerModel(own, now)).toMatchObject({ stepCount: 2, nextAt: since + 30 * 60_000 });
-    // The last step fired: nothing next.
-    expect(p1BannerModel(makeDetail({ p1EscalationStep: 3 }), now)).toMatchObject({
-      stepCount: 3,
-      nextAt: null,
+    expect(p1BannerModel(own, now)).toMatchObject({
+      stepCount: 2,
+      nextAt: Date.parse('2026-09-23T12:30:00.000Z'),
     });
+    // Nothing more will fire (end of the chain, every rule fired): no next step.
+    expect(p1BannerModel(makeDetail({ p1EscalationStep: 3, p1NextStep: null }), now)).toMatchObject(
+      { stepCount: 3, nextAt: null },
+    );
     // No chain (a client's view, or no rules): no count, no time.
     expect(p1BannerModel(makeDetail({ p1Chain: null }), now)).toMatchObject({
       stepCount: null,
       nextAt: null,
+    });
+  });
+
+  it('never derives the next step from the chain: after an admin reorder it follows p1NextStep', () => {
+    // Step 1 fired; the chain would say "step 2 at 12:05", but the rule that moved into slot 2
+    // had already fired this P1 period, so the worker fires the step-3 rule at 12:15 next.
+    const detail = makeDetail({
+      p1EscalationStep: 1,
+      p1NextStep: nextStep({ step: 2, ruleStep: 3, dueAt: '2026-09-23T12:15:00.000Z' }),
+    });
+    expect(p1BannerModel(detail, now)).toMatchObject({
+      kind: 'unacknowledged',
+      nextAt: Date.parse('2026-09-23T12:15:00.000Z'),
+    });
+    // And without a server next step there is no next-step time, whatever the chain says.
+    expect(p1BannerModel(makeDetail({ p1EscalationStep: 1, p1NextStep: null }), now)).toMatchObject(
+      { step: 1, stepCount: 3, nextAt: null },
+    );
+    // An overdue step (due in the past) keeps its time: the banner says it is due now.
+    const overdue = makeDetail({
+      p1NextStep: nextStep({
+        step: 1,
+        ruleStep: 1,
+        afterMins: 0,
+        dueAt: '2026-09-23T12:00:00.000Z',
+      }),
+    });
+    expect(p1BannerModel(overdue, now)).toMatchObject({
+      nextAt: Date.parse('2026-09-23T12:00:00.000Z'),
     });
   });
 
@@ -189,7 +244,7 @@ describe('p1BannerModel', () => {
 
 describe('P1Banner', () => {
   it('says what is going on and acknowledges (server-confirmed), then shows who and when', async () => {
-    renderBanner(makeDetail({ p1EscalationStep: 2 }));
+    renderBanner(makeDetail({ p1EscalationStep: 2, p1NextStep: nextStep() }));
     const banner = document.querySelector('[data-p1="unacknowledged"]')!;
     // Step 3 (operations manager) fires at 12:15 UTC = 15:15 in Doha.
     expect(banner.textContent).toContain(
@@ -299,7 +354,19 @@ describe('P1Banner', () => {
   });
 
   it('works in Arabic', () => {
-    renderBanner(makeDetail({ p1EscalationStep: 1 }), 'ar');
+    // The next step (step 2 at 12:05) is already due at 12:07.
+    renderBanner(
+      makeDetail({
+        p1EscalationStep: 1,
+        p1NextStep: nextStep({
+          step: 2,
+          ruleStep: 2,
+          afterMins: 5,
+          dueAt: '2026-09-23T12:05:00.000Z',
+        }),
+      }),
+      'ar',
+    );
     const banner = document.querySelector('[data-p1="unacknowledged"]')!;
     expect(banner.textContent).toContain('لم يتم تأكيد استلام P1');
     expect(banner.textContent).toContain('مرحلة التصعيد 1 من 3');
@@ -319,6 +386,88 @@ describe('P1Banner', () => {
     expect(document.querySelector('[data-p1="unacknowledged"] p')?.textContent).toBe(
       'لم يتم تأكيد استلام P1',
     );
+  });
+
+  it('the next-step part follows p1NextStep: its time, "due now" when past, nothing when null', () => {
+    const banner = () => document.querySelector('[data-p1="unacknowledged"] p')?.textContent ?? '';
+    // Step 2 at 12:30 UTC (15:30 in Doha), 23 minutes from now.
+    renderBanner(
+      makeDetail({
+        p1EscalationStep: 1,
+        p1NextStep: nextStep({
+          step: 2,
+          ruleStep: 2,
+          afterMins: 30,
+          dueAt: '2026-09-23T12:30:00.000Z',
+        }),
+      }),
+    );
+    expect(banner()).toBe(
+      'P1 not acknowledged · escalation step 1 of 3 · next step in 23m (15:30) · P1 for 7m',
+    );
+    cleanup();
+    // Overdue (the worker fires it at once): "due now", never a negative countdown.
+    renderBanner(
+      makeDetail({
+        p1EscalationStep: 1,
+        p1NextStep: nextStep({
+          step: 2,
+          ruleStep: 2,
+          afterMins: 5,
+          dueAt: '2026-09-23T12:05:00.000Z',
+        }),
+      }),
+    );
+    expect(banner()).toBe(
+      'P1 not acknowledged · escalation step 1 of 3 · next step due now · P1 for 7m',
+    );
+    cleanup();
+    // Nothing more will fire: no next-step part (the chain alone never makes one up).
+    renderBanner(makeDetail({ p1EscalationStep: 1, p1NextStep: null }));
+    expect(banner()).toBe('P1 not acknowledged · escalation step 1 of 3 · P1 for 7m');
+  });
+
+  it('a pushed step refetches the detail, so the banner shows the server’s new next step', async () => {
+    // Step 2 is due (12:05); the worker fires it and pushes the summary. The push alone can't
+    // carry the next step (detail only): the detail is refetched (lib/tickets/cache.ts), even
+    // when the push has the same `updatedAt` as the cached copy.
+    const { queryClient } = renderBanner(
+      makeDetail({
+        p1EscalationStep: 1,
+        p1NextStep: nextStep({ step: 2, ruleStep: 2, dueAt: '2026-09-23T12:05:00.000Z' }),
+      }),
+    );
+    const { factory, sockets } = fakeSocketFactory();
+    const client = new RealtimeClient({
+      url: 'http://api.test',
+      getToken: async () => 'token',
+      createSocket: factory,
+    });
+    const disconnect = connectRealtimeToCache(client, queryClient);
+    client.start();
+    const socket = sockets[0]!;
+    socket.accept();
+    const banner = () => document.querySelector('[data-p1="unacknowledged"]')?.textContent ?? '';
+    expect(banner()).toContain('escalation step 1 of 3 · next step due now');
+
+    api.detail = makeDetail({ p1EscalationStep: 2, p1NextStep: nextStep() });
+    act(() => socket.receive('ticket:updated', { ticket: makeSummary({ p1EscalationStep: 2 }) }));
+    await waitFor(() =>
+      expect(banner()).toContain('escalation step 2 of 3 · next step in 8m (15:15)'),
+    );
+    expect(api.calls).toContainEqual({ method: 'GET', path: '/tickets/LG-4771' });
+
+    // A push that changes nothing the next step depends on (same `updatedAt`) reloads nothing.
+    api.calls = [];
+    act(() =>
+      socket.receive('ticket:updated', {
+        ticket: makeSummary({ p1EscalationStep: 2, subject: 'Renamed' }),
+      }),
+    );
+    await act(async () => {});
+    expect(api.calls).toEqual([]);
+    disconnect();
+    client.stop();
   });
 
   it('says "escalation not started" before step 1 fired', () => {

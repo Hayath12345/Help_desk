@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 export interface LogoProps {
   className?: string;
-  /** Muted text after the wordmark, e.g. the portal's "Support". */
+  /** Muted text after the wordmark, e.g. the portal's "Support" (ink-muted: 4.8:1, it is text). */
   suffix?: React.ReactNode;
   /** `md`: 22px mark + 16px text (top bars). `lg`: 24px mark + 18px text (auth screens). */
   size?: 'md' | 'lg';
@@ -33,7 +33,7 @@ export function Logo({ className, suffix, size = 'md', compact = false }: LogoPr
         {t('brand')}
       </span>
       {suffix ? (
-        <span className={cn('font-normal text-ink-subtle', compact && 'max-md:hidden')}>
+        <span className={cn('font-normal text-ink-muted', compact && 'max-md:hidden')}>
           {suffix}
         </span>
       ) : null}

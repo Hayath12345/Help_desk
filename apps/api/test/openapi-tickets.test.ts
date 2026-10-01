@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestContext, type TestContext } from './helpers.ts';
 
-// The OpenAPI document (/docs/json) covers every Phase 2 route with its request and response
-// schemas, Bearer security and the error responses.
+// The OpenAPI document (/docs/json) covers every Phase 2 and Phase 5 route (Team queue, activity
+// timeline, reports, customers, help center) with its request and response schemas, Bearer
+// security and the error responses, under its tag — never under `admin`.
 
-const ROUTES: Array<[method: string, path: string, success: string[]]> = [
+const ROUTES: Array<[method: string, path: string, success: string[], tag?: string]> = [
   ['get', '/config/ticket-form', ['200']],
   ['get', '/tickets/form-context', ['200']],
   ['get', '/requesters', ['200']],
@@ -20,6 +21,16 @@ const ROUTES: Array<[method: string, path: string, success: string[]]> = [
   ['get', '/attachments/{id}/download', ['200']],
   ['get', '/macros', ['200']],
   ['get', '/teams', ['200']],
+  // Phase 5.
+  ['get', '/tickets/queue-counts', ['200'], 'tickets'],
+  ['get', '/tickets/workload', ['200'], 'tickets'],
+  ['get', '/tickets/filter-options', ['200'], 'tickets'],
+  ['post', '/tickets/bulk', ['200'], 'tickets'],
+  ['get', '/tickets/{id}/events', ['200'], 'tickets'],
+  ['get', '/reports/summary', ['200'], 'reports'],
+  ['get', '/customers', ['200'], 'customers'],
+  ['get', '/customers/orgs/{id}', ['200'], 'customers'],
+  ['get', '/help/articles', ['200'], 'help'],
 ];
 
 describe('OpenAPI: ticket routes', () => {
@@ -36,11 +47,20 @@ describe('OpenAPI: ticket routes', () => {
     expect(res.statusCode).toBe(200);
     const doc = res.json();
     expect(doc.tags.map((t: { name: string }) => t.name)).toEqual(
-      expect.arrayContaining(['config', 'tickets', 'attachments', 'staff']),
+      expect.arrayContaining([
+        'config',
+        'tickets',
+        'attachments',
+        'staff',
+        'reports',
+        'customers',
+        'help',
+      ]),
     );
-    for (const [method, path, success] of ROUTES) {
+    for (const [method, path, success, tag] of ROUTES) {
       const op = doc.paths[path]?.[method];
       expect(op, `${method.toUpperCase()} ${path}`).toBeDefined();
+      if (tag) expect(op.tags, path).toEqual([tag]);
       expect(op.security).toEqual([{ bearerAuth: [] }]);
       expect(op.summary).toEqual(expect.any(String));
       for (const code of [...success, '401', '403', '429']) {
@@ -58,5 +78,20 @@ describe('OpenAPI: ticket routes', () => {
     // Invisible tickets are documented as 404 (never 403-only).
     expect(doc.paths['/tickets/{ref}'].get.responses['404']).toBeDefined();
     expect(doc.paths['/tickets/{id}'].patch.responses['409']).toBeDefined();
+    expect(doc.paths['/tickets/{id}/events'].get.responses['404']).toBeDefined();
+    expect(doc.paths['/customers/orgs/{id}'].get.responses['404']).toBeDefined();
+    // The Phase 5 read routes are documented with their query strings.
+    const params = (path: string) =>
+      (doc.paths[path].get.parameters as Array<{ name: string; in: string }>)
+        .filter((p) => p.in === 'query')
+        .map((p) => p.name);
+    expect(params('/tickets')).toEqual(
+      expect.arrayContaining(['priority', 'categoryId', 'assigneeId', 'orgId', 'requesterId']),
+    );
+    expect(params('/tickets/queue-counts')).toEqual(
+      expect.arrayContaining(['priority', 'categoryId', 'assigneeId', 'search']),
+    );
+    expect(params('/reports/summary')).toEqual(['period']);
+    expect(params('/help/articles')).toEqual(['locale']);
   });
 });

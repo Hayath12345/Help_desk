@@ -10,7 +10,7 @@ function Checkbox({ className, ...props }: React.ComponentProps<typeof CheckboxP
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        'peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-line-input bg-surface transition-colors duration-150 outline-none group-has-disabled/field:opacity-50 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-line-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand',
+        'peer relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-ink-muted bg-surface transition-colors duration-150 outline-none group-has-disabled/field:opacity-50 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-ink-muted after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand-tint focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-danger-strong aria-invalid:aria-checked:border-brand data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-brand',
         className,
       )}
       {...props}

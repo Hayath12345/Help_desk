@@ -86,6 +86,12 @@ describe('forced-colors focus indicators (UI-RR-3)', () => {
         'components/admin/kit/admin-table.tsx',
         'components/admin/kit/admin-sheet.tsx',
         'components/admin/kit/reorder.tsx',
+        // Phase 5 console pages (their folders sit under components/console).
+        'components/console/customers/customers-table.tsx',
+        'components/console/reports/report-tiles.tsx',
+        'components/console/queue/queue-row.tsx',
+        'components/console/queue/agent-cards.tsx',
+        'components/console/company-filter.tsx',
       ]),
     );
   });

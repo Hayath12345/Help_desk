@@ -1,7 +1,9 @@
 'use client';
 
+import { helpArticleLanguage } from '@loons/shared';
 import { useTranslations } from 'next-intl';
 import { Kicker } from '@/components/common/kicker';
+import { isolatePhoneNumbers } from '@/lib/format';
 import type { ContentLanguage } from '../../kit';
 
 export interface ArticlePreviewProps {
@@ -14,14 +16,15 @@ export interface ArticlePreviewProps {
   isPublished: boolean;
 }
 
-/** Arabic readers get the English article while its Arabic title or text is empty. */
+/**
+ * Arabic readers get the English article while its Arabic title or text is empty — the rule the
+ * portal's Help center gets from the API (`helpArticleLanguage` in @loons/shared).
+ */
 export function previewLanguage(
   language: ContentLanguage,
   article: Pick<ArticlePreviewProps, 'titleAr' | 'bodyAr'>,
 ): ContentLanguage {
-  return language === 'ar' && article.titleAr.trim() !== '' && article.bodyAr.trim() !== ''
-    ? 'ar'
-    : 'en';
+  return helpArticleLanguage(language, article);
 }
 
 /**
@@ -65,7 +68,7 @@ export function ArticlePreview(props: ArticlePreviewProps) {
           <>
             <p className="px-5 pt-4 pb-2 text-[15px] font-medium break-words text-ink">{title}</p>
             <p className="px-5 pb-[18px] leading-relaxed break-words whitespace-pre-line text-ink-secondary">
-              {body}
+              {isolatePhoneNumbers(body)}
             </p>
           </>
         )}

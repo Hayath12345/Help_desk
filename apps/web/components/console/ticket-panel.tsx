@@ -21,6 +21,7 @@ import { useFormContext, useTeams, useTicketFormConfig } from '@/lib/tickets/que
 import { localizedLabel, placeName, teamName } from '@/lib/tickets/labels';
 import { useViewer } from '@/lib/tickets/viewer';
 import { cn } from '@/lib/utils';
+import { ActivitySection } from './activity/activity-section';
 import { CustomFieldValues } from './custom-field-values';
 import { AssetIdEditor, PropertySelect, TagsEditor, type PropertyOption } from './property-editors';
 import { RequesterCard } from './requester-card';
@@ -284,6 +285,9 @@ export function TicketPanel({ ticket }: { ticket: TicketDetailDto }) {
       ) : null}
 
       <RequesterCard ticket={ticket} />
+
+      {/* Staff-only timeline of the ticket's changes (F14); loads when the agent opens it. */}
+      <ActivitySection ticketId={ticket.id} />
     </div>
   );
 }

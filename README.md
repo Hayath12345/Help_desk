@@ -9,12 +9,13 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 
-> **Status:** Phase 4 (admin panel) — on top of Phase 1 (monorepo, infrastructure, schema + seed, authentication,
-> design tokens, EN/AR + RTL shells), Phase 2 (tickets, realtime chat, internal notes, attachments) and Phase 3 (SLA
-> worker, email / Teams / SMS notifications, P1 escalation, the notification bell): the admin panel for Super Admins
-> with a limited Team Lead view, the audit log and live refresh of open forms. Reports, the portal help-center page
-> and AWS packaging arrive in phases 5–6. Handoff notes: [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md),
-> [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md), [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md).
+> **Status:** Phase 5 (views & reports) — on top of Phase 1 (monorepo, infrastructure, schema + seed, authentication,
+> design tokens, EN/AR + RTL shells), Phase 2 (tickets, realtime chat, internal notes, attachments), Phase 3 (SLA
+> worker, email / Teams / SMS notifications, P1 escalation, the notification bell) and Phase 4 (admin panel, audit
+> log, live refresh of open forms): the Team queue with filters and bulk actions, Customers, Reports, the portal Help
+> center, and a ticket Activity history. AWS packaging arrives in phase 6. Handoff notes:
+> [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md), [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md),
+> [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md), [`docs/PHASE5_HANDOFF.md`](docs/PHASE5_HANDOFF.md).
 
 ---
 
@@ -182,6 +183,9 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 - The notifications spec raises a P1: it checks the team and on-call emails in Mailpit and the sent Teams and SMS
   records, then the agent acknowledges from the P1 banner and bell. It texts one demo number per run, so more than 5
   runs in an hour hit the SMS cap (see Troubleshooting).
+- The views spec checks the Team queue (filter, tab, bulk assign), the Reports tiles, a customer's company view, and a
+  help article published while a client's Help center is open (English and Arabic). Its article key is
+  `e2e-<13 digits>`; the teardown removes it with the `[e2e:` tickets.
 - The admin spec keeps a client's New Ticket form open while the Super Admin adds a category and a custom field, then
   raises a ticket with them and archives them. Its config rows are keyed `e2e-<13-digit timestamp>` (and `…-panel`);
   the teardown removes exactly that key shape and never touches other configuration.
@@ -272,6 +276,24 @@ built are in [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md).
 - **Limits:** a phone number receives at most 20 texts an hour (`SMS_MAX_PER_RECIPIENT_PER_HOUR`), and one
   organisation's P1s may use at most a quarter of that; skipped texts are recorded, and the email and bell still go.
 - The console **bell** shows staff their notifications live; clients are notified by email.
+
+## Team queue, customers & reports
+
+Details and the rules as built are in [`docs/PHASE5_HANDOFF.md`](docs/PHASE5_HANDOFF.md). Every staff role sees these
+pages, scoped like the Inbox (Super Admins see every team; agents and Team Leads see their teams' tickets and the ones
+assigned to them).
+
+- **Team queue** (`/console/queue`): agent workload cards, tabs _All open_ · _Unassigned_ · _Breaching soon_ ·
+  _Solved_, Priority / Category / Assignee filters (kept in the address bar), and bulk _Assign to me_ / _Mark solved_ for
+  selected rows. The top-bar search filters the queue in place.
+- **Customers** (`/console/customers`): client contacts with company, contract type and open / total tickets. A row opens
+  that company's tickets in the Inbox.
+- **Reports** (`/console/reports`): open tickets, P1 open, SLA breached, unassigned, plus solved and average first reply
+  over the last 7 / 30 / 90 days, and open tickets by category. Each tile opens the matching list. Average first reply is
+  measured on the SLA clock (24/7 for P1/P2, business hours for P3/P4).
+- **Help center** (portal `/help`): the published articles from Admin → Help center, in English or Arabic, with search.
+  A newly published article appears on an open page without a reload.
+- **Activity**: staff see a ticket's history (status, priority, assignee, SLA, escalation) at the end of the ticket panel.
 
 ## Admin panel
 

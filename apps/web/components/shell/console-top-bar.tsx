@@ -47,7 +47,8 @@ export interface ConsoleTopBarProps {
  * Agent console top bar (design 676–705): logo, Inbox / Team queue / Customers / Reports
  * (+ Admin for super admins and team leads), ticket search, Online/Away, the notification bell
  * (Phase 3), language, account menu.
- * Below `lg` the section links collapse into a menu button.
+ * Below `lg` the section links collapse into a menu button — below `xl` when Admin is a fifth
+ * link, which would push the account menu off the bar at 1024 px.
  */
 export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
   const t = useTranslations('console.nav');
@@ -57,6 +58,7 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
     ? [...CONSOLE_NAV, ADMIN_NAV]
     : CONSOLE_NAV;
   const home: Route = area === 'admin' ? '/admin' : '/console/inbox';
+  const wideNav = items.length > CONSOLE_NAV.length;
 
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 sm:px-5 lg:gap-5">
@@ -66,7 +68,7 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
             variant="ghost"
             size="icon-sm"
             aria-label={t('menu')}
-            className="-ms-1.5 text-ink-secondary lg:hidden"
+            className={cn('-ms-1.5 text-ink-secondary', wideNav ? 'xl:hidden' : 'lg:hidden')}
           >
             <Menu aria-hidden="true" className="size-5" />
           </Button>
@@ -96,7 +98,10 @@ export function ConsoleTopBar({ user, area = 'console' }: ConsoleTopBarProps) {
         <Logo compact />
       </Link>
 
-      <nav aria-label={t('label')} className="flex gap-0.5 max-lg:hidden">
+      <nav
+        aria-label={t('label')}
+        className={cn('flex gap-0.5', wideNav ? 'max-xl:hidden' : 'max-lg:hidden')}
+      >
         {items.map((item) => (
           <TopNavLink
             key={item.key}

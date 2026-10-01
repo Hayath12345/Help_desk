@@ -54,7 +54,13 @@
     "nothingHere": "Nothing here",
     "noMatchView": "No tickets match this view.",
     "noMatchSearch": "No tickets in this view match “{query}”.",
-    "selectTicket": "Select a ticket to view the conversation."
+    "selectTicket": "Select a ticket to view the conversation.",
+    "company": {
+      "title": "Company",
+      "note": "All of this company’s tickets, in any status",
+      "clear": "Clear",
+      "clearLabel": "Clear the company filter"
+    }
   },
   "ticket": {
     "backToList": "Back to list",
@@ -142,25 +148,47 @@
     "accountManager": "Account manager",
     "otherTickets": "Other tickets",
     "sites": "{count, plural, one {{n} site} other {{n} sites}}",
-    "others": "{count, plural, =0 {None} other {{n} from this client}}",
+    "others": "{count, plural, =0 {View client} other {{n} from this client}}",
     "none": "—"
   },
   "queue": {
     "title": "Team queue",
     "allTeams": "All teams",
-    "unassigned": "unassigned",
+    "yourTeams": "Your teams",
+    "subtitle": "{scope} · {count, plural, one {{n} unassigned} other {{n} unassigned}}",
     "agentsLabel": "Agent workload",
-    "tabsLabel": "Queue filters",
+    "agentsHint": "Choose an agent to show only their tickets. Choose them again to show everyone’s.",
+    "agentsFailed": "The agent workload couldn’t be loaded.",
+    "agent": {
+      "openCount": "{count, plural, one {{n} open ticket} other {{n} open tickets}}",
+      "atRisk": "{count, plural, one {{n} at risk} other {{n} at risk}}",
+      "onTrack": "On track",
+      "capacity": "capacity {n}",
+      "note": "{status} · {capacity}",
+      "moreTeams": "{team} +{n}"
+    },
+    "tabsLabel": "Queue views",
     "tabs": {
       "open": "All open",
       "unassigned": "Unassigned",
       "breaching": "Breaching soon",
       "solved": "Solved"
     },
+    "filtersLabel": "Filters",
     "filters": {
-      "priority": "Priority: any",
-      "category": "Category: any",
-      "assignee": "Assignee: anyone"
+      "priorityLabel": "Priority filter",
+      "categoryLabel": "Category filter",
+      "assigneeLabel": "Assignee filter",
+      "priorityAny": "Priority: any",
+      "priority": "Priority: {value}",
+      "categoryAny": "Category: any",
+      "category": "Category: {value}",
+      "assigneeAny": "Assignee: anyone",
+      "assignee": "Assignee: {value}",
+      "unassigned": "Unassigned",
+      "archived": "{label} (archived)",
+      "unknownCategory": "Another category",
+      "unknownAssignee": "Another person"
     },
     "columns": {
       "priority": "Priority",
@@ -169,6 +197,39 @@
       "firstReplySla": "First reply SLA",
       "assignee": "Assignee",
       "status": "Status"
+    },
+    "listLabel": "Team queue tickets",
+    "selectAll": "Select all tickets shown",
+    "selectAllShort": "Select all",
+    "selectRow": "Select {ref}",
+    "assigneeNone": "Unassigned",
+    "noMatch": "No tickets match these filters.",
+    "loadFailed": "The tickets couldn’t be loaded.",
+    "retry": "Try again",
+    "loadMore": "Show more tickets",
+    "loadingMore": "Loading more tickets…",
+    "bulk": {
+      "label": "Bulk actions",
+      "selected": "{count, plural, one {{n} selected} other {{n} selected}}",
+      "assignToMe": "Assign to me",
+      "markSolved": "Mark solved",
+      "clear": "Clear",
+      "working": "{count, plural, one {Updating {n} ticket…} other {Updating {n} tickets…}}",
+      "assigned": "{count, plural, one {{n} ticket assigned to you} other {{n} tickets assigned to you}}",
+      "solved": "{count, plural, one {{n} ticket marked solved} other {{n} tickets marked solved}}",
+      "alreadyAssigned": "{count, plural, one {{n} ticket was already assigned to you} other {{n} tickets were already assigned to you}}",
+      "alreadySolved": "{count, plural, one {{n} ticket was already solved} other {{n} tickets were already solved}}",
+      "both": "{first} · {second}",
+      "failed": "{count, plural, one {{n} ticket couldn’t be changed} other {{n} tickets couldn’t be changed}}",
+      "partial": "{updated} · {failed}",
+      "reason": {
+        "not_found": "{ref} is no longer available to you.",
+        "forbidden": "You don’t have permission to change {ref}.",
+        "conflict": "{ref} is closed, so it can’t be changed.",
+        "invalid": "{ref} can’t be changed this way.",
+        "invalidAssign": "{ref} can’t be assigned to you: you’re not on its team.",
+        "internal": "Something went wrong with {ref}. Try again."
+      }
     },
     "loading": "Loading the team queue…"
   },
@@ -181,7 +242,20 @@
       "open": "Open",
       "total": "Total"
     },
-    "loading": "Loading customers…"
+    "loading": "Loading customers…",
+    "summary": "{requesters, plural, one {{r} requester} other {{r} requesters}} across {companies, plural, one {{c} company} other {{c} companies}}",
+    "summaryNone": "No requesters",
+    "searchLabel": "Search customers",
+    "searchPlaceholder": "Search by name, email or company…",
+    "rowLabel": "{name}: view {company} tickets",
+    "noMatch": "No customers match “{query}”.",
+    "noMatchHint": "Try another name, email or company.",
+    "emptyTitle": "No customers yet",
+    "emptyDescription": "Client requesters appear here once their accounts are approved.",
+    "loadFailed": "The customers couldn’t be loaded.",
+    "retry": "Try again",
+    "loadMore": "Load more",
+    "loadingMore": "Loading more customers…"
   },
   "reports": {
     "title": "Reports",
@@ -190,10 +264,25 @@
       "p1Open": "P1 open",
       "breached": "SLA breached",
       "unassigned": "Unassigned",
-      "solved": "Solved"
+      "solved": "Solved",
+      "firstReply": "Average first reply"
     },
     "byCategory": "Open tickets by category",
-    "loading": "Loading reports…"
+    "loading": "Loading reports…",
+    "scopeAll": "All teams",
+    "scopeMine": "Your teams",
+    "period": {
+      "label": "Period",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days"
+    },
+    "firstReplyNote": "{count, plural, =0 {No first replies} one {{n} ticket} other {{n} tickets}} · {period}",
+    "noAverage": "No data",
+    "archived": "{label} <muted>(archived)</muted>",
+    "noCategories": "No categories yet.",
+    "loadFailed": "The reports couldn’t be loaded.",
+    "retry": "Try again"
   },
   "notifications": {
     "title": "Notifications",
@@ -223,6 +312,73 @@
       "P1_ACKNOWLEDGED": "{hasActor, select, yes {{actor} acknowledged P1 <ticket>{ref}</ticket>} other {P1 <ticket>{ref}</ticket> acknowledged}}",
       "generic": "Update on <ticket>{ref}</ticket>"
     }
+  },
+  "activity": {
+    "title": "Activity",
+    "listLabel": "Ticket activity, newest first",
+    "loading": "Loading activity…",
+    "loadFailed": "The activity couldn’t be loaded.",
+    "loadMoreFailed": "Older activity couldn’t be loaded.",
+    "retry": "Try again",
+    "empty": "No activity yet.",
+    "showMore": "Show older activity",
+    "loadingMore": "Loading older activity…",
+    "system": "System",
+    "disabled": "{name} (disabled)",
+    "archived": {
+      "team": "{label} (archived)",
+      "category": "{label} (archived)",
+      "subtype": "{label} (archived)",
+      "site": "{label} (archived)",
+      "field": "{label} (archived)"
+    },
+    "none": "none",
+    "removed": {
+      "user": "a deleted user",
+      "team": "a deleted team",
+      "category": "a deleted category",
+      "subtype": "a deleted sub-type",
+      "site": "a deleted site"
+    },
+    "fields": {
+      "status": "Status",
+      "priority": "Priority",
+      "impact": "Impact",
+      "team": "Team",
+      "category": "Category",
+      "subtype": "Sub-type",
+      "site": "Site",
+      "assetId": "Asset ID",
+      "type": "Ticket type"
+    },
+    "fieldChanged": "{field} changed from {from} to {to}",
+    "fieldSet": "{field} set to {to}",
+    "fieldCleared": "{field} cleared (was {from})",
+    "fieldChangedPlain": "{field} changed",
+    "created": "Ticket created as {priority}",
+    "createdPlain": "Ticket created",
+    "reopened": "Ticket reopened",
+    "autoClosed": "Closed automatically",
+    "autoClosedAfter": "{count, plural, one {Closed automatically {n} day after it was solved} other {Closed automatically {n} days after it was solved}}",
+    "assigned": "Assigned to {to}",
+    "unassigned": "Unassigned (was {from})",
+    "reassigned": "Reassigned from {from} to {to}",
+    "assigneeChanged": "Assignee changed",
+    "tagsAdded": "Tags added: {tags}",
+    "tagsRemoved": "Tags removed: {tags}",
+    "tagsChanged": "Tags added: {added}; removed: {removed}",
+    "tagsChangedPlain": "Tags changed",
+    "customFields": "Custom fields changed: {fields}",
+    "customFieldsPlain": "Custom fields changed",
+    "firstReply": "First reply sent",
+    "firstReplyAfter": "First reply sent after {duration}",
+    "slaAtRisk": "{target, select, FIRST_REPLY {First-reply SLA at risk} RESOLUTION {Resolution SLA at risk} other {SLA at risk}}",
+    "slaBreached": "{target, select, FIRST_REPLY {First-reply SLA breached} RESOLUTION {Resolution SLA breached} other {SLA breached}}",
+    "escalated": "P1 escalated to step {step}",
+    "escalatedPlain": "P1 escalated",
+    "acknowledged": "P1 acknowledged",
+    "acknowledgedAfter": "P1 acknowledged after {duration}",
+    "updated": "Ticket updated"
   },
   "p1": {
     "title": "P1 not acknowledged",

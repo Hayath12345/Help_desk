@@ -6,6 +6,10 @@
 import { CONFIG_SCOPES, configUpdatedPayloadSchema, type ConfigScope } from '@loons/shared';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { adminKeys } from '@/lib/admin/keys';
+import { customerKeys } from '@/lib/customers/keys';
+import { helpKeys } from '@/lib/help/keys';
+import { queueKeys } from '@/lib/queue/keys';
+import { reportKeys } from '@/lib/reports/keys';
 import { requireFormConfigVersion } from '@/lib/tickets/config-version';
 import { ticketKeys } from '@/lib/tickets/keys';
 
@@ -26,6 +30,10 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       adminKeys.section('custom-fields'),
       adminKeys.section('sla'),
       adminKeys.section('settings'),
+      // Reports: category labels, archived categories (Phase 5 F12).
+      reportKeys.all,
+      // Team queue: the Category filter (labels, archived categories; F4).
+      queueKeys.filterOptions(),
     ],
   },
   // Organisations and sites: the New-ticket form context (org chip, sites), the staff requester
@@ -37,6 +45,8 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       ticketKeys.requesterSearches(),
       ticketKeys.details(),
       adminKeys.section('clients'),
+      // Customers (names, contracts, archived organisations) and the company view title (F8, F9).
+      customerKeys.all,
     ],
   },
   macros: { formConfig: false, keys: [ticketKeys.macros(), adminKeys.section('macros')] },
@@ -51,6 +61,8 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       adminKeys.section('categories'),
       adminKeys.section('escalation'),
       adminKeys.section('staff'),
+      // Team queue agent cards: team names and members (F5).
+      queueKeys.workload(),
     ],
   },
   // Escalation rules: the P1 chain on ticket details (`p1Chain`).
@@ -63,6 +75,8 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       adminKeys.section('business-hours'),
       adminKeys.section('sla'),
       adminKeys.section('settings'),
+      // Reports: period days (business.timezone) and the business-hours first-reply average.
+      reportKeys.all,
     ],
   },
   // Staff accounts: the staff pickers and teams, plus the screens that show a person's name or
@@ -77,10 +91,14 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       adminKeys.section('teams'),
       adminKeys.section('escalation'),
       adminKeys.section('clients'),
+      // Team queue agent cards: names, disabled staff (F5).
+      queueKeys.workload(),
     ],
   },
   'email-templates': { formConfig: false, keys: [adminKeys.section('email-templates')] },
-  'help-center': { formConfig: false, keys: [adminKeys.section('help-center')] },
+  // Help articles: the admin section and the portal Help center (every language; clients receive
+  // `config:updated` too, Phase 5 F13).
+  'help-center': { formConfig: false, keys: [adminKeys.section('help-center'), helpKeys.all] },
   // General settings: the SOC phone and security category are part of the form config.
   settings: { formConfig: true, keys: [adminKeys.section('settings')] },
   audit: { formConfig: false, keys: [adminKeys.section('audit-log')] },
@@ -126,7 +144,8 @@ export function applyConfigUpdated(queryClient: QueryClient, payload: unknown): 
 
 /**
  * After a reconnect every `config:updated` sent meanwhile was missed: refetch what config feeds
- * (the form config and form contexts, macros, teams, and whatever admin screen is open).
+ * (the form config and form contexts, macros, teams, whatever admin screen is open and the
+ * portal Help center).
  */
 export const RECONNECT_CONFIG_KEYS: readonly QueryKey[] = [
   ticketKeys.formConfig(),
@@ -134,4 +153,7 @@ export const RECONNECT_CONFIG_KEYS: readonly QueryKey[] = [
   ticketKeys.macros(),
   ticketKeys.teams(),
   adminKeys.all,
+  helpKeys.all,
+  // The Team queue's Category filter (its list, counts and cards follow the provider's refresh).
+  queueKeys.filterOptions(),
 ];

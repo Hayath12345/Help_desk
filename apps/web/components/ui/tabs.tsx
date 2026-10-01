@@ -63,7 +63,9 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
         "relative inline-flex cursor-pointer items-center justify-center gap-1.5 text-sm font-medium whitespace-nowrap text-ink-muted transition-[color,background-color,border-color,box-shadow] duration-150 ease-out hover:text-ink disabled:pointer-events-none disabled:opacity-50 data-active:text-ink [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         // segmented
         'group-data-[variant=default]/tabs-list:h-full group-data-[variant=default]/tabs-list:flex-1 group-data-[variant=default]/tabs-list:rounded-md group-data-[variant=default]/tabs-list:px-2.5 group-data-[variant=default]/tabs-list:text-[13px] group-data-[variant=default]/tabs-list:text-ink-secondary group-data-[variant=default]/tabs-list:data-active:bg-surface group-data-[variant=default]/tabs-list:data-active:text-ink group-data-[variant=default]/tabs-list:data-active:shadow-segment',
-        // underline
+        // underline; forced colours paint a transparent border in the text colour, so there the
+        // inactive tabs' line takes the background colour and the active one Highlight
+        'forced-colors:border-[Canvas]! forced-colors:data-active:border-[Highlight]!',
         'group-data-[variant=line]/tabs-list:border-transparent group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:-mb-px group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:border-b-2 group-data-horizontal/tabs:group-data-[variant=line]/tabs-list:pb-2 group-data-vertical/tabs:group-data-[variant=line]/tabs-list:-me-px group-data-vertical/tabs:group-data-[variant=line]/tabs-list:justify-start group-data-vertical/tabs:group-data-[variant=line]/tabs-list:border-e-2 group-data-vertical/tabs:group-data-[variant=line]/tabs-list:py-1.5 group-data-vertical/tabs:group-data-[variant=line]/tabs-list:pe-3 group-data-[variant=line]/tabs-list:data-active:border-ink',
         className,
       )}

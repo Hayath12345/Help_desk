@@ -30,6 +30,15 @@ export function isolateDirection(text: string, dir: 'ltr' | 'rtl'): string {
   return (dir === 'rtl' ? RLI : LRI) + text + PDI;
 }
 
+/**
+ * Keeps every international phone number (+974 4000 0000) of a longer text in reading order: each
+ * one is wrapped in left-to-right isolates, so in Arabic text its "+" stays in front and its
+ * groups don't swap sides. The visible text is unchanged.
+ */
+export function isolatePhoneNumbers(text: string): string {
+  return text.replace(/\+\d[\d \u00a0()-]{5,}\d/g, (phone) => isolateDirection(phone, 'ltr'));
+}
+
 /** Business timezone for Loons Group (Qatar). */
 export const DISPLAY_TIME_ZONE = 'Asia/Qatar';
 

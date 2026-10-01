@@ -9,6 +9,7 @@ import {
   initialsFrom,
   isolate,
   isolateDirection,
+  isolatePhoneNumbers,
 } from '@/lib/format';
 import arAdmin from '@/messages/ar/admin.json';
 import arCommon from '@/messages/ar/common.json';
@@ -129,5 +130,10 @@ describe('lib/format', () => {
     expect(isolate('2026-09-24 firewall.log')).toBe('⁨2026-09-24 firewall.log⁩');
     expect(isolateDirection('مثال: FW-01', 'rtl')).toBe('⁧مثال: FW-01⁩');
     expect(isolateDirection('FW-01', 'ltr')).toBe('⁦FW-01⁩');
+  });
+
+  it('keeps phone numbers in reading order inside longer text', () => {
+    expect(isolatePhoneNumbers('اتصل على +974 4000 0000.')).toBe('اتصل على ⁦+974 4000 0000⁩.');
+    expect(isolatePhoneNumbers('P1: 15 min, 24/7 (2026)')).toBe('P1: 15 min, 24/7 (2026)');
   });
 });

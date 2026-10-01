@@ -202,3 +202,20 @@ export const ticketDetailSelect = {
 } as const satisfies Prisma.TicketSelect;
 
 export type TicketDetailRow = Prisma.TicketGetPayload<{ select: typeof ticketDetailSelect }>;
+
+/** A category as `categoryRefSchema` (labels, icon, archived flag). */
+export const categoryRefSelect = {
+  id: true,
+  key: true,
+  labelEn: true,
+  labelAr: true,
+  icon: true,
+  isActive: true,
+} as const satisfies Prisma.CategorySelect;
+
+/** Categories in the admin's order (Admin → Categories). */
+export const CATEGORY_ADMIN_ORDER = [
+  { sortOrder: 'asc' },
+  { labelEn: 'asc' },
+  { id: 'asc' },
+] as const satisfies Prisma.CategoryOrderByWithRelationInput[];

@@ -55,6 +55,34 @@ export type ContractType = (typeof CONTRACT_TYPES)[number];
 export const TEAM_MEMBER_ROLES = ['MEMBER', 'LEAD'] as const;
 export type TeamMemberRole = (typeof TEAM_MEMBER_ROLES)[number];
 
+/**
+ * What a ticket's history records (`TicketEvent.type`, one row per change; Phase 5 activity
+ * timeline). TYPE_CHANGED and REOPENED exist in the schema but are not written today.
+ */
+export const TICKET_EVENT_TYPES = [
+  'CREATED',
+  'STATUS_CHANGED',
+  'PRIORITY_CHANGED',
+  'ASSIGNEE_CHANGED',
+  'TEAM_CHANGED',
+  'CATEGORY_CHANGED',
+  'SUBTYPE_CHANGED',
+  'TYPE_CHANGED',
+  'TAGS_CHANGED',
+  'FIRST_REPLY',
+  'REOPENED',
+  'SLA_AT_RISK',
+  'SLA_BREACHED',
+  'P1_ACKNOWLEDGED',
+  'ESCALATED',
+  'AUTO_CLOSED',
+  'IMPACT_CHANGED',
+  'SITE_CHANGED',
+  'ASSET_CHANGED',
+  'CUSTOM_FIELDS_CHANGED',
+] as const;
+export type TicketEventType = (typeof TICKET_EVENT_TYPES)[number];
+
 // ───────────── Phase 3: SLA signals and notifications ─────────────
 
 /** The two SLA targets of a ticket. */

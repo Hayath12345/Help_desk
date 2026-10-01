@@ -25,6 +25,17 @@ export async function registerDocs(app: FastifyInstance): Promise<void> {
         { name: 'attachments', description: 'Pre-signed uploads and downloads' },
         { name: 'staff', description: 'Console look-ups (staff only)' },
         {
+          name: 'reports',
+          description:
+            'Console reports (staff only): numbers count only the tickets the caller can see',
+        },
+        {
+          name: 'customers',
+          description:
+            'Client requesters and organisations (staff only); ticket counts under the caller’s visibility',
+        },
+        { name: 'help', description: 'Published help-center articles (any signed-in user)' },
+        {
           name: 'admin',
           description:
             'Admin panel (super admins; team leads: their teams and macros). Bearer tokens only, never cookies, so cross-site requests cannot act as the admin (CSRF-safe by design). Edits send `expectedUpdatedAt` (409 `stale` when someone saved first); per-user write limit.',

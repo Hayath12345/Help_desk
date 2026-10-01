@@ -16,6 +16,7 @@ const pairs: Array<[string, readonly string[], Record<string, string>]> = [
   ['CustomFieldType', shared.CUSTOM_FIELD_TYPES, db.CustomFieldType],
   ['ContractType', shared.CONTRACT_TYPES, db.ContractType],
   ['TeamMemberRole', shared.TEAM_MEMBER_ROLES, db.TeamMemberRole],
+  ['TicketEventType', shared.TICKET_EVENT_TYPES, db.TicketEventType],
   ['SlaTarget', shared.SLA_TARGETS, db.SlaTarget],
   ['SlaSignalKind', shared.SLA_SIGNAL_KINDS, db.SlaSignalKind],
   ['NotificationType', shared.NOTIFICATION_TYPES, db.NotificationType],

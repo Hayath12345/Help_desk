@@ -121,6 +121,8 @@ describe('ticket messages', () => {
       ]);
       expect(history.find((e) => e.type === 'FIRST_REPLY')?.meta).toEqual({
         minutesToFirstReply: 0,
+        // Also on the SLA clock of the priority in force then (Reports average, F11).
+        slaMinutesToFirstReply: 0,
         messageId: message.id,
       });
 

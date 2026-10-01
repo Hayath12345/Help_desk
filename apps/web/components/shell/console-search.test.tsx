@@ -88,6 +88,22 @@ describe('Console search', () => {
     expect(document.activeElement).toBe(box);
   });
 
+  it('filters the Team queue in place: its ?q= (tab and filters kept), never the inbox', async () => {
+    const box = renderSearch('/console/queue?tab=unassigned&priority=P2&q=nvr');
+    expect(box.value).toBe('nvr');
+    fireEvent.change(box, { target: { value: ' turnstile ' } });
+    await waitFor(() =>
+      expect(window.location.search).toBe('?tab=unassigned&priority=P2&q=turnstile'),
+    );
+    expect(window.location.pathname).toBe('/console/queue');
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(window.location.search).toBe('?tab=unassigned&priority=P2');
+    // Back / links update the box, as on the inbox.
+    act(() => window.history.pushState(null, '', '/console/queue?q=cctv'));
+    expect(box.value).toBe('cctv');
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it('searches the inbox from the other console pages', async () => {
     const box = renderSearch('/console/customers');
     fireEvent.change(box, { target: { value: ' hamad ' } });
