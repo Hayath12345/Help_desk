@@ -1,0 +1,54 @@
+# Build context of the three images (apps/web/Dockerfile, apps/api/Dockerfile), built from the
+# repository root. An ALLOW-list: everything is excluded unless it is named below, so a new file
+# at the top level (a .env, notes, a key) can never end up in an image by accident.
+# The local .env is never part of a build context (Phase 6, G11); secrets reach containers at
+# run time, through the environment.
+
+*
+
+# workspace manifests
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+
+# application sources
+!apps/web/**
+!apps/api/**
+!packages/**
+
+# CA bundle for the database (RDS), added by the operator; see deploy/certs/README.md
+!deploy/certs/**
+
+# ...minus what a build or a running container never needs
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/coverage
+**/test-results
+**/playwright-report
+**/blob-report
+**/*.tsbuildinfo
+**/*.log
+**/.DS_Store
+
+# environment files and anything secret-looking, wherever they are
+**/.env
+**/.env.*
+**/*.pem
+!deploy/certs/*.pem
+**/*.key
+**/*.p12
+
+# tests (run in CI and on developer machines, not in images)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+apps/web/e2e
+apps/web/playwright.config.ts
+apps/api/test
+packages/db/scripts
+
+# generated at build time inside the image (prisma generate)
+packages/db/src/generated

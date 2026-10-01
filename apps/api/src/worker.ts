@@ -2,7 +2,7 @@
 // (email, notifications, escalation, sla) in a separate process from the HTTP API and, unless
 // WORKER_SCHEDULERS=false, registers the repeatable SLA jobs.
 import { createPrismaClient } from '@loons/db';
-import { ConfigError, loadConfig } from './config.ts';
+import { ConfigError, deployProfileWarning, loadConfig } from './config.ts';
 import { digestTime } from './jobs/maintenance.ts';
 import { registerSchedulers } from './jobs/schedulers.ts';
 import { startWorkers } from './jobs/workers.ts';
@@ -13,6 +13,7 @@ import { closeRedis, createBullConnection, createRedisClient } from './lib/redis
 import { createSmsProvider } from './lib/sms/index.ts';
 import { createStorage } from './lib/storage.ts';
 import { createTeamsProvider } from './lib/teams/index.ts';
+import { startHeartbeat, type HeartbeatHandle } from './lib/worker-heartbeat.ts';
 import { createTicketConfigService } from './services/ticket-config.service.ts';
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -30,6 +31,8 @@ async function main(): Promise<void> {
   }
 
   const logger = createLogger(config, 'worker');
+  const profileWarning = deployProfileWarning(config);
+  if (profileWarning) logger.warn(profileWarning);
   const prisma = createPrismaClient({ url: config.databaseUrl, poolSize: config.databasePoolSize });
   const redis = createRedisClient(config.redisUrl, logger, 'worker');
   const prefix = queuePrefixFor(config);
@@ -59,9 +62,11 @@ async function main(): Promise<void> {
   });
 
   let shuttingDown = false;
+  let heartbeat: HeartbeatHandle | undefined;
   async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+    heartbeat?.stop(); // a worker that is closing is no longer "alive" for the health check
     logger.info({ signal }, 'worker shutting down (finishing active jobs)');
     const force = setTimeout(() => {
       logger.error('worker shutdown timed out; exiting');
@@ -93,6 +98,13 @@ async function main(): Promise<void> {
     );
 
   await workers.ready();
+  if (config.worker.heartbeatFile) {
+    heartbeat = startHeartbeat({
+      file: config.worker.heartbeatFile,
+      isHealthy: () => !shuttingDown && workers.workers.every((w) => w.isRunning()),
+      onError: (err) => logger.warn({ err }, 'could not write the worker heartbeat'),
+    });
+  }
   let schedulers: string[] = [];
   if (config.worker.schedulers) {
     try {

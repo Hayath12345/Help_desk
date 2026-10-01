@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiTokenConfig,
+  assertNotRehearsingOnAws,
+  assertProductionAuthUrl,
   assertWebEnv,
   authSecrets,
+  deployProfile,
+  deployProfileWarning,
   entraConfig,
   internalApiKey,
   isDevStaffLoginEnabled,
@@ -144,11 +148,13 @@ describe('trustedProxyHops (SEC-6)', () => {
     expect(trustedProxyHops()).toBe(1);
   });
 
-  it('accepts 0 (nothing in front of Next.js) up to 10', () => {
+  it('accepts 0 (nothing in front of Next.js) up to 3 (a CDN, a load balancer and a WAF)', () => {
     vi.stubEnv('TRUSTED_PROXY_HOPS', '0');
     expect(trustedProxyHops()).toBe(0);
     vi.stubEnv('TRUSTED_PROXY_HOPS', '2');
     expect(trustedProxyHops()).toBe(2);
+    vi.stubEnv('TRUSTED_PROXY_HOPS', '3');
+    expect(trustedProxyHops()).toBe(3);
   });
 
   it('refuses 0 in production, where per-IP sign-in limits must apply (RR-SEC-2)', () => {
@@ -163,7 +169,7 @@ describe('trustedProxyHops (SEC-6)', () => {
   });
 
   it('fails loudly on anything else', () => {
-    for (const bad of ['-1', '11', '1.5', 'one']) {
+    for (const bad of ['-1', '4', '10', '11', '1.5', 'one']) {
       vi.stubEnv('TRUSTED_PROXY_HOPS', bad);
       expect(() => trustedProxyHops()).toThrow(/TRUSTED_PROXY_HOPS/);
     }
@@ -235,5 +241,117 @@ describe('Microsoft Entra ID tenant restriction (SEC-3)', () => {
     vi.stubEnv('AUTH_MICROSOFT_ENTRA_ID_ISSUER', 'https://login.microsoftonline.com/common/v2.0');
     expect(isEntraConfigured()).toBe(false);
     expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe('production rules (DEPLOY_PROFILE, Phase 6)', () => {
+  it('on AWS (the default profile) AUTH_URL must be the https address of the app', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_URL', 'https://help.example.com');
+    expect(() => assertWebEnv()).not.toThrow();
+    expect(() => assertProductionAuthUrl()).not.toThrow();
+
+    vi.stubEnv('AUTH_URL', 'http://help.example.com');
+    expect(() => assertWebEnv()).toThrow(/AUTH_URL must be an https:\/\/ URL in production/);
+    vi.stubEnv('AUTH_URL', 'not a url');
+    expect(() => assertProductionAuthUrl()).toThrow(/AUTH_URL must be an https:\/\/ URL/);
+    vi.stubEnv('AUTH_URL', 'https://localhost:3000');
+    expect(() => assertProductionAuthUrl()).toThrow(/must not point at localhost/);
+    vi.stubEnv('AUTH_URL', '');
+    expect(() => assertWebEnv()).toThrow(/AUTH_URL is required in production/);
+  });
+
+  it('DEPLOY_PROFILE=rehearsal (local rehearsal) and non-production environments skip it', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_URL', 'http://localhost:3100');
+    vi.stubEnv('DEPLOY_PROFILE', 'rehearsal');
+    expect(() => assertWebEnv()).not.toThrow();
+    expect(deployProfile()).toBe('rehearsal');
+    vi.stubEnv('DEPLOY_PROFILE', ' AWS ');
+    expect(deployProfile()).toBe('aws');
+    vi.stubEnv('DEPLOY_PROFILE', '');
+    expect(deployProfile()).toBe('aws');
+    for (const nodeEnv of ['development', 'test']) {
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      expect(() => assertWebEnv(), nodeEnv).not.toThrow();
+    }
+  });
+
+  it('an unknown DEPLOY_PROFILE stops the server like any other bad setting', () => {
+    vi.stubEnv('DEPLOY_PROFILE', 'staging');
+    expect(() => deployProfile()).toThrow('DEPLOY_PROFILE must be one of aws, rehearsal');
+    expect(() => assertWebEnv()).toThrow(/DEPLOY_PROFILE must be one of aws, rehearsal/);
+  });
+
+  it('reports a bad DEPLOY_PROFILE once, also in production where two checks read it', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_URL', 'https://help.example.com');
+    vi.stubEnv('DEPLOY_PROFILE', 'staging');
+    let message = '';
+    try {
+      assertWebEnv();
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message.match(/DEPLOY_PROFILE must be one of aws, rehearsal/g)).toHaveLength(1);
+  });
+
+  it('refuses a loopback AUTH_URL in every spelling, not only localhost / 127.0.0.1', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    for (const host of ['127.0.0.2', '0.0.0.0', '[::1]', '[::ffff:127.0.0.1]', 'app.localhost']) {
+      vi.stubEnv('AUTH_URL', `https://${host}`);
+      expect(() => assertProductionAuthUrl(), host).toThrow(/must not point at localhost/);
+    }
+    vi.stubEnv('AUTH_URL', 'https://128.0.0.1');
+    expect(() => assertProductionAuthUrl()).not.toThrow();
+  });
+
+  it('warns at start-up when the rehearsal profile is on in production, and only then', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('DEPLOY_PROFILE', 'rehearsal');
+    expect(deployProfileWarning()).toMatch(/^DEPLOY_PROFILE=rehearsal: /);
+    vi.stubEnv('DEPLOY_PROFILE', '');
+    expect(deployProfileWarning()).toBeUndefined();
+    vi.stubEnv('DEPLOY_PROFILE', 'staging');
+    expect(deployProfileWarning()).toBeUndefined();
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('DEPLOY_PROFILE', 'rehearsal');
+    expect(deployProfileWarning()).toBeUndefined();
+  });
+});
+
+describe('an AWS runtime refuses developer-machine settings (web)', () => {
+  const markers = [
+    ['ECS_CONTAINER_METADATA_URI_V4', 'http://169.254.170.2/v4/x'],
+    ['ECS_CONTAINER_METADATA_URI', 'http://169.254.170.2/v3/x'],
+    ['AWS_EXECUTION_ENV', 'AWS_ECS_FARGATE'],
+  ] as const;
+
+  beforeEach(() => {
+    for (const [name] of markers) vi.stubEnv(name, '');
+  });
+
+  it('refuses NODE_ENV=development / test and DEPLOY_PROFILE=rehearsal under each marker', () => {
+    for (const [name, value] of markers) {
+      vi.stubEnv(name, value);
+      vi.stubEnv('NODE_ENV', 'development');
+      expect(() => assertNotRehearsingOnAws(), name).toThrow(/NODE_ENV must be production on AWS/);
+      expect(() => assertWebEnv(), name).toThrow(/NODE_ENV must be production on AWS/);
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('AUTH_URL', 'https://help.example.com');
+      vi.stubEnv('DEPLOY_PROFILE', 'rehearsal');
+      expect(() => assertWebEnv(), name).toThrow(/DEPLOY_PROFILE must be aws on AWS/);
+      vi.stubEnv('DEPLOY_PROFILE', '');
+      expect(() => assertWebEnv(), name).not.toThrow();
+      vi.stubEnv(name, '');
+    }
+  });
+
+  it('is silent without a marker (developer machines, the local rehearsal)', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(() => assertNotRehearsingOnAws()).not.toThrow();
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('DEPLOY_PROFILE', 'rehearsal');
+    expect(() => assertNotRehearsingOnAws()).not.toThrow();
   });
 });

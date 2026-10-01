@@ -338,8 +338,17 @@ export const noopScanHook: ScanHook = {
 
 // ───────────── Client + presigning ─────────────
 
-export function createS3Client(s3: AppConfig['s3']): S3Client {
+/**
+ * The S3 client. On AWS only the region is set: credentials come from the default provider chain
+ * (task / pod role), which is why production configuration refuses static keys. MinIO locally adds
+ * an endpoint, path-style addressing and static keys. `overrides` is a test seam (a fake request
+ * handler); region, endpoint and credentials always come from the configuration.
+ */
+export function createS3Client(s3: AppConfig['s3'], overrides: S3ClientConfig = {}): S3Client {
   const config: S3ClientConfig = {
+    // A hung connection must fail the call; the idle timeout leaves room for a server-side copy.
+    requestHandler: { connectionTimeout: 5_000, requestTimeout: 120_000 },
+    ...overrides,
     region: s3.region,
     // Presigned URLs must not carry SDK-computed checksums of an empty body.
     requestChecksumCalculation: 'WHEN_REQUIRED',

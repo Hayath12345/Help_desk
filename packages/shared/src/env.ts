@@ -52,3 +52,68 @@ export function isPlaceholderSecret(value: string | undefined): boolean {
   const v = value?.trim() ?? '';
   return v === '' || /replace-?me|changeme|placeholder|example/i.test(v);
 }
+
+/**
+ * Largest number of reverse proxies the API (TRUST_PROXY) and the web app (TRUSTED_PROXY_HOPS) accept
+ * in front of them. One ALB is 1, CloudFront in front of an ALB is 2, a WAF/ALB chain behind it 3;
+ * anything above that means a typo or a client-controlled X-Forwarded-For entry would be trusted.
+ */
+export const MAX_TRUSTED_PROXY_HOPS = 3;
+
+/**
+ * Whether the process runs on an AWS container runtime: ECS (Fargate and EC2) sets
+ * `ECS_CONTAINER_METADATA_URI_V4` / `ECS_CONTAINER_METADATA_URI` for every container, and the
+ * Lambda / Fargate / CodeBuild runtimes set `AWS_EXECUTION_ENV`. Used to refuse developer-machine
+ * settings (NODE_ENV=development, DEPLOY_PROFILE=rehearsal) where they would silently switch the
+ * production safety rules off.
+ */
+export function runsOnAwsRuntime(env: Record<string, string | undefined>): boolean {
+  return ['AWS_EXECUTION_ENV', 'ECS_CONTAINER_METADATA_URI_V4', 'ECS_CONTAINER_METADATA_URI'].some(
+    (name) => (env[name]?.trim() ?? '') !== '',
+  );
+}
+
+/**
+ * Settings that only make sense on a developer machine, refused when the process runs on an AWS
+ * container runtime (see `runsOnAwsRuntime`): NODE_ENV other than production (unset counts as
+ * production) and DEPLOY_PROFILE=rehearsal would switch every production rule off. Runs in every
+ * environment; the API, the worker and the web server all call it with `process.env`.
+ */
+export function awsRuntimeProblems(env: Record<string, string | undefined>): string[] {
+  if (!runsOnAwsRuntime(env)) return [];
+  const problems: string[] = [];
+  const nodeEnv = env.NODE_ENV?.trim() ?? '';
+  if (nodeEnv !== '' && nodeEnv !== 'production') {
+    problems.push(
+      'NODE_ENV must be production on AWS (an AWS runtime was detected): development / test switch the production rules off',
+    );
+  }
+  if (env.DEPLOY_PROFILE?.trim().toLowerCase() === 'rehearsal') {
+    problems.push(
+      'DEPLOY_PROFILE must be aws on AWS (an AWS runtime was detected): rehearsal exists for the local docker-compose rehearsal only',
+    );
+  }
+  return problems;
+}
+
+/**
+ * Whether a URL host name (`URL.hostname`: lower-cased, IPv6 in brackets, IPv4 already in dotted
+ * form) is this machine: `localhost` and `*.localhost`, all of 127.0.0.0/8 and 0.0.0.0/8, `::1`, `::`
+ * and their IPv4-mapped forms. A public address is never one of these.
+ */
+export function isLocalHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.+$/, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  const v4 = /^(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (v4) return v4[1] === '127' || v4[1] === '0';
+  const v6 = /^\[(.*)\]$/.exec(host)?.[1];
+  if (v6 === undefined) return false;
+  if (v6 === '::1' || v6 === '::') return true;
+  // IPv4-mapped (::ffff:7f00:1 is 127.0.0.1): the high byte of the first group is the first octet.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/.exec(v6);
+  if (mapped) {
+    const firstOctet = parseInt(mapped[1]!, 16) >> 8;
+    return firstOctet === 127 || firstOctet === 0;
+  }
+  return false;
+}

@@ -1,10 +1,26 @@
-import { PublishCommand, SNSClient, type MessageAttributeValue } from '@aws-sdk/client-sns';
+import {
+  PublishCommand,
+  SNSClient,
+  type MessageAttributeValue,
+  type SNSClientConfig,
+} from '@aws-sdk/client-sns';
 import type { AppConfig } from '../../config.ts';
+import { AWS_REQUEST_HANDLER } from '../aws.ts';
 import type { SmsProvider } from './provider.ts';
 
-/** AWS SNS direct-to-phone SMS (transactional). Credentials from the default provider chain. */
-export function createSnsSmsProvider(config: Pick<AppConfig, 'sms'>): SmsProvider {
-  const client = new SNSClient({ region: config.sms.snsRegion });
+/**
+ * AWS SNS direct-to-phone SMS (transactional). Credentials from the default provider chain, the
+ * region from SNS_REGION. `clientConfig` is a test seam (a fake request handler).
+ */
+export function createSnsSmsProvider(
+  config: Pick<AppConfig, 'sms'>,
+  options: { clientConfig?: SNSClientConfig } = {},
+): SmsProvider {
+  const client = new SNSClient({
+    requestHandler: AWS_REQUEST_HANDLER,
+    ...options.clientConfig,
+    region: config.sms.snsRegion,
+  });
   const attributes: Record<string, MessageAttributeValue> = {
     'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
   };

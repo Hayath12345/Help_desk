@@ -157,6 +157,8 @@ describe('POST /internal/auth/login', () => {
     const prod = loadConfig({
       ...process.env,
       NODE_ENV: 'production',
+      // The .env of a developer machine (http URLs, MinIO) is not an AWS configuration.
+      DEPLOY_PROFILE: 'rehearsal',
       AUTH_DEV_STAFF_LOGIN: 'true',
     });
     expect(prod.devStaffLogin).toBe(false);

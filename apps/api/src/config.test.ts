@@ -5,6 +5,7 @@ import {
   DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR,
   DEFAULT_TEAMS_TIMEOUT_MS,
   DEFAULT_TEAMS_WEBHOOK_HOSTS,
+  deployProfileWarning,
   fastifyTrustProxy,
   loadConfig,
 } from './config.ts';
@@ -22,6 +23,9 @@ const base: NodeJS.ProcessEnv = {
   S3_REGION: 'me-central-1',
   S3_BUCKET: 'bucket',
   EMAIL_FROM: 'Loons Support <support@example.com>',
+  // These tests use developer-machine settings (http URLs, MinIO...); the strict production
+  // rules have their own tests at the end of this file.
+  DEPLOY_PROFILE: 'rehearsal',
 };
 const dev: NodeJS.ProcessEnv = { ...base, NODE_ENV: 'development' };
 
@@ -118,9 +122,15 @@ describe('loadConfig', () => {
     it('a positive integer is a hop count (1 = one load balancer), not "trust everything"', () => {
       expect(loadConfig({ ...base, TRUST_PROXY: '1' }).trustProxy).toBe(1);
       expect(loadConfig({ ...base, TRUST_PROXY: ' 2 ' }).trustProxy).toBe(2);
-      expect(problemsOf({ ...base, TRUST_PROXY: '11' })).toEqual([
-        'TRUST_PROXY hop count must be between 1 and 10',
-      ]);
+      expect(loadConfig({ ...base, TRUST_PROXY: '3' }).trustProxy).toBe(3);
+    });
+
+    it('refuses more hops than one ALB behind a CDN could add (3): a typo would trust client entries', () => {
+      for (const value of ['4', '10', '11', '100']) {
+        expect(problemsOf({ ...base, TRUST_PROXY: value }), value).toEqual([
+          'TRUST_PROXY hop count must be between 1 and 3 (one load balancer is 1; CloudFront in front of it is 2)',
+        ]);
+      }
     });
 
     it('true is refused: it would let clients choose their own IP', () => {
@@ -304,6 +314,382 @@ describe('loadConfig', () => {
     ]);
     expect(problemsOf({ ...dev, WORKER_SCHEDULERS: 'sometimes' })).toEqual([
       'WORKER_SCHEDULERS must be true or false',
+    ]);
+  });
+});
+
+// ───────────── Phase 6: production-only rules (config-production.ts) ─────────────
+
+/** Everything a real AWS deployment sets; each test below breaks exactly one thing. */
+const aws: NodeJS.ProcessEnv = {
+  NODE_ENV: 'production',
+  APP_URL: 'https://help.example.com',
+  CORS_ORIGINS: 'https://help.example.com',
+  DATABASE_URL:
+    'postgresql://u:p@loons.abc.me-central-1.rds.amazonaws.com:5432/loons?sslmode=verify-full&sslrootcert=/app/certs/rds.pem',
+  REDIS_URL: 'rediss://master.loons.abc.mec1.cache.amazonaws.com:6379',
+  SOCKET_REDIS_ADAPTER: 'true',
+  TRUST_PROXY: '1',
+  API_JWT_SECRET: 'j'.repeat(43),
+  API_JWT_ISSUER: 'loons-web',
+  API_JWT_AUDIENCE: 'loons-api',
+  INTERNAL_API_KEY: 'k'.repeat(43),
+  S3_REGION: 'me-central-1',
+  S3_BUCKET: 'loons-helpdesk-attachments',
+  EMAIL_PROVIDER: 'ses',
+  EMAIL_FROM: 'Loons Support <support@example.com>',
+  SES_REGION: 'me-central-1',
+  SMS_PROVIDER: 'sns',
+  SNS_REGION: 'me-central-1',
+  TEAMS_PROVIDER: 'webhook',
+};
+
+describe('production rules (DEPLOY_PROFILE=aws, the default)', () => {
+  it('accepts a complete AWS configuration', () => {
+    expect(problemsOf(aws)).toEqual([]);
+    const c = loadConfig(aws);
+    expect(c.deployProfile).toBe('aws');
+    expect(c.docsEnabled).toBe(false);
+    expect(c.isProduction).toBe(true);
+  });
+
+  it('is the default when DEPLOY_PROFILE is unset or blank, and only in production', () => {
+    expect(loadConfig({ ...aws, DEPLOY_PROFILE: undefined }).deployProfile).toBe('aws');
+    expect(loadConfig({ ...aws, DEPLOY_PROFILE: '  ' }).deployProfile).toBe('aws');
+    // An unset NODE_ENV is production: the developer-machine settings are refused.
+    expect(problemsOf({ ...base, DEPLOY_PROFILE: undefined }).length).toBeGreaterThan(5);
+    // Development and test are never held to them.
+    expect(problemsOf({ ...base, DEPLOY_PROFILE: undefined, NODE_ENV: 'development' })).toEqual([]);
+    expect(problemsOf({ ...base, DEPLOY_PROFILE: 'aws', NODE_ENV: 'test' })).toEqual([]);
+  });
+
+  it('DEPLOY_PROFILE=rehearsal switches the rules off and warns; other values are refused', () => {
+    const rehearsal = loadConfig({ ...base, NODE_ENV: 'production' });
+    expect(rehearsal.deployProfile).toBe('rehearsal');
+    expect(deployProfileWarning(rehearsal)).toMatch(/^DEPLOY_PROFILE=rehearsal: /);
+    expect(deployProfileWarning(loadConfig(aws))).toBeUndefined();
+    expect(deployProfileWarning(loadConfig(dev))).toBeUndefined();
+    expect(problemsOf({ ...aws, DEPLOY_PROFILE: 'staging' })).toEqual([
+      'DEPLOY_PROFILE must be one of aws, rehearsal',
+    ]);
+    expect(loadConfig({ ...aws, DEPLOY_PROFILE: ' AWS ' }).deployProfile).toBe('aws');
+  });
+
+  it('refuses a plain-HTTP or localhost APP_URL and CORS origin', () => {
+    expect(problemsOf({ ...aws, APP_URL: 'http://help.example.com' })).toEqual([
+      'APP_URL must be an https:// URL in production',
+    ]);
+    expect(problemsOf({ ...aws, APP_URL: 'https://localhost:3000' })).toEqual([
+      'APP_URL must not point at localhost in production',
+    ]);
+    const cors = 'CORS_ORIGINS must list https:// origins (not localhost) in production';
+    expect(problemsOf({ ...aws, CORS_ORIGINS: 'http://help.example.com' })).toEqual([cors]);
+    expect(
+      problemsOf({ ...aws, CORS_ORIGINS: 'https://help.example.com,http://x.example' }),
+    ).toEqual([cors]);
+    expect(problemsOf({ ...aws, CORS_ORIGINS: 'https://localhost:3000' })).toEqual([cors]);
+    expect(
+      loadConfig({ ...aws, CORS_ORIGINS: 'https://a.example.com, https://b.example.com' })
+        .corsOrigins,
+    ).toEqual(['https://a.example.com', 'https://b.example.com']);
+  });
+
+  it('requires verified TLS to the database: only sslmode=verify-full passes', () => {
+    const url = (query: string) => `postgresql://u:p@db.example.com:5432/loons${query}`;
+    const message =
+      'DATABASE_URL must use verified TLS in production: add sslmode=verify-full (and sslrootcert=<RDS CA bundle>)';
+    for (const query of ['?sslmode=verify-full', '?a=1&sslmode=VERIFY-FULL']) {
+      expect(problemsOf({ ...aws, DATABASE_URL: url(query) }), query).toEqual([]);
+    }
+    for (const query of [
+      '',
+      '?sslmode=require',
+      '?sslmode=verify-ca',
+      '?sslmode=disable',
+      '?sslmode=prefer',
+      '?sslmode=allow',
+      '?ssl=true',
+    ]) {
+      expect(problemsOf({ ...aws, DATABASE_URL: url(query) }), query).toEqual([message]);
+    }
+    expect(problemsOf({ ...aws, DATABASE_URL: 'not a url' })).toEqual([message]);
+  });
+
+  it('refuses a repeated sslmode parameter whatever its values (node-postgres applies the last)', () => {
+    const url = (query: string) => `postgresql://u:p@db.example.com:5432/loons?${query}`;
+    const message = 'DATABASE_URL must carry exactly one sslmode parameter (sslmode=verify-full)';
+    for (const query of [
+      'sslmode=verify-full&sslmode=disable',
+      'sslmode=disable&sslmode=verify-full',
+      'sslmode=verify-full&sslmode=verify-full',
+      'sslmode=verify-full&a=1&SSLMODE=x&sslmode=require',
+    ]) {
+      // The upper-case name is a different parameter; the others are repeats of sslmode.
+      const expected = query.split('&').filter((p) => p.startsWith('sslmode=')).length > 1;
+      expect(problemsOf({ ...aws, DATABASE_URL: url(query) }), query).toEqual(
+        expected ? [message] : [],
+      );
+    }
+  });
+
+  it('requires TLS to Redis (rediss://)', () => {
+    const message = 'REDIS_URL must use TLS (rediss://) in production';
+    expect(problemsOf({ ...aws, REDIS_URL: 'redis://cache.example.com:6379' })).toEqual([message]);
+    expect(problemsOf({ ...aws, REDIS_URL: 'REDISS://cache.example.com:6379' })).toEqual([]);
+  });
+
+  it('always needs the Socket.IO Redis adapter on AWS (a service can scale past one task at any time)', () => {
+    const message =
+      'SOCKET_REDIS_ADAPTER must be true in production (events would not reach users connected to another API task)';
+    expect(problemsOf({ ...aws, SOCKET_REDIS_ADAPTER: 'false' })).toEqual([message]);
+    expect(problemsOf({ ...aws, SOCKET_REDIS_ADAPTER: undefined })).toEqual([message]);
+    // The old declared-count escape hatch no longer exists.
+    expect(problemsOf({ ...aws, SOCKET_REDIS_ADAPTER: 'false', API_INSTANCE_COUNT: '1' })).toEqual([
+      message,
+    ]);
+    expect(loadConfig(aws).socketRedisAdapter).toBe(true);
+  });
+
+  it('needs TRUST_PROXY (a hop count or proxy addresses), never "no proxy"', () => {
+    for (const value of [undefined, '', 'false', '0']) {
+      const problems = problemsOf({ ...aws, TRUST_PROXY: value });
+      expect(problems, String(value)).toHaveLength(1);
+      expect(problems[0]).toMatch(/^TRUST_PROXY must be set in production/);
+    }
+    expect(problemsOf({ ...aws, TRUST_PROXY: '10.0.0.0/16' })).toEqual([]);
+    expect(problemsOf({ ...aws, TRUST_PROXY: '2' })).toEqual([]);
+  });
+
+  it('S3: no custom endpoint, no path-style addressing, no static keys', () => {
+    expect(problemsOf({ ...aws, S3_ENDPOINT: 'http://minio:9000' })).toEqual([
+      'S3_ENDPOINT must be empty in production (AWS S3 is addressed by region)',
+    ]);
+    expect(problemsOf({ ...aws, S3_FORCE_PATH_STYLE: 'true' })).toEqual([
+      'S3_FORCE_PATH_STYLE must be false in production',
+    ]);
+    const keys =
+      'S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be empty in production (use the task / pod IAM role)';
+    expect(problemsOf({ ...aws, S3_ACCESS_KEY_ID: 'AKIA', S3_SECRET_ACCESS_KEY: 's' })).toEqual([
+      keys,
+    ]);
+    // One half of a pair is wrong everywhere; in production it is also a static key.
+    expect(problemsOf({ ...aws, S3_ACCESS_KEY_ID: 'AKIA' })).toHaveLength(2);
+    expect(loadConfig(aws).s3).toMatchObject({
+      endpoint: undefined,
+      accessKeyId: undefined,
+      secretAccessKey: undefined,
+    });
+  });
+
+  it('allows only the ses / sns / webhook providers', () => {
+    expect(problemsOf({ ...aws, EMAIL_PROVIDER: 'smtp' })).toEqual([
+      'EMAIL_PROVIDER must be ses in production',
+    ]);
+    expect(problemsOf({ ...aws, SMS_PROVIDER: 'console' })).toEqual([
+      'SMS_PROVIDER must be sns in production',
+    ]);
+    expect(problemsOf({ ...aws, TEAMS_PROVIDER: 'console' })).toEqual([
+      'TEAMS_PROVIDER must be webhook in production',
+    ]);
+    // The default of each is the local one, so leaving them out is refused too.
+    expect(problemsOf({ ...aws, EMAIL_PROVIDER: undefined })).toHaveLength(1);
+    expect(problemsOf({ ...aws, SMS_PROVIDER: undefined })).toHaveLength(1);
+    expect(problemsOf({ ...aws, TEAMS_PROVIDER: undefined })).toHaveLength(1);
+  });
+
+  it('every AWS region setting must look like a region (G8: configurable per service)', () => {
+    for (const name of ['S3_REGION', 'SES_REGION', 'SNS_REGION']) {
+      for (const bad of ['qatar', 'me-central', 'ME_CENTRAL_1', 'https://email.us-east-1.aws']) {
+        expect(problemsOf({ ...aws, [name]: bad }), `${name}=${bad}`).toEqual([
+          `${name} must be an AWS region such as me-central-1`,
+        ]);
+      }
+      expect(loadConfig({ ...aws, [name]: 'eu-west-1' })).toBeDefined();
+    }
+    const c = loadConfig({ ...aws, SES_REGION: 'eu-central-1', SNS_REGION: 'eu-west-1' });
+    expect([c.s3.region, c.email.sesRegion, c.sms.snsRegion]).toEqual([
+      'me-central-1',
+      'eu-central-1',
+      'eu-west-1',
+    ]);
+  });
+
+  it('lists every problem at once, naming variables and never leaking values', () => {
+    const password = 'hunter2-db-password';
+    const problems = problemsOf({
+      ...aws,
+      DATABASE_URL: `postgresql://loons:${password}@db.example.com/loons`,
+      REDIS_URL: 'redis://cache.example.com',
+      APP_URL: 'http://help.example.com',
+      EMAIL_PROVIDER: 'smtp',
+    });
+    expect(problems).toHaveLength(4);
+    expect(problems.join('\n')).not.toContain(password);
+  });
+
+  it('WORKER_HEARTBEAT_FILE: blank = none, otherwise the path', () => {
+    expect(loadConfig(dev).worker.heartbeatFile).toBeUndefined();
+    expect(loadConfig({ ...dev, WORKER_HEARTBEAT_FILE: ' /tmp/hb ' }).worker.heartbeatFile).toBe(
+      '/tmp/hb',
+    );
+  });
+});
+
+describe('REDIS_KEY_PREFIX', () => {
+  it('defaults to loons: and namespaces every Redis key when set', () => {
+    expect(loadConfig(dev).redisPrefix).toBe('loons:');
+    expect(loadConfig({ ...dev, REDIS_KEY_PREFIX: '  ' }).redisPrefix).toBe('loons:');
+    expect(loadConfig({ ...dev, REDIS_KEY_PREFIX: 'loons-rehearsal_1' }).redisPrefix).toBe(
+      'loons-rehearsal_1:',
+    );
+  });
+
+  it('refuses characters that would break key patterns or the queue prefix', () => {
+    for (const bad of ['a:b', 'a b', '-x', 'a*', 'a'.repeat(33), 'ü']) {
+      expect(problemsOf({ ...dev, REDIS_KEY_PREFIX: bad }), bad).toEqual([
+        'REDIS_KEY_PREFIX must be 1-32 letters, digits, "-" or "_" (no colon: it is added), starting with a letter or digit',
+      ]);
+    }
+  });
+});
+
+describe('production rules: addresses, placeholders and credentials', () => {
+  it('refuses every loopback / unspecified address as APP_URL and CORS origin, not only 127.0.0.1', () => {
+    const cors = 'CORS_ORIGINS must list https:// origins (not localhost) in production';
+    for (const host of [
+      '127.0.0.2',
+      '127.1.2.3',
+      '0.0.0.0',
+      '[::1]',
+      '[::ffff:127.0.0.1]',
+      'localhost',
+      'app.localhost',
+      '2130706433', // 127.0.0.1 as one integer: URL normalises it
+    ]) {
+      expect(problemsOf({ ...aws, APP_URL: `https://${host}` }), host).toEqual([
+        'APP_URL must not point at localhost in production',
+      ]);
+      expect(problemsOf({ ...aws, CORS_ORIGINS: `https://${host}:3000` }), host).toEqual([cors]);
+    }
+    expect(problemsOf({ ...aws, APP_URL: 'https://128.0.0.1' })).toEqual([]);
+    expect(problemsOf({ ...aws, CORS_ORIGINS: 'https://help.example.com' })).toEqual([]);
+  });
+
+  it('refuses a template placeholder left in DATABASE_URL or REDIS_URL (with its own message)', () => {
+    const db = (host: string, password = 'pw') =>
+      `postgresql://u:${password}@${host}:5432/loons?sslmode=verify-full`;
+    const message = (name: string) =>
+      `${name} still contains a placeholder (<...> or replace-me): put the real endpoint and credentials in`;
+    expect(problemsOf({ ...aws, DATABASE_URL: db('<rds-endpoint>') })).toEqual([
+      message('DATABASE_URL'),
+    ]);
+    expect(
+      problemsOf({ ...aws, DATABASE_URL: db('db.example.com', 'replace-me-password') }),
+    ).toEqual([message('DATABASE_URL')]);
+    expect(
+      problemsOf({ ...aws, REDIS_URL: 'rediss://default:tok@<elasticache-primary-endpoint>:6379' }),
+    ).toEqual([message('REDIS_URL')]);
+    expect(
+      problemsOf({ ...aws, REDIS_URL: 'rediss://default:replace-me-token@cache.example.com:6379' }),
+    ).toEqual([message('REDIS_URL')]);
+    // The message never contains the value.
+    expect(
+      JSON.stringify(problemsOf({ ...aws, DATABASE_URL: db('<rds-endpoint>', 's3cr3t') })),
+    ).not.toContain('s3cr3t');
+  });
+
+  it('refuses credentials that were not percent-encoded, and accepts encoded ones', () => {
+    const encoding = (name: string) =>
+      `${name} has a user name or password with characters that must be percent-encoded (@ / ? # % [ ] < > space ...: write # as %23, @ as %40, / as %2F); or use an alphanumeric password`;
+    const db = (userInfo: string) =>
+      `postgresql://${userInfo}@db.example.com:5432/loons?sslmode=verify-full`;
+    for (const bad of [
+      'u:pa#ss',
+      'u:pa?ss',
+      'u:pa/ss',
+      'u:pa@ss',
+      'u:pa ss',
+      'u:100%',
+      'u:p[a]ss',
+      'u:p"q',
+    ]) {
+      expect(problemsOf({ ...aws, DATABASE_URL: db(bad) }), bad).toEqual([
+        encoding('DATABASE_URL'),
+      ]);
+    }
+    for (const good of ['u:pass', 'u:pa%23ss', 'u:pa%40ss%2F', 'u:pa-ss_1.~', 'u:a:b', 'u']) {
+      expect(problemsOf({ ...aws, DATABASE_URL: db(good) }), good).toEqual([]);
+    }
+    expect(
+      problemsOf({ ...aws, REDIS_URL: 'rediss://default:to#ken@cache.example.com:6379' }),
+    ).toEqual([encoding('REDIS_URL')]);
+    expect(
+      problemsOf({ ...aws, REDIS_URL: 'rediss://default:to%23ken@cache.example.com:6379' }),
+    ).toEqual([]);
+    expect(problemsOf({ ...aws, REDIS_URL: 'rediss://:token@cache.example.com:6379' })).toEqual([]);
+    // Without credentials there is nothing to encode.
+    expect(problemsOf({ ...aws, REDIS_URL: 'rediss://cache.example.com:6379' })).toEqual([]);
+  });
+});
+
+describe('an AWS runtime refuses developer-machine settings', () => {
+  const ecs = { ECS_CONTAINER_METADATA_URI_V4: 'http://169.254.170.2/v4/abc' };
+  const nodeEnv =
+    'NODE_ENV must be production on AWS (an AWS runtime was detected): development / test switch the production rules off';
+  const profile =
+    'DEPLOY_PROFILE must be aws on AWS (an AWS runtime was detected): rehearsal exists for the local docker-compose rehearsal only';
+
+  it('refuses NODE_ENV=development / test under each runtime marker', () => {
+    for (const marker of [
+      ecs,
+      { ECS_CONTAINER_METADATA_URI: 'http://169.254.170.2/v3/abc' },
+      { AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' },
+    ]) {
+      for (const NODE_ENV of ['development', 'test']) {
+        // `base` also carries DEPLOY_PROFILE=rehearsal; `aws` has the real profile.
+        expect(problemsOf({ ...base, ...marker, NODE_ENV }), JSON.stringify(marker)).toEqual([
+          nodeEnv,
+          profile,
+        ]);
+        expect(problemsOf({ ...aws, ...marker, NODE_ENV }), JSON.stringify(marker)).toEqual([
+          nodeEnv,
+        ]);
+      }
+    }
+  });
+
+  it('refuses DEPLOY_PROFILE=rehearsal even with NODE_ENV=production', () => {
+    expect(problemsOf({ ...base, ...ecs, NODE_ENV: 'production' })).toEqual([profile]);
+  });
+
+  it('accepts the real production configuration, with or without the marker', () => {
+    expect(problemsOf({ ...aws, ...ecs })).toEqual([]);
+    expect(problemsOf({ ...aws, ...ecs, NODE_ENV: undefined })).toEqual([]);
+    expect(problemsOf({ ...aws, AWS_EXECUTION_ENV: 'AWS_ECS_FARGATE' })).toEqual([]);
+  });
+
+  it('is silent without a marker (developer machines, the local rehearsal)', () => {
+    expect(problemsOf({ ...base, NODE_ENV: 'production' })).toEqual([]);
+    expect(problemsOf(dev)).toEqual([]);
+  });
+});
+
+describe('API_DOCS_ENABLED (Swagger UI and the OpenAPI document)', () => {
+  it('defaults to off in production and on elsewhere', () => {
+    expect(loadConfig(aws).docsEnabled).toBe(false);
+    expect(loadConfig({ ...base, NODE_ENV: 'production' }).docsEnabled).toBe(false);
+    expect(loadConfig({ ...base, NODE_ENV: undefined }).docsEnabled).toBe(false);
+    expect(loadConfig(dev).docsEnabled).toBe(true);
+    expect(loadConfig({ ...base, NODE_ENV: 'test' }).docsEnabled).toBe(true);
+    expect(loadConfig({ ...aws, API_DOCS_ENABLED: '' }).docsEnabled).toBe(false);
+  });
+
+  it('can be switched on in production and off elsewhere, and a typo is refused', () => {
+    expect(loadConfig({ ...aws, API_DOCS_ENABLED: 'true' }).docsEnabled).toBe(true);
+    expect(loadConfig({ ...aws, API_DOCS_ENABLED: ' YES ' }).docsEnabled).toBe(true);
+    expect(loadConfig({ ...dev, API_DOCS_ENABLED: 'false' }).docsEnabled).toBe(false);
+    expect(problemsOf({ ...aws, API_DOCS_ENABLED: 'maybe' })).toEqual([
+      'API_DOCS_ENABLED must be true or false',
     ]);
   });
 });

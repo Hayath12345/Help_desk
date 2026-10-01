@@ -9,13 +9,16 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 
-> **Status:** Phase 5 (views & reports) — on top of Phase 1 (monorepo, infrastructure, schema + seed, authentication,
+> **Status:** Phase 6 (AWS readiness: prepared, not deployed) — Dockerfiles for web / api / worker / migrate, a production
+> configuration check, the deployment guide ([`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)) and a local production-style
+> rehearsal (`scripts/smoke-prod.sh`). Built on Phase 5 (views & reports), on top of Phase 1 (monorepo, infrastructure, schema + seed, authentication,
 > design tokens, EN/AR + RTL shells), Phase 2 (tickets, realtime chat, internal notes, attachments), Phase 3 (SLA
 > worker, email / Teams / SMS notifications, P1 escalation, the notification bell) and Phase 4 (admin panel, audit
 > log, live refresh of open forms): the Team queue with filters and bulk actions, Customers, Reports, the portal Help
-> center, and a ticket Activity history. AWS packaging arrives in phase 6. Handoff notes:
+> center, and a ticket Activity history. Handoff notes:
 > [`docs/PHASE2_HANDOFF.md`](docs/PHASE2_HANDOFF.md), [`docs/PHASE3_HANDOFF.md`](docs/PHASE3_HANDOFF.md),
-> [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md), [`docs/PHASE5_HANDOFF.md`](docs/PHASE5_HANDOFF.md).
+> [`docs/PHASE4_HANDOFF.md`](docs/PHASE4_HANDOFF.md), [`docs/PHASE5_HANDOFF.md`](docs/PHASE5_HANDOFF.md),
+> [`docs/PHASE6_HANDOFF.md`](docs/PHASE6_HANDOFF.md).
 
 ---
 
@@ -47,8 +50,12 @@ loons-helpdesk/
 │  ├─ ui/           Design tokens (tokens.css for Tailwind, tokens.ts for emails)
 │  └─ eslint-config Shared ESLint config + custom rules (RTL-safe classes, no hex colours)
 ├─ design/          Approved design prototype
-├─ docker-compose.yml   postgres, redis, minio (+ bucket init), mailpit
-└─ .env.example     every environment variable, documented
+├─ deploy/certs/    where the RDS CA bundle goes before building the images (README inside)
+├─ scripts/         smoke-prod.sh (production-image rehearsal), smoke-tls.sh (TLS to database / Redis)
+├─ docker-compose.yml        postgres, redis, minio (+ bucket init), mailpit (local development)
+├─ docker-compose.prod.yml   example: the production images against the local services (rehearsal)
+├─ .env.example              every environment variable for local development, documented
+└─ .env.production.example   every variable of an AWS deployment: who reads it, secret or plain
 ```
 
 ---
@@ -156,6 +163,7 @@ Staff normally sign in with **Microsoft Entra ID**. Until Entra is configured, t
 | `pnpm db:reset`                          | drop the database, re-apply migrations and re-seed                                         |
 | `pnpm db:studio`                         | Prisma Studio                                                                              |
 | `pnpm --filter @loons/db db:cleanup-e2e` | delete the accounts, tickets and stored files E2E runs create (runs after `pnpm test:e2e`) |
+| `scripts/smoke-prod.sh`                  | build the production images and rehearse them locally (see [Deployment](#deployment))      |
 
 > **Windows note on `pnpm test`:** with Node 24.15 or older, test workers (and occasionally the dev servers) die with
 > `0xC0000409`. This is a libuv bug on Windows loopback TCP connections, fixed in Node 24.16.0
@@ -394,19 +402,55 @@ Enforce MFA with Entra Conditional Access.
 
 ---
 
-## Deployment notes (prepared in Phase 6)
+## Deployment
 
-- The web app builds as a Next.js **standalone** server: after `pnpm build`, run
-  `node .next/standalone/apps/web/server.js` (with `.next/static` copied next to it, as the Phase 6
-  Dockerfile will do).
-- The web server prints `Ready` **before** its configuration check has finished: a bad configuration (placeholder
-  secrets, `TRUSTED_PROXY_HOPS=0` in production, …) then exits the process with a `[config] …` line. Health checks
-  should therefore probe a page, not just wait for the log line.
-- Seed production with `NODE_ENV=production` set (`pnpm db:seed` only defaults `NODE_ENV` to development when it is
-  unset, so an explicit production value never gets demo data).
-- **Attachments bucket:** private and unversioned; CORS must allow `POST` from the web origin; a lifecycle rule
-  expires the transient `attachments/` prefix after 1 day (confirmed files live under `files/` and must not expire).
-  `docker-compose.yml` sets this up for MinIO; the S3 lifecycle JSON and the IAM actions the API needs are in
-  `docs/PHASE2_HANDOFF.md` → Deployment notes. Plug a real scanner into the API's `scanHook` before go-live.
-- **Several API instances** need `SOCKET_REDIS_ADAPTER=true`; socket limits are per instance, and a ticket update
-  waits at most about 1 s for the other instances.
+Phase 6 **prepared** the move to AWS; nothing has been deployed or pushed anywhere. The full runbook is
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md): architecture, the AWS building blocks, security groups, the IAM policy,
+every environment variable (secret or plain), first deployment, upgrades, rollback, scaling, backups, alarms and the
+go-live checklist. It says exactly what was tested on a laptop and what could only be written.
+
+- **Four images from two Dockerfiles**, built from the repository root: `apps/web/Dockerfile` (Next.js standalone) and
+  `apps/api/Dockerfile` with the targets `api`, `worker` and `migrate` (the one-off `prisma migrate deploy` / production
+  seed). Node 24.21 (`node:24.21.0-bookworm-slim`), pnpm 12.5.1, non-root, tini, read-only root file system, no `.env`,
+  no tests, no Prisma CLI in the runtime images. The web image takes two build arguments, `NEXT_PUBLIC_API_URL` and
+  `NEXT_PUBLIC_UPLOAD_ORIGIN`, which must be `https://` addresses of real hosts (the build fails otherwise);
+  everything else is read from the environment when the container starts.
+  ```bash
+  docker build -f apps/api/Dockerfile --target api -t loons/api .      # also: worker, migrate
+  docker build -f apps/web/Dockerfile -t loons/web     --build-arg NEXT_PUBLIC_API_URL=https://api.help.example.com     --build-arg NEXT_PUBLIC_UPLOAD_ORIGIN=https://<bucket>.s3.<region>.amazonaws.com .
+  ```
+- **Configuration:** `.env.production.example` lists every variable of an AWS deployment (who reads it; secret, plain or
+  build-time). With `NODE_ENV=production` (the default when it is unset) the API and worker **refuse to start** on a
+  developer-machine setting: plain-HTTP URLs, no TLS to the database (`sslmode=verify-full`) or Redis (`rediss://`),
+  S3 endpoints or static keys, the SMTP / console providers, no `TRUST_PROXY`, the Socket.IO Redis adapter switched off,
+  unencoded or placeholder credentials in the connection URLs. `DEPLOY_PROFILE=rehearsal` switches that off for the
+  local rehearsal only — never on AWS (an ECS / Fargate runtime refuses it, and refuses any `NODE_ENV` but
+  `production`). To run a production build against the local services (for example `pnpm start`), set
+  `DEPLOY_PROFILE=rehearsal`. The Swagger UI / OpenAPI document (`/docs`) is off in production unless
+  `API_DOCS_ENABLED=true`.
+- **Health checks:** API `GET /health` (database + Redis; 503 when one is down) and `GET /health/live`; web `GET /login`;
+  the worker rewrites a heartbeat file that `node src/healthcheck-worker.ts` checks. ECS ignores an image's
+  `HEALTHCHECK`: copy the commands in the guide (section 4.4) into the task definitions. The load balancer's API target
+  group checks `/health/live`; `/health` is for monitoring (a brief database or Redis outage must not make ECS replace
+  every API task).
+- **Migrations on deploy:** run the `migrate` image once, before the new web / api / worker start (ECS run-task,
+  Kubernetes Job, or `docker compose run`). The old version keeps serving meanwhile; never `migrate dev` or `reset` in
+  production. The production seed is the same image with the command `prisma db seed` and `NODE_ENV=production`
+  (configuration only, never demo data; `SEED_ADMIN_EMAIL` creates the first SUPER_ADMIN, who signs in with Entra ID).
+- **Rehearse it locally:** with `docker compose up -d` running,
+  ```bash
+  scripts/smoke-prod.sh --clean   # builds from scratch, runs the images read-only against the local services in an
+                                  # isolated database / bucket / Redis prefix, checks health, headers, sockets and
+                                  # image contents, then removes everything (about 4 minutes; host ports 3100 / 4100)
+  scripts/smoke-tls.sh            # verified TLS to a throw-away PostgreSQL and Redis (about 40 seconds)
+  ```
+- **Attachments bucket:** private and unversioned; CORS must allow `POST` from the web origin; a lifecycle rule expires
+  the transient `attachments/` prefix after 1 day (confirmed files live under `files/` and must not expire). The JSON
+  and the IAM actions (**including `s3:ListBucket`**) are in the guide. Plug a real scanner into the API's `scanHook`
+  before go-live.
+- **Several API instances** need sticky sessions on the load balancer's API target group (`SOCKET_REDIS_ADAPTER=true` is
+  required on AWS whatever the task count); socket limits are per instance, and a ticket update waits at most about 1 s
+  for the other instances.
+- A build needs outbound HTTPS to the base image registry, `deb.debian.org`, `registry.npmjs.org`,
+  `binaries.prisma.sh` and (web image) `fonts.googleapis.com` / `fonts.gstatic.com` (IBM Plex Sans Arabic via
+  `next/font/google`); see the guide, section 4.1.

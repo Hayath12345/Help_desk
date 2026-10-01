@@ -1,7 +1,7 @@
 // API entry point: `pnpm dev` / `pnpm start` (env loaded from the repo-root .env).
 import { createPrismaClient } from '@loons/db';
 import { buildApp } from './app.ts';
-import { ConfigError, loadConfig } from './config.ts';
+import { ConfigError, deployProfileWarning, loadConfig } from './config.ts';
 import { createLogger } from './lib/logger.ts';
 import { createQueues, queuePrefixFor } from './lib/queues.ts';
 import { closeRedis, createRedisClient } from './lib/redis.ts';
@@ -21,6 +21,8 @@ async function main(): Promise<void> {
   }
 
   const bootLog = createLogger(config, 'api');
+  const profileWarning = deployProfileWarning(config);
+  if (profileWarning) bootLog.warn(profileWarning);
   const prisma = createPrismaClient({ url: config.databaseUrl, poolSize: config.databasePoolSize });
   const redis = createRedisClient(config.redisUrl, bootLog, 'api');
   const queues = createQueues({ connection: redis, prefix: queuePrefixFor(config) });

@@ -228,6 +228,10 @@ sees it without reloading) and the internal-note leak test both pass (`apps/web/
 
 ## Deployment notes for Phase 6
 
+> **Superseded by `docs/DEPLOYMENT.md`** (Phase 6). One correction: the IAM role also needs **`s3:ListBucket`** on the
+> bucket. Without it S3 answers 403 instead of 404 for a missing key, and the attachment confirmation (HEAD, ranged
+> read, copy of an upload that never arrived) fails with a server error instead of a clean "upload not found".
+
 - **Bucket lifecycle:** the `attachments/` prefix holds transient uploads (the pre-signed POST policy stays valid 15
   minutes after `complete` deleted the object, so a re-POST can leave an unreferenced object under
   `attachments/<attachmentId>/`). Confirmed files live under `files/` and must **not** expire. Locally,

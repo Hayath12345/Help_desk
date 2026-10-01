@@ -1,12 +1,15 @@
 import proxyAddr from '@fastify/proxy-addr';
 import { z } from 'zod';
 import {
+  awsRuntimeProblems,
   DEFAULT_UPLOAD_DAILY_BYTES_PER_USER,
   isPlaceholderSecret,
+  MAX_TRUSTED_PROXY_HOPS,
   parseApiTokenTtl,
   parseBooleanEnv,
   parseStaffEmailDomain,
 } from '@loons/shared';
+import { DEPLOY_PROFILES, productionProblems, type DeployProfile } from './config-production.ts';
 import { DEFAULT_REALTIME_LIMITS } from './realtime/limits.ts';
 
 // Environment → typed config. Validated once at startup; the process refuses to start on any
@@ -85,9 +88,6 @@ const httpUrl = z
     { error: 'must be an http(s) URL' },
   );
 
-/** Largest accepted TRUST_PROXY hop count. */
-export const MAX_TRUSTED_PROXY_HOPS = 10;
-
 /**
  * Which proxies in front of the API may set X-Forwarded-For (they decide `request.ip`, which the
  * rate limits and the logs use):
@@ -119,7 +119,7 @@ const trustProxySchema = z
       if (hops > MAX_TRUSTED_PROXY_HOPS) {
         ctx.addIssue({
           code: 'custom',
-          message: `hop count must be between 1 and ${MAX_TRUSTED_PROXY_HOPS}`,
+          message: `hop count must be between 1 and ${MAX_TRUSTED_PROXY_HOPS} (one load balancer is 1; CloudFront in front of it is 2)`,
         });
         return z.NEVER;
       }
@@ -157,6 +157,9 @@ export function fastifyTrustProxy(
   // is the connecting peer; the first `trust` addresses are proxies, the next one is the client.
   return (_address, hop) => hop < trust;
 }
+
+/** Default of REDIS_KEY_PREFIX: keys look like `loons:bull:email:...`. */
+export const DEFAULT_REDIS_KEY_PREFIX = 'loons';
 
 /** Default of SMS_MAX_PER_RECIPIENT_PER_HOUR (decision D11). */
 export const DEFAULT_SMS_MAX_PER_RECIPIENT_PER_HOUR = 20;
@@ -203,6 +206,24 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   APP_VERSION: optionalString,
   npm_package_version: optionalString,
+  // Which production rule set applies (config-production.ts): blank / unset = aws (strict).
+  DEPLOY_PROFILE: z
+    .string()
+    .optional()
+    .transform((value, ctx): DeployProfile => {
+      const v = value?.trim().toLowerCase() ?? '';
+      if (v === '') return 'aws';
+      if ((DEPLOY_PROFILES as readonly string[]).includes(v)) return v as DeployProfile;
+      ctx.addIssue({ code: 'custom', message: `must be one of ${DEPLOY_PROFILES.join(', ')}` });
+      return z.NEVER;
+    }),
+  // Serve the OpenAPI document and Swagger UI (/docs, /docs/json)? Blank = yes outside production,
+  // no in production (the document describes every route, including /internal/*).
+  API_DOCS_ENABLED: sharedEnv('API_DOCS_ENABLED', (value) =>
+    value === undefined || value.trim() === ''
+      ? undefined
+      : parseBooleanEnv('API_DOCS_ENABLED', value, false),
+  ),
 
   APP_URL: httpUrl,
   API_HOST: z.string().trim().default('0.0.0.0'),
@@ -214,6 +235,24 @@ const envSchema = z.object({
   DATABASE_POOL_SIZE: envInt(10, 1, 100),
   REDIS_URL: requiredString(),
   SOCKET_REDIS_ADAPTER: envBool('SOCKET_REDIS_ADAPTER', false),
+  // Namespace for every Redis key, queue and channel of this deployment ("loons" -> "loons:..."), so
+  // several deployments (staging, production, the local rehearsal) can share one Redis.
+  REDIS_KEY_PREFIX: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      const v = value?.trim() ?? '';
+      if (v === '') return DEFAULT_REDIS_KEY_PREFIX;
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(v)) {
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            'must be 1-32 letters, digits, "-" or "_" (no colon: it is added), starting with a letter or digit',
+        });
+        return z.NEVER;
+      }
+      return v;
+    }),
   // Per API instance; see RealtimeLimits (realtime/limits.ts) and .env.example.
   REALTIME_SOCKETS_PER_USER: envInt(DEFAULT_REALTIME_LIMITS.socketsPerUser, 1, 1_000_000),
   REALTIME_SOCKETS_PER_IP: envInt(DEFAULT_REALTIME_LIMITS.socketsPerIp, 1, 1_000_000),
@@ -277,9 +316,15 @@ const envSchema = z.object({
 
   // false: this worker only consumes jobs (no SLA scan / auto-close / digest / sweep schedulers).
   WORKER_SCHEDULERS: envBool('WORKER_SCHEDULERS', true),
+  // File the worker touches every few seconds while it is healthy (lib/worker-heartbeat.ts);
+  // the container health check reads it. Blank = no heartbeat (local development).
+  WORKER_HEARTBEAT_FILE: optionalString,
 });
 
 type Env = z.infer<typeof envSchema>;
+
+/** Every environment variable the API and the worker read (kept in step with .env.production.example by a test). */
+export const ENV_VARIABLES: readonly string[] = Object.keys(envSchema.shape);
 
 function parseOrigins(raw: string): { origins: string[]; invalid: boolean } {
   const origins: string[] = [];
@@ -303,6 +348,10 @@ export interface AppConfig {
   isProduction: boolean;
   version: string;
   logLevel: Env['LOG_LEVEL'];
+  /** Production rule set: 'aws' (strict, the default) or 'rehearsal' (local compose rehearsal). */
+  deployProfile: DeployProfile;
+  /** OpenAPI document and Swagger UI at /docs (API_DOCS_ENABLED; off by default in production). */
+  docsEnabled: boolean;
   appUrl: string;
   host: string;
   port: number;
@@ -323,7 +372,7 @@ export interface AppConfig {
     handshakesPerIp: { burst: number; perSecond: number };
     pendingConnectionsPerIp: number;
   };
-  /** Key prefix for everything this app stores in Redis (cache, rate limits, queues…). */
+  /** Key prefix for everything this app stores in Redis (cache, rate limits, queues…): `<REDIS_KEY_PREFIX>:`. */
   redisPrefix: string;
   jwt: { secret: string; issuer: string; audience: string; ttlSeconds: number };
   internalApiKey: string;
@@ -375,6 +424,8 @@ export interface AppConfig {
   worker: {
     /** Register the repeatable jobs (SLA scan, auto-close, digest, sweep, retention) at start. */
     schedulers: boolean;
+    /** Heartbeat file for the container health check (WORKER_HEARTBEAT_FILE), if any. */
+    heartbeatFile: string | undefined;
   };
 }
 
@@ -425,6 +476,33 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     problems.push('SES_REGION is required when EMAIL_PROVIDER=ses');
   if (env.SMS_PROVIDER === 'sns' && !env.SNS_REGION)
     problems.push('SNS_REGION is required when SMS_PROVIDER=sns');
+  // On an AWS runtime the developer-machine settings are refused outright (config-production.ts).
+  problems.push(...awsRuntimeProblems(source));
+  // Production on AWS: the rules that only make sense off a developer machine (config-production.ts).
+  if (isProduction && env.DEPLOY_PROFILE === 'aws') {
+    problems.push(
+      ...productionProblems({
+        appUrl: env.APP_URL,
+        corsOrigins: cors.origins,
+        databaseUrl: env.DATABASE_URL,
+        redisUrl: env.REDIS_URL,
+        socketRedisAdapter: env.SOCKET_REDIS_ADAPTER,
+        trustProxyConfigured: env.TRUST_PROXY !== false,
+        s3: {
+          region: env.S3_REGION,
+          endpoint: env.S3_ENDPOINT,
+          forcePathStyle: env.S3_FORCE_PATH_STYLE,
+          accessKeyId: env.S3_ACCESS_KEY_ID,
+          secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+        },
+        emailProvider: env.EMAIL_PROVIDER,
+        smsProvider: env.SMS_PROVIDER,
+        teamsProvider: env.TEAMS_PROVIDER,
+        sesRegion: env.SES_REGION,
+        snsRegion: env.SNS_REGION,
+      }),
+    );
+  }
   if (problems.length > 0) throw new ConfigError(problems);
 
   return {
@@ -432,6 +510,8 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     isProduction,
     version: env.APP_VERSION ?? env.npm_package_version ?? '0.0.0',
     logLevel: env.LOG_LEVEL,
+    deployProfile: env.DEPLOY_PROFILE,
+    docsEnabled: env.API_DOCS_ENABLED ?? !isProduction,
     appUrl: env.APP_URL.replace(/\/+$/, ''),
     host: env.API_HOST,
     port: env.API_PORT,
@@ -450,7 +530,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       },
       pendingConnectionsPerIp: env.REALTIME_PENDING_CONNECTIONS_PER_IP,
     },
-    redisPrefix: 'loons:',
+    redisPrefix: `${env.REDIS_KEY_PREFIX}:`,
     jwt: {
       secret: env.API_JWT_SECRET,
       issuer: env.API_JWT_ISSUER,
@@ -493,6 +573,18 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       webhookHosts: env.TEAMS_WEBHOOK_HOSTS,
       timeoutMs: env.TEAMS_TIMEOUT_MS,
     },
-    worker: { schedulers: env.WORKER_SCHEDULERS },
+    worker: { schedulers: env.WORKER_SCHEDULERS, heartbeatFile: env.WORKER_HEARTBEAT_FILE },
   };
+}
+
+/**
+ * A warning to log at start-up when the production safety rules are switched off
+ * (DEPLOY_PROFILE=rehearsal), so the setting cannot go unnoticed on a real deployment.
+ */
+export function deployProfileWarning(
+  config: Pick<AppConfig, 'isProduction' | 'deployProfile'>,
+): string | undefined {
+  return config.isProduction && config.deployProfile === 'rehearsal'
+    ? 'DEPLOY_PROFILE=rehearsal: the production safety rules (HTTPS, TLS to the database and Redis, IAM-role S3, SES / SNS / Teams providers) are switched off. Local rehearsal only - never use this on AWS.'
+    : undefined;
 }

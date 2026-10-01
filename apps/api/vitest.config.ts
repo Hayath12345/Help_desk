@@ -9,7 +9,7 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'test/**/*.test.ts', 'scripts/**/*.test.ts'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 60_000,

@@ -126,3 +126,30 @@ describe('health with Redis down (stub)', () => {
     }
   });
 });
+
+describe('OpenAPI document and Swagger UI (API_DOCS_ENABLED)', () => {
+  let ctx: TestContext;
+  beforeAll(async () => {
+    ctx = await createTestContext({ config: { docsEnabled: false } });
+  });
+  afterAll(async () => {
+    await ctx.close();
+  });
+
+  it('are not served when docs are switched off (production default), the API still works', async () => {
+    for (const url of ['/docs', '/docs/', '/docs/json', '/docs/static/index.html']) {
+      const res = await ctx.app.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(404);
+    }
+    const health = await ctx.app.inject({ method: 'GET', url: '/health/live' });
+    expect(health.statusCode).toBe(200);
+    // Route validation does not depend on the swagger plugin.
+    const bad = await ctx.app.inject({
+      method: 'POST',
+      url: '/internal/auth/login',
+      headers: ctx.internalHeaders(),
+      payload: { nonsense: true },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+});

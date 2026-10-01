@@ -40,6 +40,8 @@ describe('RealtimeClient', () => {
     client.start();
     expect(socket().options.path).toBe('/socket.io');
     expect(socket().options.autoConnect).toBe(false);
+    // Sticky sessions behind a load balancer need the cookie on cross-origin polling requests.
+    expect(socket().options.withCredentials).toBe(true);
     await vi.waitFor(() => expect(socket().authTokens).toEqual(['cached-token']));
     socket().accept();
     expect(statuses).toEqual(['connecting', 'connected']);

@@ -182,7 +182,8 @@ export async function buildApp(deps: AppDeps) {
     rateLimitNamespace: deps.rateLimitNamespace ?? `${config.redisPrefix}rl:`,
   });
   registerErrorHandling(app);
-  await registerDocs(app);
+  // The OpenAPI document lists every route (including /internal/*): off by default in production.
+  if (config.docsEnabled) await registerDocs(app);
 
   await app.register(healthRoutes);
   await app.register(meRoutes);

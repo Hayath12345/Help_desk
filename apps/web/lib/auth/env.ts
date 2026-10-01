@@ -4,7 +4,10 @@
 // misconfiguration can never be silently replaced by a default.
 import 'server-only';
 import {
+  awsRuntimeProblems,
+  isLocalHostname,
   isPlaceholderSecret,
+  MAX_TRUSTED_PROXY_HOPS,
   parseApiTokenTtl,
   parseBooleanEnv,
   parseStaffEmailDomain,
@@ -162,8 +165,6 @@ export function staffEmailDomain(): string {
   return parseStaffEmailDomain(process.env.STAFF_EMAIL_DOMAIN);
 }
 
-const MAX_PROXY_HOPS = 10;
-
 /**
  * Number of reverse proxies in front of the web app that APPEND to X-Forwarded-For (1 = one AWS
  * ALB, the default). The client IP is read that many entries from the right.
@@ -177,8 +178,10 @@ export function trustedProxyHops(): number {
   const raw = process.env.TRUSTED_PROXY_HOPS?.trim();
   if (!raw) return 1;
   const hops = Number(raw);
-  if (!Number.isInteger(hops) || hops < 0 || hops > MAX_PROXY_HOPS) {
-    throw new Error(`TRUSTED_PROXY_HOPS must be an integer from 0 to ${MAX_PROXY_HOPS}`);
+  if (!Number.isInteger(hops) || hops < 0 || hops > MAX_TRUSTED_PROXY_HOPS) {
+    throw new Error(
+      `TRUSTED_PROXY_HOPS must be an integer from 0 to ${MAX_TRUSTED_PROXY_HOPS} (one load balancer is 1; CloudFront in front of it is 2)`,
+    );
   }
   if (hops === 0 && process.env.NODE_ENV === 'production') {
     throw new Error(
@@ -186,6 +189,71 @@ export function trustedProxyHops(): number {
     );
   }
   return hops;
+}
+
+// ── Production profile ──────────────────────────────────────────────────────
+
+/**
+ * Which production rule set applies (the API reads the same variable): `aws` (the default, strict)
+ * or `rehearsal` (the local docker-compose rehearsal, which runs plain HTTP). Only meaningful when
+ * NODE_ENV=production.
+ */
+export function deployProfile(): 'aws' | 'rehearsal' {
+  const raw = process.env.DEPLOY_PROFILE?.trim().toLowerCase() ?? '';
+  if (raw === '' || raw === 'aws') return 'aws';
+  if (raw === 'rehearsal') return 'rehearsal';
+  throw new Error('DEPLOY_PROFILE must be one of aws, rehearsal');
+}
+
+/**
+ * Production on AWS: the public sign-in URL is the HTTPS address of the load balancer. A plain-HTTP
+ * or localhost AUTH_URL would put OAuth callbacks and the session cookie on an insecure origin.
+ * Other environments, and DEPLOY_PROFILE=rehearsal, are not held to it.
+ */
+export function assertProductionAuthUrl(): void {
+  if (process.env.NODE_ENV !== 'production' || deployProfile() !== 'aws') return;
+  const raw = process.env.AUTH_URL?.trim();
+  if (!raw) {
+    throw new Error(
+      'AUTH_URL is required in production: the public https:// address of the web app',
+    );
+  }
+  let url: URL | null = null;
+  try {
+    url = new URL(raw);
+  } catch {
+    // reported below
+  }
+  if (!url || url.protocol !== 'https:') {
+    throw new Error('AUTH_URL must be an https:// URL in production');
+  }
+  if (isLocalHostname(url.hostname)) {
+    throw new Error('AUTH_URL must not point at localhost in production');
+  }
+}
+
+/**
+ * On an AWS container runtime (ECS / Fargate markers) NODE_ENV other than production and
+ * DEPLOY_PROFILE=rehearsal are refused: they would switch the production rules off. Throws one
+ * error listing the problems; no-op elsewhere.
+ */
+export function assertNotRehearsingOnAws(): void {
+  const problems = awsRuntimeProblems(process.env);
+  if (problems.length) throw new Error(problems.join('; '));
+}
+
+/**
+ * A warning to log at start-up when the production safety rules are switched off
+ * (DEPLOY_PROFILE=rehearsal), so the setting cannot go unnoticed (the API and worker log the same).
+ */
+export function deployProfileWarning(): string | undefined {
+  if (process.env.NODE_ENV !== 'production') return undefined;
+  try {
+    if (deployProfile() !== 'rehearsal') return undefined;
+  } catch {
+    return undefined; // reported by assertWebEnv
+  }
+  return 'DEPLOY_PROFILE=rehearsal: the production safety rules (HTTPS, proxy trust) are switched off. Local rehearsal only - never use this on AWS.';
 }
 
 /** Show development-only hints (demo accounts) outside production builds. */
@@ -207,25 +275,29 @@ export function assertWebEnv(): void {
     isDevStaffLoginEnabled,
     staffEmailDomain,
     trustedProxyHops,
+    deployProfile,
+    assertNotRehearsingOnAws,
+    assertProductionAuthUrl,
   ];
-  const problems: string[] = [];
+  // A bad value can fail several checks (DEPLOY_PROFILE is read by more than one): list it once.
+  const problems = new Set<string>();
   for (const check of checks) {
     try {
       check();
     } catch (error) {
-      problems.push(error instanceof Error ? error.message : String(error));
+      problems.add(error instanceof Error ? error.message : String(error));
     }
   }
   const unique = new Set(
     ['AUTH_SECRET', 'API_JWT_SECRET', 'INTERNAL_API_KEY'].map((name) => process.env[name]?.trim()),
   );
-  if (unique.size < 3 && !problems.length) {
-    problems.push(
+  if (unique.size < 3 && problems.size === 0) {
+    problems.add(
       'AUTH_SECRET, API_JWT_SECRET and INTERNAL_API_KEY must be three different secrets',
     );
   }
-  if (problems.length) {
-    throw new Error(`Invalid web configuration:\n  - ${problems.join('\n  - ')}`);
+  if (problems.size) {
+    throw new Error(`Invalid web configuration:\n  - ${[...problems].join('\n  - ')}`);
   }
   // Not fatal (staff sign-in is simply disabled), but reported at start-up.
   entraConfig();

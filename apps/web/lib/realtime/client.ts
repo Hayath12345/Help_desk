@@ -157,6 +157,12 @@ export class RealtimeClient {
     const socket = (this.options.createSocket ?? defaultFactory)(this.options.url, {
       path: SOCKET_PATH,
       autoConnect: false,
+      // The browser sends the load balancer's stickiness cookie (AWSALB) with the long-polling
+      // requests to the API origin. Socket.IO's first requests are polling, and with more than one
+      // API instance they must reach the same instance (docs/DEPLOYMENT.md, "Scaling"); a
+      // cross-origin request carries cookies only with this flag. The API's CORS answers
+      // `credentials: true` for the allowed origins.
+      withCredentials: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10_000,
       auth: (cb) => this.provideAuth(cb),

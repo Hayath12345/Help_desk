@@ -1,6 +1,6 @@
 // Start-up configuration check (Node.js runtime only; called from instrumentation.ts).
 import 'server-only';
-import { assertWebEnv } from './env';
+import { assertWebEnv, deployProfileWarning } from './env';
 
 /**
  * Refuses to serve with placeholder secrets or invalid auth settings, in every environment: a
@@ -11,6 +11,8 @@ import { assertWebEnv } from './env';
 export function checkWebEnvAtStartup(): void {
   try {
     assertWebEnv();
+    const warning = deployProfileWarning();
+    if (warning) console.warn(`[config] ${warning}`);
   } catch (error) {
     console.error(`[config] ${error instanceof Error ? error.message : String(error)}`);
     if (process.env.NODE_ENV === 'production') process.exit(1);

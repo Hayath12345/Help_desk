@@ -10,7 +10,10 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.production.example
 packages/db/src/generated/
+# RDS CA bundle: downloaded when building the images (deploy/certs/README.md)
+deploy/certs/*.pem
 playwright-report/
 test-results/
 blob-report/
