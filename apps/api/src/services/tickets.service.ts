@@ -28,6 +28,7 @@ import { errors, type ValidationIssue } from '../lib/errors.ts';
 import { MINUTE_MS, loadP1Chain, pendingEscalation } from '../lib/escalation.ts';
 import type { AppLogger as Logger } from '../lib/logger.ts';
 import { attachmentLinkIssues, linkAttachments } from './attachments.service.ts';
+import { pickAutoAssignee } from './auto-assign.ts';
 import { customFieldValueOptions, validateCustomFields } from './custom-fields.ts';
 import type { Notifier } from './notifier.ts';
 import { REQUESTER_WHERE } from './directory.service.ts';
@@ -387,7 +388,9 @@ export function createTicketsService(deps: {
       await ticketConfig.getCalendar(),
     );
     const teamId = category.team.id;
-    const assigneeId = staff && actor.teamIds.includes(teamId) ? actor.id : null;
+    // Staff who raise a ticket for their own team take it; otherwise the category's skills may pick
+    // someone inside the transaction below (docs/AUTO_ASSIGN.md), else it waits in the team queue.
+    const takenBy = staff && actor.teamIds.includes(teamId) ? actor.id : null;
     const status = staff ? 'OPEN' : 'NEW';
     const channel = staff ? 'PHONE' : 'PORTAL';
     const tags = input.type === 'SECURITY_INCIDENT' ? [SECURITY_TAG] : [];
@@ -395,6 +398,10 @@ export function createTicketsService(deps: {
     const orgId = requester.orgId;
 
     const ticketId = await prisma.$transaction(async (tx) => {
+      const autoAssigneeId = takenBy
+        ? null
+        : await pickAutoAssignee(tx, { categoryId: category.id, teamId, priority });
+      const assigneeId = takenBy ?? autoAssigneeId;
       const tagIds = await ensureTags(tx, tags);
       const ticket = await tx.ticket.create({
         data: {
@@ -458,9 +465,11 @@ export function createTicketsService(deps: {
       if (assigneeId) {
         events.push({
           type: 'ASSIGNEE_CHANGED',
-          actorId: actor.id,
+          // Picked by the system: no actor, and `auto` tells the history (and the next pick).
+          actorId: autoAssigneeId ? null : actor.id,
           fromValue: null,
           toValue: assigneeId,
+          ...(autoAssigneeId ? { meta: { auto: true } } : {}),
           createdAt,
         });
       }

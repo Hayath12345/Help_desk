@@ -95,6 +95,17 @@ export const CONFIG_SCOPE_TARGETS: Record<ConfigScope, ConfigScopeTargets> = {
       queueKeys.workload(),
     ],
   },
+  // Skills catalog, who has which skill and which category needs which: the Skills list and the
+  // Staff and Categories screens that show skills and the counts. Nothing the New-ticket form or
+  // ticket details show depends on them (the automatic assignment itself happens on the server).
+  skills: {
+    formConfig: false,
+    keys: [
+      adminKeys.section('skills'),
+      adminKeys.section('staff'),
+      adminKeys.section('categories'),
+    ],
+  },
   'email-templates': { formConfig: false, keys: [adminKeys.section('email-templates')] },
   // Help articles: the admin section and the portal Help center (every language; clients receive
   // `config:updated` too, Phase 5 F13).

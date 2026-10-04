@@ -38,8 +38,8 @@ const agentLead = actor({ id: 'ag', role: 'AGENT', teamIds: [SOC], leadTeamIds: 
 const disabledLead = { ...lead, status: 'DISABLED' as const };
 
 describe('admin navigation (E8)', () => {
-  it('lists the thirteen sections in group order, each in exactly one group', () => {
-    expect(ADMIN_SECTIONS).toHaveLength(13);
+  it('lists the fourteen sections in group order, each in exactly one group', () => {
+    expect(ADMIN_SECTIONS).toHaveLength(14);
     expect(ADMIN_SECTION_GROUPS.flatMap((g) => g.sections)).toEqual([...ADMIN_SECTIONS]);
     expect(ADMIN_SECTION_GROUPS.map((g) => g.key)).toEqual([
       'ticket-setup',
@@ -53,10 +53,11 @@ describe('admin navigation (E8)', () => {
       expect(group?.sections as readonly string[]).toContain(section);
     }
     expect(ADMIN_SECTION_GROUP.staff).toBe('people');
+    expect(ADMIN_SECTION_GROUP.skills).toBe('people');
     expect(ADMIN_SECTION_GROUP.settings).toBe('system');
   });
 
-  it('team leads open Teams and Macros only; staff and settings are super admin only', () => {
+  it('team leads open Teams and Macros only; staff, skills and settings are super admin only', () => {
     expect(TEAM_LEAD_ADMIN_SECTIONS).toEqual(['teams', 'macros']);
     for (const section of ADMIN_SECTIONS) {
       expect(canAccessAdminSection(superAdmin, section)).toBe(true);

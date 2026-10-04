@@ -192,6 +192,20 @@ describe('ActivitySection', () => {
         'Impact changed from Single user to Entire site',
       ],
       [ev('ASSIGNEE_CHANGED', { to: RAMI }), 'Assigned to Rami Member'],
+      // The system picked the assignee from the category's skills (no actor).
+      [
+        ev('ASSIGNEE_CHANGED', { actor: null, to: RAMI, meta: { auto: true } }),
+        'Automatically assigned to Rami Member (matched by skill)',
+      ],
+      // `auto` only words a first assignment: a hand-over keeps the plain sentence.
+      [
+        ev('ASSIGNEE_CHANGED', {
+          from: { ...RAMI, name: 'Maya Ruiz', id: IDS.staff },
+          to: RAMI,
+          meta: { auto: true },
+        }),
+        'Reassigned from Maya Ruiz to Rami Member',
+      ],
       [
         ev('ASSIGNEE_CHANGED', { from: { ...RAMI, name: 'Maya Ruiz', id: IDS.staff }, to: RAMI }),
         'Reassigned from Maya Ruiz to Rami Member',
@@ -401,6 +415,10 @@ describe('ActivitySection', () => {
           ?.querySelectorAll('p')[1]?.textContent,
       ).split(' · ')[0];
     expect(who('SLA_BREACHED')).toBe('System');
+    const autoAssigned = items().find((li) => li.textContent?.includes('matched by skill'));
+    expect(plain(autoAssigned?.querySelectorAll('p')[1]?.textContent).split(' · ')[0]).toBe(
+      'System',
+    );
     expect(who('ESCALATED')).toBe('System');
     expect(who('STATUS_CHANGED')).toBe('Maya Ruiz');
   });
@@ -413,6 +431,7 @@ describe('ActivitySection', () => {
           to: { kind: 'priority', value: 'P1' },
         }),
         ev('ESCALATED', { actor: null, to: { kind: 'step', value: 2 }, meta: { step: 2 } }),
+        ev('ASSIGNEE_CHANGED', { actor: null, to: RAMI, meta: { auto: true } }),
         ev('AUTO_CLOSED', { actor: null, meta: { days: 5 } }),
         ev('TEAM_CHANGED', {
           from: { kind: 'team', ...TEAMS.triage, isActive: false },
@@ -457,6 +476,7 @@ describe('ActivitySection', () => {
     expect(lines()).toEqual([
       'تغيير الأولوية من P2 عالية إلى P1 حرجة',
       'تم تصعيد P1 إلى المرحلة 2',
+      'أُسندت تلقائيًا إلى Rami Member (بحسب المهارة)',
       'أُغلقت تلقائيًا بعد 5 أيام من حلّها',
       'تغيير الفريق من الفرز (مؤرشف) إلى فريق محذوف',
       'تغيير الفئة من أخرى (مؤرشفة) إلى الأمن السيبراني / SOC',

@@ -45,7 +45,7 @@ function renderIn(ui: React.ReactElement, locale: 'en' | 'ar' = 'en') {
 }
 
 describe('admin navigation (E8)', () => {
-  it('groups the 13 sections under small headings for super admins', () => {
+  it('groups the 14 sections under small headings for super admins', () => {
     renderIn(<AdminNav role="SUPER_ADMIN" />);
     const navigation = screen.getByRole('navigation', { name: 'Admin sections' });
     expect(
@@ -58,15 +58,15 @@ describe('admin navigation (E8)', () => {
       within(people)
         .getAllByRole('link')
         .map((a) => a.textContent),
-    ).toEqual(['Teams & members', 'Staff', 'Clients & sites']);
+    ).toEqual(['Teams & members', 'Staff', 'Skills', 'Clients & sites']);
     const system = within(navigation).getByRole('list', { name: 'System' });
     expect(
       within(system)
         .getAllByRole('link')
         .map((a) => a.getAttribute('href')),
     ).toEqual(['/admin/settings', '/admin/audit-log']);
-    // Back to console + Overview + 13 sections; one of them is the current page.
-    expect(within(navigation).getAllByRole('link')).toHaveLength(15);
+    // Back to console + Overview + 14 sections; one of them is the current page.
+    expect(within(navigation).getAllByRole('link')).toHaveLength(16);
     expect(within(navigation).getByRole('link', { current: 'page' }).textContent).toBe(
       'Teams & members',
     );
@@ -107,7 +107,7 @@ describe('admin navigation (E8)', () => {
       'التواصل',
       'النظام',
     ]);
-    expect(screen.getAllByRole('link')).toHaveLength(13);
+    expect(screen.getAllByRole('link')).toHaveLength(14);
     cleanup();
 
     renderIn(<AdminOverview role="TEAM_LEAD" />);

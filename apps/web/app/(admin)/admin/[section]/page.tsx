@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: SectionPageProps): Promise<Me
 }
 
 /**
- * One of the thirteen admin sections: renders `components/admin/sections/<slug>/index.tsx`
+ * One of the fourteen admin sections: renders `components/admin/sections/<slug>/index.tsx`
  * (docs/PHASE4_CONTRACT.md E1, E8).
  */
 export default async function AdminSectionPage({ params }: SectionPageProps) {

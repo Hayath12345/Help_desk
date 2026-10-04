@@ -19,6 +19,7 @@ import {
   CLIENT_EMAILS,
   DEMO_CLIENTS,
   DEMO_ORGS,
+  DEMO_SKILLS,
   DEMO_STAFF,
   DEMO_TEAM_STAFFING,
   DEMO_TICKETS,
@@ -495,6 +496,23 @@ describe('demo organisations and users', () => {
       for (const m of s.members.filter((x) => x.role === 'LEAD')) {
         expect(DEMO_STAFF.find((u) => u.email === m.email)?.role).toBe('TEAM_LEAD');
       }
+    }
+  });
+
+  it('skills have unique keys and labels and belong to demo staff who can take tickets', () => {
+    expectUnique(
+      DEMO_SKILLS.map((s) => s.key),
+      'skill key',
+    );
+    expectUnique(
+      DEMO_SKILLS.map((s) => s.labelEn.toLowerCase()),
+      'skill label',
+    );
+    for (const skill of DEMO_SKILLS) {
+      expect(skill.labelEn, skill.key).not.toBe('');
+      expect(skill.labelAr, skill.key).not.toBe('');
+      expect(skill.staffEmails.length, skill.key).toBeGreaterThan(0);
+      for (const email of skill.staffEmails) expect(staffEmails.has(email), email).toBe(true);
     }
   });
 

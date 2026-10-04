@@ -12,6 +12,7 @@ import {
 } from '@/components/admin/kit';
 import { reorderById, useAdminMutation } from '@/lib/admin';
 import { localizedLabel, teamName } from '@/lib/tickets/labels';
+import { SkillChips } from '../../skill-picker';
 import type { AdminSectionProps } from '../types';
 import { CategorySheet } from './category-sheet';
 import { categoriesApi, useCategoryList, type CategoryList } from './data';
@@ -94,6 +95,13 @@ export default function CategoriesSection(_props: AdminSectionProps) {
         width: '110px',
         hideOnMobile: true,
         cell: (row) => row.fields.filter((f) => f.isActive).length,
+      },
+      {
+        id: 'skills',
+        header: t('columns.skills'),
+        width: 'minmax(0,1.4fr)',
+        hideOnMobile: true,
+        cell: (row) => <SkillChips skills={row.skills} />,
       },
       {
         id: 'form',

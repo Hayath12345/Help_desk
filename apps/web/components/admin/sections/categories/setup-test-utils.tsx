@@ -6,10 +6,12 @@ import {
   categoryAdminDtoSchema,
   customFieldAdminDtoSchema,
   macroAdminDtoSchema,
+  skillAdminDtoSchema,
   type CategoryAdminDto,
   type CustomFieldAdminDto,
   type MacroAdminDto,
   type Role,
+  type SkillAdminDto,
 } from '@loons/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -142,6 +144,22 @@ export function categoryRow(
     hiddenReason: null,
     subtypes: [subtypeRow(n * 10, id), subtypeRow(n * 10 + 1, id, { defaultPriority: 'P1' })],
     fields: [],
+    skills: [],
+    createdAt: T0,
+    updatedAt: T0,
+    ...overrides,
+  });
+}
+
+export function skillRow(n: number, overrides: Partial<SkillAdminDto> = {}): SkillAdminDto {
+  return skillAdminDtoSchema.parse({
+    id: fixtureId(6000 + n),
+    key: `skill_${n}`,
+    labelEn: `Skill ${n}`,
+    labelAr: `مهارة ${n}`,
+    isActive: true,
+    staffCount: 0,
+    categoryCount: 0,
     createdAt: T0,
     updatedAt: T0,
     ...overrides,

@@ -304,6 +304,7 @@ describe('admin categories', () => {
           teamId: teamA.id,
           firstSubtype: { labelEn: 'x', labelAr: '', defaultPriority: 'P3' },
           fieldIds: [],
+          skillIds: [],
         }),
       ).rejects.toMatchObject({ code: 'P2003' });
       expect(await ctx.prisma.category.count({ where: { key } })).toBe(0);

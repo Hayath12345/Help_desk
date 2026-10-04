@@ -26,6 +26,7 @@ import { createHelpCenterAdminService, type HelpCenterAdminService } from './hel
 import { createMacrosAdminService, type MacrosAdminService } from './macros.ts';
 import { createSettingsAdminService, type SettingsAdminService } from './settings.ts';
 import { createSlaAdminService, type SlaAdminService } from './sla.ts';
+import { createSkillsAdminService, type SkillsAdminService } from './skills.ts';
 import { createStaffAdminService, type StaffAdminService } from './staff.ts';
 import { createStaffDirectoryService, type StaffDirectoryService } from './staff-directory.ts';
 import { createTeamsAdminService, type TeamsAdminService } from './teams.ts';
@@ -48,6 +49,7 @@ export interface AdminServices {
   escalation: EscalationAdminService;
   teams: TeamsAdminService;
   staff: StaffAdminService;
+  skills: SkillsAdminService;
   clients: ClientsAdminService;
   emailTemplates: EmailTemplatesAdminService;
   helpCenter: HelpCenterAdminService;
@@ -106,6 +108,7 @@ export function createAdminServices(deps: {
     escalation: createEscalationAdminService(admin),
     teams: createTeamsAdminService(admin),
     staff: createStaffAdminService(admin),
+    skills: createSkillsAdminService(admin),
     clients: createClientsAdminService(admin),
     emailTemplates: createEmailTemplatesAdminService(admin),
     helpCenter: createHelpCenterAdminService(admin),

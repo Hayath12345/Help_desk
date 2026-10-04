@@ -35,6 +35,9 @@ export const categoriesApi = {
   setFields: async (id: string, body: unknown): Promise<CategoryAdminDto> =>
     (await adminWrite('PUT', adminPath('categories', id, 'fields'), body, categoryResponseSchema))
       .item,
+  setSkills: async (id: string, body: unknown): Promise<CategoryAdminDto> =>
+    (await adminWrite('PUT', adminPath('categories', id, 'skills'), body, categoryResponseSchema))
+      .item,
   archive: async (id: string, expectedUpdatedAt: string): Promise<CategoryAdminDto> =>
     (
       await adminWrite(

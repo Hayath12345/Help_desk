@@ -3,6 +3,7 @@ import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import { adminKeys } from '@/lib/admin/keys';
 import { helpKeys } from '@/lib/help/keys';
+import { queueKeys } from '@/lib/queue/keys';
 import { requiredFormConfigVersion } from '@/lib/tickets/config-version';
 import { ticketKeys } from '@/lib/tickets/keys';
 import { FORM_CONFIG } from '@/lib/tickets/test-fixtures';
@@ -77,6 +78,22 @@ describe('config:updated scope → query keys (E18)', () => {
       ],
       exclude: [ticketKeys.formConfig()],
     },
+    skills: {
+      // The Skills list, plus the Staff and Categories lists that show skills and their counts.
+      include: [
+        adminKeys.section('skills'),
+        adminKeys.section('staff'),
+        adminKeys.section('categories'),
+      ],
+      exclude: [
+        ticketKeys.formConfig(),
+        ticketKeys.details(),
+        ticketKeys.teams(),
+        adminKeys.section('teams'),
+        adminKeys.section('clients'),
+        queueKeys.workload(),
+      ],
+    },
     'email-templates': {
       include: [adminKeys.section('email-templates')],
       exclude: [ticketKeys.formConfig(), ticketKeys.details()],
@@ -140,6 +157,22 @@ describe('config:updated scope → query keys (E18)', () => {
     expect(stale(adminKeys.list('escalation'))).toBe(true);
     expect(stale(adminKeys.list('clients', { includeArchived: true }))).toBe(true);
     expect(stale(ticketKeys.formConfig())).toBe(false);
+  });
+
+  it('refreshes the Skills, Staff and Categories lists on a skills change, and nothing else', () => {
+    const { queryClient, stale } = seeded();
+    queryClient.setQueryData(adminKeys.list('skills', { status: 'all' }), { items: [] });
+    queryClient.setQueryData(adminKeys.list('staff', { status: 'active' }), { items: [] });
+    queryClient.setQueryData(adminKeys.list('categories'), { items: [] });
+    applyConfigUpdated(queryClient, { scope: 'skills', version: 5 });
+    expect(stale(adminKeys.list('skills', { status: 'all' }))).toBe(true);
+    expect(stale(adminKeys.list('staff', { status: 'active' }))).toBe(true);
+    expect(stale(adminKeys.list('categories'))).toBe(true);
+    expect(stale(adminKeys.staffDirectory())).toBe(true);
+    expect(stale(ticketKeys.formConfig())).toBe(false);
+    expect(stale(ticketKeys.detail('LG-1'))).toBe(false);
+    expect(stale(adminKeys.list('macros'))).toBe(false);
+    expect(stale(adminKeys.list('clients', { includeArchived: true }))).toBe(false);
   });
 
   it('refreshes every scope for a payload it does not understand (a newer API)', () => {

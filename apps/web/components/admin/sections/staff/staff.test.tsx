@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { StaffAdminDto } from '@loons/shared';
+import type { SkillAdminDto, StaffAdminDto } from '@loons/shared';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -43,6 +43,8 @@ function staff(id: string, name: string, overrides: Partial<StaffAdminDto> = {})
     phone: null,
     phoneValid: false,
     teams: [],
+    skills: [],
+    acceptsAutoAssign: true,
     microsoftLinked: false,
     lastLoginAt: null,
     createdAt: STAMP,
@@ -51,7 +53,36 @@ function staff(id: string, name: string, overrides: Partial<StaffAdminDto> = {})
   };
 }
 
+/** A catalog skill (GET /admin/skills) and the reference staff rows carry. */
+function skill(n: number, labelEn: string, overrides: Partial<SkillAdminDto> = {}): SkillAdminDto {
+  return {
+    id: `66666666-6666-4666-8666-66666666666${n}`,
+    key: `skill_${n}`,
+    labelEn,
+    labelAr: `مهارة ${n}`,
+    isActive: true,
+    staffCount: 0,
+    categoryCount: 0,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+    ...overrides,
+  };
+}
+const ref = ({ id, key, labelEn, labelAr, isActive }: SkillAdminDto) => ({
+  id,
+  key,
+  labelEn,
+  labelAr,
+  isActive,
+});
+const NET = skill(1, 'Network', { labelAr: 'الشبكات' });
+const CCTV = skill(2, 'CCTV');
+const VPN = skill(3, 'VPN');
+const WIFI = skill(4, 'Wi-Fi');
+const OLD = skill(5, 'Legacy PBX', { isActive: false });
+
 let people: StaffAdminDto[];
+let catalog: SkillAdminDto[];
 
 // Multi-step sheet flows: allow for a loaded machine (full suites; the default is 5 s).
 vi.setConfig({ testTimeout: 20_000 });
@@ -79,7 +110,9 @@ beforeEach(() => {
     staff(ME, 'Sam Admin', { role: 'SUPER_ADMIN' }),
     staff(DEE, 'Dee Disabled', { status: 'DISABLED' }),
   ];
+  catalog = [CCTV, NET, VPN, WIFI];
   api.current = createFakeApi();
+  api.current.on('GET /admin/skills', () => ({ items: catalog }));
   api.current.on('GET /admin/staff', (call) => {
     const status = call.query.get('status');
     const role = call.query.get('role');
@@ -265,11 +298,189 @@ describe('Staff', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it('lists each person’s active skills as chips (three and "+N") and marks who is paused', async () => {
+    people[0] = {
+      ...people[0]!,
+      skills: [ref(CCTV), ref(NET), ref(VPN), ref(WIFI), ref(OLD)],
+      acceptsAutoAssign: false,
+    };
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const row = within(
+      (await within(table()).findByRole('button', { name: /^Ali Agent/ })).closest(
+        '[role="row"]',
+      ) as HTMLElement,
+    );
+    expect(row.getByText('CCTV')).toBeTruthy();
+    expect(row.getByText('Network')).toBeTruthy();
+    expect(row.getByText('VPN')).toBeTruthy();
+    // The fourth active skill is only counted; the archived one doesn't count for matching.
+    expect(row.getByText('+1')).toBeTruthy();
+    expect(row.queryByText('Wi-Fi')).toBeNull();
+    expect(row.queryByText('Legacy PBX')).toBeNull();
+    // Paused: unobtrusive, with the reason as its tooltip; nobody else has it.
+    expect(row.getByText('Paused').closest('[data-slot="badge"]')?.getAttribute('title')).toBe(
+      'Not taking automatic tickets',
+    );
+    expect(within(table()).getAllByText('Paused')).toHaveLength(1);
+  });
+
+  it('edits the skills and "Takes automatic tickets": the account first, then the skills from its new version', async () => {
+    const T1 = '2026-09-29T11:00:00.000Z';
+    const T2 = '2026-09-29T11:00:01.000Z';
+    people[0] = { ...people[0]!, skills: [ref(NET), ref(OLD)] };
+    api.current!.on(`PATCH /admin/staff/${ALI}`, () => ({
+      item: { ...people[0]!, acceptsAutoAssign: false, updatedAt: T1 },
+    }));
+    api.current!.on(`PUT /admin/staff/${ALI}/skills`, () => ({
+      item: { ...people[0]!, acceptsAutoAssign: false, skills: [ref(CCTV)], updatedAt: T2 },
+    }));
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+
+    const auto = within(dialog).getByRole('switch', { name: 'Takes automatic tickets' });
+    expect(auto.getAttribute('aria-checked')).toBe('true');
+    expect(
+      within(dialog).getByText(
+        'Turn off while away. They stay on their teams and can still be assigned by hand.',
+      ),
+    ).toBeTruthy();
+
+    // The active catalog plus the archived skill they still have: flagged, ticked, removable.
+    const skills = within(dialog).getByRole('group', { name: 'Skills' });
+    const legacy = await within(skills).findByRole('checkbox', { name: /Legacy PBX/ });
+    expect(legacy.getAttribute('aria-checked')).toBe('true');
+    expect(within(skills).getByText('Archived')).toBeTruthy();
+    expect(within(skills).getAllByRole('checkbox')).toHaveLength(5);
+    expect(
+      within(skills).getByRole('checkbox', { name: 'Network' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    fireEvent.click(legacy);
+    fireEvent.click(within(skills).getByRole('checkbox', { name: 'Network' }));
+    fireEvent.click(within(skills).getByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(auto);
+    expect(auto.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(api.current!.writes()).toHaveLength(2));
+    const [patch, put] = api.current!.writes();
+    expect(patch).toMatchObject({ method: 'PATCH', path: `/admin/staff/${ALI}` });
+    expect(patch!.body).toEqual({ acceptsAutoAssign: false, expectedUpdatedAt: STAMP });
+    expect(put).toMatchObject({ method: 'PUT', path: `/admin/staff/${ALI}/skills` });
+    expect(put!.body).toEqual({ expectedUpdatedAt: T1, skillIds: [CCTV.id] });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(toast.success).toHaveBeenCalledWith('Staff account saved');
+  });
+
+  it('a skills-only edit sends just PUT /skills with the row’s updatedAt (no PATCH)', async () => {
+    api.current!.on(`PUT /admin/staff/${ALI}/skills`, () => ({
+      item: { ...people[0]!, skills: [ref(CCTV), ref(VPN)], updatedAt: '2026-09-29T11:00:00.000Z' },
+    }));
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+    const skills = within(dialog).getByRole('group', { name: 'Skills' });
+    fireEvent.click(await within(skills).findByRole('checkbox', { name: 'VPN' }));
+    fireEvent.click(within(skills).getByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.current!.writes()).toHaveLength(1));
+    expect(api.current!.writes()[0]).toMatchObject({
+      method: 'PUT',
+      path: `/admin/staff/${ALI}/skills`,
+      body: { expectedUpdatedAt: STAMP, skillIds: [CCTV.id, VPN.id].sort() },
+    });
+  });
+
+  it('ticking a skill and unticking it again is no change: nothing is sent', async () => {
+    people[0] = { ...people[0]!, skills: [ref(NET)] };
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+    const skills = within(dialog).getByRole('group', { name: 'Skills' });
+    const cctv = await within(skills).findByRole('checkbox', { name: 'CCTV' });
+    fireEvent.click(cctv);
+    fireEvent.click(cctv);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(api.current!.writes()).toEqual([]);
+  });
+
+  it('a paused person has the switch off; skills and the switch are for edits only', async () => {
+    people[0] = { ...people[0]!, acceptsAutoAssign: false };
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+    expect(
+      within(dialog)
+        .getByRole('switch', { name: 'Takes automatic tickets' })
+        .getAttribute('aria-checked'),
+    ).toBe('false');
+    cleanup();
+
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create new' }));
+    const create = await screen.findByRole('dialog', { name: 'New staff account' });
+    expect(within(create).queryByRole('group', { name: 'Skills' })).toBeNull();
+    expect(within(create).queryByRole('switch')).toBeNull();
+  });
+
+  it('a stale skills save shows the reload state; a skill archived meanwhile is refused on the list', async () => {
+    let answer: Error = conflict({ reason: 'stale', currentUpdatedAt: STAMP });
+    api.current!.on(`PUT /admin/staff/${ALI}/skills`, () => {
+      throw answer;
+    });
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+    const skills = within(dialog).getByRole('group', { name: 'Skills' });
+    fireEvent.click(await within(skills).findByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await within(dialog).findByText('Someone else changed this — reload')).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reload' }));
+    await waitFor(() =>
+      expect(within(dialog).queryByText('Someone else changed this — reload')).toBeNull(),
+    );
+    answer = invalid([{ path: ['skillIds'], message: 'validation.skillArchived' }]);
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(
+      await within(dialog).findByText('This skill is archived — restore it first.'),
+    ).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('says where to add skills when there are none yet', async () => {
+    catalog = [];
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />);
+    const dialog = await openRow('Ali Agent');
+    const skills = within(dialog).getByRole('group', { name: 'Skills' });
+    expect(await within(skills).findByText(/No skills yet/)).toBeTruthy();
+    expect(within(skills).getByRole('link', { name: 'Skills' }).getAttribute('href')).toBe(
+      '/admin/skills',
+    );
+    expect(within(skills).queryAllByRole('checkbox')).toHaveLength(0);
+  });
+
   it('renders in Arabic', async () => {
     renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />, 'ar');
     const arTable = await screen.findByRole('table', { name: 'الموظفون' });
     expect(await within(arTable).findByText('Ali Agent')).toBeTruthy();
     expect(within(arTable).getByText('مرتبط بـ Microsoft')).toBeTruthy();
     expect(within(arTable).getAllByText('موظف دعم').length).toBeGreaterThan(0);
+  });
+
+  it('speaks Arabic in the sheet: skills by their Arabic names, the switch and its hint', async () => {
+    people[0] = { ...people[0]!, skills: [ref(NET)], acceptsAutoAssign: false };
+    renderSection(<StaffSection role="SUPER_ADMIN" userId={ME} />, 'ar');
+    const arTable = await screen.findByRole('table', { name: 'الموظفون' });
+    expect(await within(arTable).findByText('متوقف مؤقتًا')).toBeTruthy();
+    fireEvent.click(await within(arTable).findByRole('button', { name: /^Ali Agent/ }));
+    const dialog = await screen.findByRole('dialog');
+    const skills = within(dialog).getByRole('group', { name: 'المهارات' });
+    const net = await within(skills).findByRole('checkbox', { name: 'الشبكات' });
+    expect(net.getAttribute('aria-checked')).toBe('true');
+    expect(
+      within(dialog)
+        .getByRole('switch', { name: 'يستلم التذاكر تلقائيًا' })
+        .getAttribute('aria-checked'),
+    ).toBe('false');
+    expect(within(dialog).getByText(/أوقفه أثناء الغياب/)).toBeTruthy();
   });
 });

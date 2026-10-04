@@ -6,6 +6,7 @@
 // GET    /admin/staff?status=&role=&search=&cursor=&limit=   → { items, nextCursor }
 //        (status: active = ACTIVE, archived = DISABLED)
 // POST   /admin/staff                                        → 201 { item }
+// PUT    /admin/staff/:id/skills                             → { item }   (skills they have; setSkillsSchema)
 // PATCH  /admin/staff/:id                                    → { item }
 // GET    /admin/staff-directory?search=&teamId=&role=        → { items } (pickers; super admins
 //        and team leads, see directory.ts)
@@ -16,6 +17,7 @@ import { z } from 'zod';
 import { STAFF_ROLES, TEAM_MEMBER_ROLES, USER_STATUSES } from '../../enums.ts';
 import { STAFF_ACCOUNT_STATUSES } from '../../permissions.ts';
 import { emailSchema } from '../auth.ts';
+import { skillRefSchema } from './skills.ts';
 import {
   NOTHING_TO_CHANGE,
   adminPagedQuerySchema,
@@ -58,6 +60,10 @@ export const staffAdminDtoSchema = z.object({
       memberRole: z.enum(TEAM_MEMBER_ROLES),
     }),
   ),
+  /** Skills they have (archived ones included, flagged `isActive`), by English label. */
+  skills: z.array(skillRefSchema),
+  /** Takes tickets handed out automatically by skill (docs/AUTO_ASSIGN.md). */
+  acceptsAutoAssign: z.boolean(),
   /** A Microsoft account is linked (they have signed in at least once). */
   microsoftLinked: z.boolean(),
   lastLoginAt: isoDateTime.nullable(),
@@ -90,6 +96,8 @@ export const updateStaffSchema = z
     status: z.enum(STAFF_ACCOUNT_STATUSES).optional(),
     jobTitle: optionalText(STAFF_LIMITS.jobTitleMax).optional(),
     phone: staffPhoneInputSchema.optional(),
+    /** Off while they are away: no automatic assignments (they can still be assigned by hand). */
+    acceptsAutoAssign: z.boolean().optional(),
   })
   .refine(hasChanges, NOTHING_TO_CHANGE);
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;

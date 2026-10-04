@@ -817,6 +817,8 @@ export const ticketEventMetaSchema = z.object({
   channels: z.array(z.enum(ESCALATION_CHANNELS)).optional(),
   minutesToAcknowledge: z.number().nullable().optional(),
   days: z.number().optional(),
+  /** ASSIGNEE_CHANGED: the system picked the assignee from the category's skills. */
+  auto: z.boolean().optional(),
 });
 export type TicketEventMeta = z.infer<typeof ticketEventMetaSchema>;
 

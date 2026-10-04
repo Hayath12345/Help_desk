@@ -6,6 +6,7 @@
 // POST   /admin/categories/:id/archive | /restore       → { item }
 // POST   /admin/categories/reorder                      → 204
 // PUT    /admin/categories/:id/fields                   → { item }   (linked custom fields, ordered)
+// PUT    /admin/categories/:id/skills                   → { item }   (skills needed; setSkillsSchema)
 // POST   /admin/categories/:id/subtypes                 → 201 { item: SubtypeAdminDto }
 // PATCH  /admin/categories/:id/subtypes/:subtypeId      → { item: SubtypeAdminDto }
 // POST   /admin/categories/:id/subtypes/:subtypeId/archive | /restore → { item: SubtypeAdminDto }
@@ -15,6 +16,7 @@
 
 import { z } from 'zod';
 import { CUSTOM_FIELD_TYPES, PRIORITIES } from '../../enums.ts';
+import { SKILLS_PER_LINK_MAX, skillRefSchema } from './skills.ts';
 import {
   NOTHING_TO_CHANGE,
   adminKeySchema,
@@ -136,6 +138,8 @@ export const categoryAdminDtoSchema = z.object({
   /** Every sub-type, archived ones included, in order. */
   subtypes: z.array(subtypeAdminDtoSchema),
   fields: z.array(categoryFieldLinkSchema),
+  /** Skills a new ticket in this category asks for (archived ones included, flagged `isActive`). */
+  skills: z.array(skillRefSchema),
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
 });
@@ -174,6 +178,8 @@ export const createCategorySchema = z.object({
   firstSubtype: createSubtypeSchema,
   /** Custom fields to link, in form order. */
   fieldIds: uniqueIds(CATEGORY_FIELDS_MAX).default([]),
+  /** Skills needed (active ones); [] = no automatic assignment for this category. */
+  skillIds: uniqueIds(SKILLS_PER_LINK_MAX).default([]),
 });
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 

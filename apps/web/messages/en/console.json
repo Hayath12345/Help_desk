@@ -361,6 +361,7 @@
     "autoClosed": "Closed automatically",
     "autoClosedAfter": "{count, plural, one {Closed automatically {n} day after it was solved} other {Closed automatically {n} days after it was solved}}",
     "assigned": "Assigned to {to}",
+    "assignedAuto": "Automatically assigned to {to} (matched by skill)",
     "unassigned": "Unassigned (was {from})",
     "reassigned": "Reassigned from {from} to {to}",
     "assigneeChanged": "Assignee changed",

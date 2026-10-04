@@ -88,6 +88,29 @@ export async function processNotificationEvent(
           recipientMasked: t.requester.email,
         });
       }
+      // Handed out by skill (docs/AUTO_ASSIGN.md): tell the person who got it, in-app. Someone who
+      // took the ticket themselves isn't told about it.
+      if (t.assigneeId) {
+        const handedOut = await ctx.prisma.ticketEvent.findFirst({
+          where: {
+            ticketId: t.id,
+            type: 'ASSIGNEE_CHANGED',
+            toValue: t.assigneeId,
+            meta: { path: ['auto'], equals: true },
+          },
+          select: { id: true },
+        });
+        const assignee = handedOut ? await activeStaff(ctx.prisma, t.assigneeId) : null;
+        if (assignee) {
+          inApp.push({
+            userId: assignee.id,
+            type: 'TICKET_ASSIGNED',
+            ticketId: t.id,
+            data: baseData(t),
+            dedupeKey: `tc-${t.id}-assigned-${assignee.id}`,
+          });
+        }
+      }
       // The team's distribution list, except P4 (daily digest, D9).
       if (t.priority !== 'P4') {
         for (const address of listAddresses(t.team.emails)) {

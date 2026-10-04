@@ -6,6 +6,7 @@ Clients raise tickets about systems Loons installed or manages; Loons staff tria
 - **Client portal** — sign in (email/password or Google), My tickets, Help center, English/Arabic.
 - **Agent console** — Inbox, Team queue, Customers, Reports for Loons engineers and SOC analysts (Microsoft Entra ID sign-in).
 - **Admin panel** — configuration for Super Admins (Team Leads get a limited view).
+  New tickets can be handed to the right person automatically by **skills** — see [`docs/AUTO_ASSIGN.md`](docs/AUTO_ASSIGN.md).
 
 The UI follows the approved design in [`design/Loons Help Desk_final.html`](design/Loons%20Help%20Desk_final.html) (open it in a browser).
 

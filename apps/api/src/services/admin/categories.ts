@@ -8,6 +8,7 @@ import type {
   CreateSubtypeInput,
   ReorderBody,
   SetCategoryFieldsInput,
+  SetSkillsInput,
   SubtypeAdminDto,
   UpdateCategoryInput,
   UpdateSubtypeInput,
@@ -20,6 +21,7 @@ import { advisoryLock, lockFresh, lockRows, shareActive } from './concurrency.ts
 import type { AdminDeps } from './deps.ts';
 import { adminErrors } from './errors.ts';
 import { generateKey } from './keys.ts';
+import { assertLinkableSkills, skillKeys, skillRefSelect, toSkillRefs } from './skills.ts';
 import { applyReorder, writeCategoryFieldOrder, writeSortOrder } from './reorder.ts';
 import type { AdminContext } from './write.ts';
 
@@ -106,6 +108,7 @@ const categorySelect = {
       },
     },
   },
+  skills: { select: { skill: { select: skillRefSelect } } },
 } as const satisfies Prisma.CategorySelect;
 
 type CategoryRow = Prisma.CategoryGetPayload<{ select: typeof categorySelect }>;
@@ -186,6 +189,7 @@ function toCategoryDto(row: CategoryRow, securityKey: string): CategoryAdminDto 
     isSecurityCategory: row.key === securityKey,
     hiddenReason: categoryHiddenReason(row),
     subtypes: row.subtypes.map(toSubtypeDto),
+    skills: toSkillRefs(row.skills.map((s) => s.skill)),
     fields: row.fields.map((link) => ({
       fieldId: link.field.id,
       key: link.field.key,
@@ -331,6 +335,7 @@ export interface CategoriesAdminService {
     id: string,
     input: SetCategoryFieldsInput,
   ): Promise<CategoryAdminDto>;
+  setSkills(ctx: AdminContext, id: string, input: SetSkillsInput): Promise<CategoryAdminDto>;
   createSubtype(
     ctx: AdminContext,
     categoryId: string,
@@ -589,10 +594,12 @@ export function createCategoriesAdminService(
 
     async create(ctx, input) {
       requireSuperAdmin(ctx.actor);
-      const id = await writer.write(ctx, { scopes: SCOPE }, async ({ tx, audit }) => {
+      const scopes = input.skillIds.length > 0 ? ([SCOPE, 'skills'] as const) : SCOPE;
+      const id = await writer.write(ctx, { scopes }, async ({ tx, audit }) => {
         await lockRows(tx, 'CustomField', input.fieldIds);
         await assertActiveTeam(tx, input.teamId, ['teamId']);
         await assertLinkableFields(tx, input.fieldIds, new Set(), 'fieldIds');
+        await assertLinkableSkills(tx, input.skillIds, []);
         const key = await categoryKey(tx, input.labelEn, input.key);
         const last = await tx.category.aggregate({ _max: { sortOrder: true } });
         const category = await tx.category.create({
@@ -629,12 +636,21 @@ export function createCategoriesAdminService(
           });
           await touchFields(tx, input.fieldIds);
         }
+        if (input.skillIds.length) {
+          await tx.categorySkill.createMany({
+            data: input.skillIds.map((skillId) => ({ categoryId: category.id, skillId })),
+          });
+        }
         await audit.record({
           action: 'CREATE',
           entity: 'Category',
           entityId: category.id,
           entityLabel: category.labelEn,
-          after: { ...categoryAudit(category), fieldIds: input.fieldIds },
+          after: {
+            ...categoryAudit(category),
+            fieldIds: input.fieldIds,
+            ...(input.skillIds.length ? { skillIds: input.skillIds } : {}),
+          },
         });
         await audit.record({
           action: 'CREATE',
@@ -726,6 +742,52 @@ export function createCategoriesAdminService(
         const changed = await writeLinks(tx, audit, id, input.fieldIds);
         // The linked fields are part of the category: an edit started before this is stale.
         if (changed) await tx.category.update({ where: { id }, data: { updatedAt: new Date() } });
+      });
+      return load(prisma, id);
+    },
+
+    async setSkills(ctx, id, input) {
+      requireSuperAdmin(ctx.actor);
+      await writer.write(ctx, { scopes: 'skills' }, async ({ tx, audit }) => {
+        await lockFresh(tx, 'Category', id, input.expectedUpdatedAt);
+        const linked = await tx.categorySkill.findMany({
+          where: { categoryId: id },
+          select: { skill: { select: skillRefSelect } },
+        });
+        const current = linked.map((l) => l.skill.id);
+        await assertLinkableSkills(tx, input.skillIds, current);
+        const wanted = new Set(input.skillIds);
+        const drop = current.filter((skillId) => !wanted.has(skillId));
+        const add = input.skillIds.filter((skillId) => !current.includes(skillId));
+        if (drop.length === 0 && add.length === 0) return;
+        if (drop.length > 0) {
+          await tx.categorySkill.deleteMany({
+            where: { categoryId: id, skillId: { in: drop } },
+          });
+        }
+        if (add.length > 0) {
+          await tx.categorySkill.createMany({
+            data: add.map((skillId) => ({ categoryId: id, skillId })),
+          });
+        }
+        // The links are part of the category: an edit started before this is stale.
+        const category = await tx.category.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+          select: { labelEn: true },
+        });
+        const after = await tx.categorySkill.findMany({
+          where: { categoryId: id },
+          select: { skill: { select: skillRefSelect } },
+        });
+        await audit.record({
+          action: 'UPDATE',
+          entity: 'Category',
+          entityId: id,
+          entityLabel: category.labelEn,
+          before: { skills: skillKeys(linked.map((l) => l.skill)) },
+          after: { skills: skillKeys(after.map((l) => l.skill)) },
+        });
       });
       return load(prisma, id);
     },

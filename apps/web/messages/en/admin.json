@@ -38,6 +38,10 @@
       "title": "Staff",
       "description": "Staff accounts, roles, job titles and phone numbers."
     },
+    "skills": {
+      "title": "Skills",
+      "description": "What staff are good at and what categories need, for automatic assignment."
+    },
     "clients": {
       "title": "Clients & sites",
       "description": "Client organisations, contracts, AMC expiry and sites."

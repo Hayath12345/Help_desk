@@ -256,35 +256,38 @@ model Site {
 }
 
 model User {
-  id              String     @id @default(uuid()) @db.Uuid
+  id                String     @id @default(uuid()) @db.Uuid
   /// Always stored lower-cased.
-  email           String     @unique
-  name            String
-  role            Role
-  status          UserStatus @default(ACTIVE)
+  email             String     @unique
+  name              String
+  role              Role
+  status            UserStatus @default(ACTIVE)
   /// Set for CLIENT users only.
-  orgId           String?    @db.Uuid
-  locale          Locale     @default(en)
-  phone           String?
-  jobTitle        String?
+  orgId             String?    @db.Uuid
+  locale            Locale     @default(en)
+  phone             String?
+  jobTitle          String?
   /// argon2id hash. Null for SSO-only accounts.
-  passwordHash    String?
+  passwordHash      String?
   /// Incremented to revoke every existing session and API token — password reset now; admin
   /// disable / role change later. Web sessions and API tokens carry the value they were issued
   /// with (`sv`) and are rejected once it differs.
-  sessionVersion  Int        @default(0)
+  sessionVersion    Int        @default(0)
   /// Set once the user proved they own the mailbox (verification link, password reset, or a
   /// verified Google / Entra identity). Unverified clients can sign in but see nothing.
-  emailVerifiedAt DateTime?
+  emailVerifiedAt   DateTime?
   /// MFA-ready: staff sign in through Entra ID (MFA enforced there). These fields allow a
   /// local TOTP factor to be added later without a schema change.
-  mfaEnabled      Boolean    @default(false)
-  mfaSecret       String?
+  mfaEnabled        Boolean    @default(false)
+  mfaSecret         String?
   /// Company name typed at self-signup when no organisation matched (for admin review).
-  signupCompany   String?
-  lastLoginAt     DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  signupCompany     String?
+  /// Staff only: takes tickets handed out automatically by skill (see Skill / Category.skills).
+  /// Switch off while away; the account stays a team member and can still be assigned by hand.
+  acceptsAutoAssign Boolean    @default(true)
+  lastLoginAt       DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   org                     Organization?            @relation("OrgUsers", fields: [orgId], references: [id], onDelete: Restrict)
   accounts                AuthAccount[]
@@ -305,6 +308,7 @@ model User {
   escalationTargets       EscalationRule[]
   auditLogs               AdminAuditLog[]
   emailTemplateEdits      EmailTemplate[]
+  skills                  UserSkill[]
 
   @@index([orgId])
   @@index([role])
@@ -616,6 +620,7 @@ model Category {
   team     Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
   subtypes Subtype[]
   fields   CategoryField[]
+  skills   CategorySkill[]
   tickets  Ticket[]
 
   @@index([isActive, sortOrder])
@@ -884,4 +889,48 @@ model AdminAuditLog {
   @@index([createdAt])
   @@index([action, createdAt])
   @@index([entity, createdAt])
+}
+
+// ───────────────────────────── Skills & auto-assignment ─────────────────────────────
+
+/// A thing staff can be good at ("Network", "CCTV"). Managed by super admins; archived, never deleted.
+/// A category lists the skills it needs (CategorySkill); a staff member lists the skills they have
+/// (UserSkill). A new ticket in a category with skills goes to the best-matching person on its team.
+model Skill {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  labelEn   String
+  labelAr   String   @default("")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      UserSkill[]
+  categories CategorySkill[]
+
+  @@index([isActive])
+}
+
+model UserSkill {
+  userId    String   @db.Uuid
+  skillId   String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@id([userId, skillId])
+  @@index([skillId])
+}
+
+model CategorySkill {
+  categoryId String   @db.Uuid
+  skillId    String   @db.Uuid
+  createdAt  DateTime @default(now())
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  skill    Skill    @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@id([categoryId, skillId])
+  @@index([skillId])
 }

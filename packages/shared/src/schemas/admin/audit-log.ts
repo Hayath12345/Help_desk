@@ -20,6 +20,7 @@ export const AUDIT_ENTITIES = [
   'CustomField',
   'CategoryField',
   'Macro',
+  'Skill',
   'SlaPolicy',
   'BusinessHours',
   'Holiday',

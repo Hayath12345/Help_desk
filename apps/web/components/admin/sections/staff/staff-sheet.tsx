@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
+  SKILLS_PER_LINK_MAX,
   STAFF_LIMITS,
   STAFF_ROLES,
   emailSchema,
@@ -14,18 +15,20 @@ import {
 } from '@loons/shared';
 import { useLocale, useTranslations } from 'next-intl';
 import { useCallback, useEffect, useId, useRef } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { FormField, fieldA11y } from '@/components/tickets/form-field';
 import { SegmentedControl } from '@/components/tickets/segmented-control';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { adminPath, adminWrite, useAdminMutation, withExpectedUpdatedAt } from '@/lib/admin';
 import { isApiRequestError, validationIssues } from '@/lib/api/errors';
 import { formatDateTime } from '@/lib/format';
 import { teamName } from '@/lib/tickets/labels';
 import { AdminSheet } from '../../kit';
+import { SkillPicker, SkillsAdminLink, sameSkillIds, sortedSkillIds } from '../../skill-picker';
 import { usePeopleErrorText, usePeopleValidation } from '../teams/people';
 
 interface StaffFormValues {
@@ -35,6 +38,10 @@ interface StaffFormValues {
   status: StaffAccountStatus;
   jobTitle: string;
   phone: string;
+  /** Takes tickets handed out automatically by skill (edit only). */
+  acceptsAutoAssign: boolean;
+  /** Skills they have, sorted (edit only; saved through PUT …/skills). */
+  skillIds: string[];
 }
 
 const formSchema = z.object({
@@ -46,6 +53,8 @@ const formSchema = z.object({
   phone: z.string().refine((phone) => phone.trim() === '' || normalizeE164(phone) !== null, {
     error: 'validation.phone',
   }),
+  acceptsAutoAssign: z.boolean(),
+  skillIds: z.array(z.string()).max(SKILLS_PER_LINK_MAX, { error: 'validation.tooLong' }),
 });
 const createSchema = formSchema.extend({ email: emailSchema });
 
@@ -57,6 +66,8 @@ function valuesOf(staff: StaffAdminDto | undefined): StaffFormValues {
     status: staff?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
     jobTitle: staff?.jobTitle ?? '',
     phone: staff?.phone ?? '',
+    acceptsAutoAssign: staff?.acceptsAutoAssign ?? true,
+    skillIds: sortedSkillIds(staff?.skills),
   };
 }
 
@@ -67,7 +78,18 @@ const FIELDS = new Set<keyof StaffFormValues>([
   'status',
   'jobTitle',
   'phone',
+  'acceptsAutoAssign',
+  'skillIds',
 ]);
+
+/**
+ * What one save sends. An edit may change the account (PATCH) and the skills (PUT …/skills): the
+ * skills write starts from the `updatedAt` the account write returned, since both move the row's
+ * version.
+ */
+type StaffSave =
+  | { create: Record<string, unknown> }
+  | { patch: Record<string, unknown> | null; skillIds: string[] | null };
 
 export interface StaffSheetProps {
   open: boolean;
@@ -129,12 +151,34 @@ export function StaffSheet({
 
   const save = useAdminMutation({
     section: 'staff',
-    scopes: ['staff'],
+    scopes: ['staff', 'skills'],
     errorToast: false,
-    mutationFn: (body: Record<string, unknown>) =>
-      mode === 'create'
-        ? adminWrite('POST', adminPath('staff'), body, staffResponseSchema)
-        : adminWrite('PATCH', adminPath('staff', staff!.id), body, staffResponseSchema),
+    mutationFn: async (input: StaffSave) => {
+      if ('create' in input) {
+        return adminWrite('POST', adminPath('staff'), input.create, staffResponseSchema);
+      }
+      let result = { item: base.current! };
+      if (input.patch) {
+        result = await adminWrite(
+          'PATCH',
+          adminPath('staff', result.item.id),
+          withExpectedUpdatedAt(input.patch, result.item),
+          staffResponseSchema,
+        );
+        // Written: a retry after a refused skills write must not send these changes again.
+        base.current = result.item;
+      }
+      if (input.skillIds) {
+        result = await adminWrite(
+          'PUT',
+          adminPath('staff', result.item.id, 'skills'),
+          { expectedUpdatedAt: result.item.updatedAt, skillIds: input.skillIds },
+          staffResponseSchema,
+        );
+        base.current = result.item;
+      }
+      return result;
+    },
     success: (result) =>
       mode === 'create' ? t('created', { name: result.item.name }) : t('saved'),
     onSuccess: (result) => {
@@ -169,7 +213,9 @@ export function StaffSheet({
     const jobTitle = values.jobTitle.trim() || null;
     const phone = values.phone.trim() || null;
     if (mode === 'create') {
-      save.mutate({ email: values.email, name: values.name, role: values.role, jobTitle, phone });
+      save.mutate({
+        create: { email: values.email, name: values.name, role: values.role, jobTitle, phone },
+      });
       return;
     }
     const started = base.current;
@@ -180,11 +226,22 @@ export function StaffSheet({
     if (values.status !== started.status) body.status = values.status;
     if (jobTitle !== started.jobTitle) body.jobTitle = jobTitle;
     if (phone !== started.phone) body.phone = phone;
-    if (Object.keys(body).length === 0) {
+    if (values.acceptsAutoAssign !== started.acceptsAutoAssign) {
+      body.acceptsAutoAssign = values.acceptsAutoAssign;
+    }
+    const skillsChanged = !sameSkillIds(
+      values.skillIds,
+      started.skills.map((skill) => skill.id),
+    );
+    const changedBody = Object.keys(body).length > 0;
+    if (!changedBody && !skillsChanged) {
       onOpenChange(false);
       return;
     }
-    save.mutate(withExpectedUpdatedAt(body, started));
+    save.mutate({
+      patch: changedBody ? body : null,
+      skillIds: skillsChanged ? values.skillIds : null,
+    });
   };
 
   const errorOf = (field: keyof StaffFormValues) => validation(formState.errors[field]?.message);
@@ -311,6 +368,53 @@ export function StaffSheet({
             className="text-start"
           />
         </FormField>
+        {mode === 'edit' && staff ? (
+          <>
+            <Controller
+              control={control}
+              name="skillIds"
+              render={({ field, fieldState }) => (
+                <SkillPicker
+                  id={`${id}-skills`}
+                  label={t('form.skills')}
+                  hint={t('form.skillsHint')}
+                  value={field.value}
+                  onChange={field.onChange}
+                  linked={staff.skills}
+                  empty={t.rich('form.skillsEmpty', {
+                    link: (chunks) => <SkillsAdminLink>{chunks}</SkillsAdminLink>,
+                  })}
+                  limitNote={t('form.skillsLimit', { max: SKILLS_PER_LINK_MAX })}
+                  error={validation(fieldState.error?.message)}
+                />
+              )}
+            />
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-line px-3.5 py-3">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <label htmlFor={`${id}-auto`} className="font-medium text-ink">
+                  {t('form.autoAssign')}
+                </label>
+                <p id={`${id}-auto-hint`} className="text-[13px] text-ink-secondary">
+                  {t('form.autoAssignHint')}
+                </p>
+              </div>
+              <Controller
+                control={control}
+                name="acceptsAutoAssign"
+                render={({ field }) => (
+                  <Switch
+                    id={`${id}-auto`}
+                    ref={field.ref}
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    onBlur={field.onBlur}
+                    aria-describedby={`${id}-auto-hint`}
+                  />
+                )}
+              />
+            </div>
+          </>
+        ) : null}
       </form>
 
       {mode === 'edit' && staff ? (

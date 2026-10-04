@@ -67,6 +67,7 @@ export class Fixtures {
   private readonly teamIds = new Set<string>();
   private readonly categoryIds = new Set<string>();
   private readonly fieldIds = new Set<string>();
+  private readonly skillIds = new Set<string>();
   private readonly tagKeys = new Set<string>();
   private readonly cleanups: Array<() => Promise<unknown>> = [];
 
@@ -89,6 +90,11 @@ export class Fixtures {
 
   trackField(id: string): string {
     this.fieldIds.add(id);
+    return id;
+  }
+
+  trackSkill(id: string): string {
+    this.skillIds.add(id);
     return id;
   }
 
@@ -225,6 +231,33 @@ export class Fixtures {
     return this.prisma.teamMember.create({ data: { teamId, userId, role } });
   }
 
+  /** A skill (tracked: deleted in cleanup, after the users and categories that link to it). */
+  async skill(options: { labelEn?: string; isActive?: boolean } = {}) {
+    const key = `test-${rand()}`;
+    const skill = await this.prisma.skill.create({
+      data: {
+        key,
+        labelEn: options.labelEn ?? `Test Skill ${key}`,
+        isActive: options.isActive ?? true,
+      },
+    });
+    this.skillIds.add(skill.id);
+    return skill;
+  }
+
+  /** Gives users skills (and optionally requires them of a category), by id. */
+  async giveSkills(userId: string, skillIds: string[]) {
+    await this.prisma.userSkill.createMany({
+      data: skillIds.map((skillId) => ({ userId, skillId })),
+    });
+  }
+
+  async requireSkills(categoryId: string, skillIds: string[]) {
+    await this.prisma.categorySkill.createMany({
+      data: skillIds.map((skillId) => ({ categoryId, skillId })),
+    });
+  }
+
   async user(
     options: {
       email?: string;
@@ -306,6 +339,7 @@ export class Fixtures {
                 ...this.teamIds,
                 ...this.categoryIds,
                 ...this.fieldIds,
+                ...this.skillIds,
               ],
             },
           },
@@ -327,6 +361,12 @@ export class Fixtures {
       await this.prisma.user.deleteMany({
         where: { OR: [{ id: { in: ids } }, { email: { in: emails } }] },
       });
+    }
+    if (this.skillIds.size) {
+      const skillIds = [...this.skillIds];
+      await this.prisma.userSkill.deleteMany({ where: { skillId: { in: skillIds } } });
+      await this.prisma.categorySkill.deleteMany({ where: { skillId: { in: skillIds } } });
+      await this.prisma.skill.deleteMany({ where: { id: { in: skillIds } } });
     }
     if (this.teamIds.size)
       await this.prisma.team.deleteMany({ where: { id: { in: [...this.teamIds] } } });

@@ -2,7 +2,7 @@
 
 import { STAFF_ROLES, staffListSchema, type StaffAdminDto, type StaffRole } from '@loons/shared';
 import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
+import { Pause, Search } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useId, useState } from 'react';
 import { SegmentedControl } from '@/components/tickets/segmented-control';
@@ -18,6 +18,7 @@ import {
   WhoCanSeeNote,
   type AdminTableColumn,
 } from '../../kit';
+import { SkillChips } from '../../skill-picker';
 import { PhoneStatus } from '../teams/people';
 import type { AdminSectionProps } from '../types';
 import { StaffSheet } from './staff-sheet';
@@ -83,7 +84,15 @@ export default function StaffSection({ userId }: AdminSectionProps) {
       width: 'minmax(0,2fr)',
       cell: (s) => (
         <span className="flex min-w-0 flex-col">
-          <span className="truncate">{s.name}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{s.name}</span>
+            {s.acceptsAutoAssign ? null : (
+              <Badge variant="secondary" title={t('pausedTitle')}>
+                <Pause aria-hidden="true" />
+                {t('paused')}
+              </Badge>
+            )}
+          </span>
           <span dir="ltr" className="truncate text-start text-[13px] font-normal text-ink-muted">
             {s.email}
           </span>
@@ -122,6 +131,13 @@ export default function StaffSection({ userId }: AdminSectionProps) {
             .join(', ')}
         </span>
       ),
+    },
+    {
+      id: 'skills',
+      header: t('table.skills'),
+      width: 'minmax(0,1.4fr)',
+      hideOnMobile: true,
+      cell: (s) => <SkillChips skills={s.skills} />,
     },
     {
       id: 'signIn',

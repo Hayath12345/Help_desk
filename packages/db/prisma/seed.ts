@@ -22,6 +22,7 @@ import { CUSTOM_FIELDS } from './seed-data/custom-fields.ts';
 import {
   DEMO_CLIENTS,
   DEMO_ORGS,
+  DEMO_SKILLS,
   DEMO_STAFF,
   DEMO_TEAM_STAFFING,
   DEMO_TICKETS,
@@ -96,6 +97,8 @@ const COUNTED_TABLES = {
     sites: (db: PrismaClient) => db.site.count(),
     users: (db: PrismaClient) => db.user.count(),
     teamMembers: (db: PrismaClient) => db.teamMember.count(),
+    skills: (db: PrismaClient) => db.skill.count(),
+    userSkills: (db: PrismaClient) => db.userSkill.count(),
     tickets: (db: PrismaClient) => db.ticket.count(),
     ticketTags: (db: PrismaClient) => db.ticketTag.count(),
     messages: (db: PrismaClient) => db.message.count(),
@@ -416,6 +419,25 @@ async function seedDemoPeople(db: PrismaClient): Promise<void> {
         await tx.team.updateMany({
           where: { id: teamId, onCallUserId: null },
           data: { onCallUserId: must(staffIds.get(staffing.onCallEmail), 'on-call user') },
+        });
+      }
+    }
+
+    // The starter skills: a skill's links to staff are added only in the run that creates it, so
+    // an admin's later removals are not undone.
+    for (const skill of DEMO_SKILLS) {
+      const { row, created } = await createIfMissing(
+        () => tx.skill.findUnique({ where: { key: skill.key }, select: { id: true } }),
+        () =>
+          tx.skill.create({
+            data: { key: skill.key, labelEn: skill.labelEn, labelAr: skill.labelAr },
+            select: { id: true },
+          }),
+      );
+      if (!created) continue;
+      for (const email of skill.staffEmails) {
+        await tx.userSkill.create({
+          data: { userId: must(staffIds.get(email), 'skill staff'), skillId: row.id },
         });
       }
     }

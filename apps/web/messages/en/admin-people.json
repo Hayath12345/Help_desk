@@ -129,6 +129,7 @@
       "jobTitle": "Job title",
       "phone": "Phone",
       "teams": "Teams",
+      "skills": "Skills",
       "status": "Sign-in"
     },
     "roleFilter": "Role",
@@ -139,6 +140,8 @@
     "linked": "Microsoft linked",
     "notLinked": "Not signed in yet",
     "lastSignIn": "Last sign-in {date}",
+    "paused": "Paused",
+    "pausedTitle": "Not taking automatic tickets",
     "form": {
       "email": "Work email",
       "emailHint": "They sign in with Microsoft using this address. The account is linked on their first sign-in.",
@@ -153,10 +156,46 @@
       "teams": "Teams",
       "noTeams": "Not a member of any team.",
       "selfNote": "You can't change your own role or disable your own account.",
-      "revokeNote": "Changing the role or disabling the account signs this person out everywhere."
+      "revokeNote": "Changing the role or disabling the account signs this person out everywhere.",
+      "skills": "Skills",
+      "skillsHint": "What this person is good at. New tickets in a category that needs one of these skills can be assigned to them automatically.",
+      "skillsEmpty": "No skills yet — add them under <link>Skills</link>.",
+      "skillsLimit": "You can pick up to {max} skills.",
+      "autoAssign": "Takes automatic tickets",
+      "autoAssignHint": "Turn off while away. They stay on their teams and can still be assigned by hand."
     },
     "saved": "Staff account saved",
     "created": "{name} can now sign in with Microsoft"
+  },
+  "skills": {
+    "newSkill": "New skill",
+    "hint": "Skills decide who a new ticket goes to. Under <categories>Categories & sub-types</categories>, list the skills each category needs. Under <staff>Staff</staff>, give people the skills they have. A new ticket then goes to the team member whose skills match best. A skill that no staff member has and no category needs does nothing.",
+    "columns": {
+      "name": "Skill",
+      "nameAr": "Arabic name",
+      "staff": "Staff",
+      "categories": "Categories"
+    },
+    "noArabic": "No Arabic name",
+    "emptyTitle": "No skills yet",
+    "emptyDescription": "Add the skills your team has, such as Network or CCTV. Then give them to staff and list them on the categories that need them.",
+    "whoCanSee": "Only Super Admins can open this section and change skills.",
+    "createTitle": "New skill",
+    "createDescription": "Name the skill the way your team says it, for example “Network” or “CCTV”. After you create it, give it to staff under Staff and add it to categories under Categories & sub-types.",
+    "editTitle": "Edit {name}",
+    "form": {
+      "name": "Skill name",
+      "nameHint": "Staff and categories choose skills by this name, so each skill needs its own English name."
+    },
+    "restoreExisting": "Restore “{label}” instead",
+    "archiveWarning": "{staff, plural, =0 {No active staff member has} one {# active staff member has} other {# active staff have}} this skill, and {categories, plural, =0 {no active category needs} one {# active category needs} other {# active categories need}} it. They keep it, but an archived skill stops counting for automatic assignment and can’t be added to anyone or any category. Restoring it brings everything back.",
+    "errors": {
+      "checkForm": "Some values weren’t accepted. Check the form and try again.",
+      "duplicateLabel": "A skill with this English name already exists. Choose another name.",
+      "duplicateLabelArchived": "A skill with this English name already exists, but it is archived. Restore that skill instead (turn on “Show archived” in the list), or choose another name.",
+      "duplicateKey": "This key is already used by another skill. Choose another one.",
+      "duplicateKeyArchived": "This key belongs to an archived skill. Restore that skill, or choose another key."
+    }
   },
   "clients": {
     "tabs": {

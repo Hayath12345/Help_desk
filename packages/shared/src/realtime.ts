@@ -67,6 +67,8 @@ export interface QueueUpdatedPayload {
  *   calendar        business hours, holidays, timezone → form config, ticket details
  *   staff           staff accounts → staff pickers, teams, ticket details (names), escalation
  *                   warnings, account managers on Clients
+ *   skills          skills catalog, who has which skill, which category needs which → the Skills,
+ *                   Staff and Categories admin lists
  *   email-templates, help-center, settings, audit → the matching admin lists only
  */
 export const CONFIG_SCOPES = [
@@ -77,6 +79,7 @@ export const CONFIG_SCOPES = [
   'escalation',
   'calendar',
   'staff',
+  'skills',
   'email-templates',
   'help-center',
   'settings',

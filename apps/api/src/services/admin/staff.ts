@@ -7,6 +7,7 @@ import {
   staffChangeRevokesSessions,
   type Actor,
   type CreateStaffInput,
+  type SetSkillsInput,
   type StaffAdminDto,
   type UpdateStaffInput,
 } from '@loons/shared';
@@ -17,6 +18,7 @@ import { requireSuperAdmin } from './authz.ts';
 import { advisoryLock, lockFresh } from './concurrency.ts';
 import type { AdminDeps } from './deps.ts';
 import { adminErrors } from './errors.ts';
+import { assertLinkableSkills, skillRefSelect, skillKeys, toSkillRefs } from './skills.ts';
 import type { AdminContext } from './write.ts';
 
 // Admin — Staff (decision E9; super admins only).
@@ -42,6 +44,8 @@ const staffSelect = {
   status: true,
   jobTitle: true,
   phone: true,
+  acceptsAutoAssign: true,
+  skills: { select: { skill: { select: skillRefSelect } } },
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
@@ -78,6 +82,8 @@ export function toStaffDto(row: StaffRow): StaffAdminDto {
           a.nameEn.localeCompare(b.nameEn) ||
           a.id.localeCompare(b.id),
       ),
+    skills: toSkillRefs(row.skills.map((s) => s.skill)),
+    acceptsAutoAssign: row.acceptsAutoAssign,
     microsoftLinked: row.accounts.length > 0,
     lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -93,6 +99,7 @@ function auditFields(row: {
   status: string;
   jobTitle: string | null;
   phone: string | null;
+  acceptsAutoAssign: boolean;
 }) {
   return {
     email: row.email,
@@ -101,6 +108,7 @@ function auditFields(row: {
     status: row.status,
     jobTitle: row.jobTitle,
     phone: row.phone,
+    acceptsAutoAssign: row.acceptsAutoAssign,
   };
 }
 
@@ -153,6 +161,8 @@ export interface StaffAdminService {
   ): Promise<{ items: StaffAdminDto[]; nextCursor: string | null }>;
   create(ctx: AdminContext, input: CreateStaffInput): Promise<StaffAdminDto>;
   update(ctx: AdminContext, id: string, input: UpdateStaffInput): Promise<StaffAdminDto>;
+  /** Replaces the skills the person has (docs/AUTO_ASSIGN.md). */
+  setSkills(ctx: AdminContext, id: string, input: SetSkillsInput): Promise<StaffAdminDto>;
 }
 
 export function createStaffAdminService(deps: AdminDeps): StaffAdminService {
@@ -265,6 +275,7 @@ export function createStaffAdminService(deps: AdminDeps): StaffAdminService {
             status: true,
             jobTitle: true,
             phone: true,
+            acceptsAutoAssign: true,
           },
         });
         if (!isStaffRole(before.role)) throw errors.notFound('Staff member not found');
@@ -294,6 +305,9 @@ export function createStaffAdminService(deps: AdminDeps): StaffAdminService {
             ...(input.status !== undefined ? { status: input.status } : {}),
             ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
             ...(phone !== undefined ? { phone } : {}),
+            ...(input.acceptsAutoAssign !== undefined
+              ? { acceptsAutoAssign: input.acceptsAutoAssign }
+              : {}),
             ...(revoke ? REVOKE_SESSIONS_DATA : {}),
           },
         });
@@ -307,6 +321,39 @@ export function createStaffAdminService(deps: AdminDeps): StaffAdminService {
           after: auditFields(updated),
         });
         if (revoke) after.sessionsRevoked(id);
+        return updated;
+      });
+    },
+
+    async setSkills(ctx, id, input) {
+      requireSuperAdmin(ctx.actor);
+      return writer.write(ctx, { scopes: ['staff', 'skills'] }, async ({ tx, audit }) => {
+        await lockFresh(tx, 'User', id, input.expectedUpdatedAt);
+        const before = await load(tx, id); // 404 for a client account too (toStaffDto)
+        const current = before.skills.map((s) => s.id);
+        await assertLinkableSkills(tx, input.skillIds, current);
+        const wanted = new Set(input.skillIds);
+        const drop = current.filter((skillId) => !wanted.has(skillId));
+        const add = input.skillIds.filter((skillId) => !current.includes(skillId));
+        if (drop.length > 0) {
+          await tx.userSkill.deleteMany({ where: { userId: id, skillId: { in: drop } } });
+        }
+        if (add.length > 0) {
+          await tx.userSkill.createMany({
+            data: add.map((skillId) => ({ userId: id, skillId })),
+          });
+        }
+        // The links are not columns of the user: touch the row so concurrent edits see the change.
+        await tx.user.update({ where: { id }, data: { updatedAt: new Date() } });
+        const updated = await load(tx, id);
+        await audit.record({
+          action: 'UPDATE',
+          entity: 'User',
+          entityId: id,
+          entityLabel: updated.name,
+          before: { skills: skillKeys(before.skills) },
+          after: { skills: skillKeys(updated.skills) },
+        });
         return updated;
       });
     },

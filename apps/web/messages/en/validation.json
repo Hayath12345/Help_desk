@@ -31,6 +31,7 @@
   "tooLarge": "This is too large.",
   "tooSmall": "This is too small.",
   "notFound": "This item no longer exists. Reload and choose again.",
+  "skillArchived": "This skill is archived — restore it first.",
   "phone": "Enter an international number starting with + and the country code, e.g. +974 4000 0000.",
   "timezone": "Choose a time zone from the list."
 }

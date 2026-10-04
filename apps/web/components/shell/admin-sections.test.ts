@@ -22,7 +22,7 @@ const actor = (role: Role): Actor => ({
 });
 
 describe('admin sections (UI mirror of the server rules)', () => {
-  it('has the 13 Phase 4 sections in the E8 group order', () => {
+  it('has the 14 admin sections in the E8 group order', () => {
     expect(ADMIN_NAV_GROUPS.map((g) => g.id)).toEqual([
       'ticket-setup',
       'sla-escalation',
@@ -39,6 +39,7 @@ describe('admin sections (UI mirror of the server rules)', () => {
       'escalation',
       'teams',
       'staff',
+      'skills',
       'clients',
       'email-templates',
       'help-center',
@@ -62,6 +63,7 @@ describe('admin sections (UI mirror of the server rules)', () => {
       { id: 'people', sections: ['teams'] },
     ]);
     expect(canOpenAdminSection('TEAM_LEAD', 'staff')).toBe(false);
+    expect(canOpenAdminSection('TEAM_LEAD', 'skills')).toBe(false);
     expect(canOpenAdminSection('TEAM_LEAD', 'settings')).toBe(false);
   });
 
@@ -96,6 +98,7 @@ describe('admin sections (UI mirror of the server rules)', () => {
     expect(isAdminSection('sla')).toBe(true);
     expect(isAdminSection('custom-fields')).toBe(true);
     expect(isAdminSection('staff')).toBe(true);
+    expect(isAdminSection('skills')).toBe(true);
     expect(isAdminSection('settings')).toBe(true);
     expect(isAdminSection('users')).toBe(false);
     expect(isAdminSection('')).toBe(false);

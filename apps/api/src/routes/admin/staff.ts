@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   adminIdParamSchema,
   createStaffSchema,
+  setSkillsSchema,
   staffListQuerySchema,
   staffListSchema,
   staffResponseSchema,
@@ -62,5 +63,23 @@ export const staffAdminRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => ({ item: await staff().update(adminContext(req), req.params.id, req.body) }),
+  );
+
+  app.put(
+    '/:id/skills',
+    {
+      schema: {
+        ...adminSchema(
+          'Set the skills a staff member has',
+          'The complete list: it replaces the current one ([] clears it). Only active skills can be added (400 `validation.skillArchived`); one that is already linked may stay. 409 `stale` when expectedUpdatedAt is not current.',
+        ),
+        params: adminIdParamSchema,
+        body: setSkillsSchema,
+        response: { 200: staffResponseSchema, ...adminErrorResponses },
+      },
+    },
+    async (req) => ({
+      item: await staff().setSkills(adminContext(req), req.params.id, req.body),
+    }),
   );
 };

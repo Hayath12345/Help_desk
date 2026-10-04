@@ -30,6 +30,7 @@ export const LOCKABLE_TABLES = [
   'Holiday',
   'EscalationRule',
   'Macro',
+  'Skill',
   'EmailTemplate',
   'HelpArticle',
   'AppSetting',

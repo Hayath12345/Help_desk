@@ -73,6 +73,7 @@
       "team": "Routed to",
       "subtypes": "Sub-types",
       "fields": "Fields",
+      "skills": "Skills",
       "onForm": "New ticket form"
     },
     "archivedTeam": "{team} (archived)",
@@ -113,6 +114,12 @@
       "remove": "Remove {label}",
       "add": "Add a field…",
       "noneToAdd": "No more active fields to add"
+    },
+    "skills": {
+      "title": "Skills needed",
+      "hint": "New tickets in this category go automatically to the team member with one of these skills and the fewest open tickets. Leave empty to keep tickets in the team queue. P1 tickets are never assigned automatically.",
+      "empty": "No skills yet — add them under <link>Skills</link>.",
+      "limit": "You can pick up to {max} skills."
     },
     "subtypes": {
       "title": "Sub-types",

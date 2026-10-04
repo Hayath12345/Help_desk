@@ -640,3 +640,63 @@ export const DEMO_TICKETS: readonly DemoTicketSeed[] = [
 
 /** The next ticket created after seeding gets this number (design nextId). */
 export const NEXT_TICKET_NUMBER = 4834;
+
+// ───────────────────────────── Skills ─────────────────────────────
+
+export interface DemoSkillSeed {
+  key: string;
+  labelEn: string;
+  labelAr: string;
+  /** Staff who have the skill (demo accounts). */
+  staffEmails: readonly string[];
+}
+
+/**
+ * A starter catalog for the demo (docs/AUTO_ASSIGN.md). Categories are NOT linked to any skill, so
+ * nothing is assigned automatically until an admin picks the skills a category needs under
+ * Admin → Categories; the staff already have theirs, so that is one click per category.
+ */
+export const DEMO_SKILLS: readonly DemoSkillSeed[] = [
+  {
+    key: 'network',
+    labelEn: 'Network',
+    labelAr: 'الشبكات',
+    staffEmails: [STAFF_EMAILS.theo],
+  },
+  {
+    key: 'security',
+    labelEn: 'Security',
+    labelAr: 'الأمن السيبراني',
+    staffEmails: [STAFF_EMAILS.maya],
+  },
+  {
+    key: 'data-centre',
+    labelEn: 'Data centre',
+    labelAr: 'مركز البيانات',
+    staffEmails: [STAFF_EMAILS.theo],
+  },
+  {
+    key: 'cctv-access',
+    labelEn: 'CCTV & access control',
+    labelAr: 'المراقبة والتحكم في الدخول',
+    staffEmails: [STAFF_EMAILS.priya],
+  },
+  {
+    key: 'building-av',
+    labelEn: 'Building systems & AV',
+    labelAr: 'أنظمة المباني والسمعيات والبصريات',
+    staffEmails: [STAFF_EMAILS.priya],
+  },
+  {
+    key: 'desktop-support',
+    labelEn: 'Desktop support',
+    labelAr: 'دعم أجهزة المستخدمين',
+    staffEmails: [STAFF_EMAILS.sam],
+  },
+  {
+    key: 'software',
+    labelEn: 'Software',
+    labelAr: 'البرمجيات',
+    staffEmails: [STAFF_EMAILS.sam],
+  },
+];

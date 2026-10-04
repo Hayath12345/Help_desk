@@ -9,6 +9,7 @@ import {
   CATEGORY_ICONS,
   DEFAULT_CATEGORY_ICON,
   PRIORITIES,
+  SKILLS_PER_LINK_MAX,
   type CategoryAdminDto,
   type Locale,
   type Priority,
@@ -40,6 +41,7 @@ import { useAdminMutation } from '@/lib/admin';
 import { useTeams, useTicketFormConfig } from '@/lib/tickets/queries';
 import { localizedLabel, teamName } from '@/lib/tickets/labels';
 import { cn } from '@/lib/utils';
+import { SkillPicker, SkillsAdminLink, sameSkillIds, sortedSkillIds } from '../../skill-picker';
 import { useCustomFieldList } from '../custom-fields/data';
 import { CategoryPreview, type PreviewField } from './category-preview';
 import { categoriesApi } from './data';
@@ -53,8 +55,11 @@ import { SubtypesManager } from './subtypes-manager';
 
 // The category sheet (spec §10.1; E4, E5, E16): name EN/AR, key (editable while creating only),
 // routed team (active teams), icon from the allow-list, asset placeholder EN/AR, the first
-// sub-type (create) or the sub-types manager (edit), and the linked custom fields in form order —
-// with the live New Ticket preview beside it (wide sheet).
+// sub-type (create) or the sub-types manager (edit), the skills needed (automatic assignment,
+// docs/AUTO_ASSIGN.md) and the linked custom fields in form order — with the live New Ticket
+// preview beside it (wide sheet). The skills are not part of what clients see: the preview ignores
+// them. Saving an edit sends, in this order: PATCH (the fields above), PUT /fields, PUT /skills —
+// each from the updatedAt the previous write returned.
 
 const text = (max: number) => z.string().max(max, { error: 'validation.tooLong' });
 
@@ -76,6 +81,7 @@ const baseSchema = z.object({
     defaultPriority: z.enum(PRIORITIES),
   }),
   fieldIds: z.array(z.string()).max(CATEGORY_FIELDS_MAX, { error: 'validation.tooLong' }),
+  skillIds: z.array(z.string()).max(SKILLS_PER_LINK_MAX, { error: 'validation.tooLong' }),
 });
 
 const createSchema = baseSchema.superRefine((value, ctx) => {
@@ -103,6 +109,7 @@ const FORM_PATHS = [
   'firstSubtype.key',
   'firstSubtype.defaultPriority',
   'fieldIds',
+  'skillIds',
 ] as const;
 
 function valuesOf(category: CategoryAdminDto | undefined): CategoryFormValues {
@@ -116,6 +123,7 @@ function valuesOf(category: CategoryAdminDto | undefined): CategoryFormValues {
     assetPlaceholderAr: category?.assetPlaceholderAr ?? '',
     firstSubtype: { labelEn: '', labelAr: '', defaultPriority: 'P3' },
     fieldIds: category?.fields.map((f) => f.fieldId) ?? [],
+    skillIds: sortedSkillIds(category?.skills),
   };
 }
 
@@ -183,7 +191,7 @@ export function CategorySheet({
 
   const save = useAdminMutation<CategoryFormValues, CategoryAdminDto | null>({
     section: 'categories',
-    scopes: ['ticket-form'],
+    scopes: ['ticket-form', 'skills'],
     errorToast: false,
     mutationFn: async (values) => {
       if (!base) {
@@ -197,6 +205,7 @@ export function CategorySheet({
           teamId: values.teamId,
           firstSubtype: values.firstSubtype,
           fieldIds: values.fieldIds,
+          skillIds: values.skillIds,
         });
       }
       let current = base;
@@ -213,6 +222,18 @@ export function CategorySheet({
         current = await categoriesApi.setFields(base.id, {
           expectedUpdatedAt: current.updatedAt,
           fieldIds: values.fieldIds,
+        });
+        setBase(current);
+      }
+      if (
+        !sameSkillIds(
+          base.skills.map((skill) => skill.id),
+          values.skillIds,
+        )
+      ) {
+        current = await categoriesApi.setSkills(base.id, {
+          expectedUpdatedAt: current.updatedAt,
+          skillIds: values.skillIds,
         });
         setBase(current);
       }
@@ -418,6 +439,25 @@ export function CategorySheet({
               </FormField>
             );
           }}
+        />
+        <Controller
+          control={form.control}
+          name="skillIds"
+          render={({ field, fieldState }) => (
+            <SkillPicker
+              id={`${formId}-skills`}
+              label={t('skills.title')}
+              hint={t('skills.hint')}
+              value={field.value}
+              onChange={field.onChange}
+              linked={category?.skills}
+              empty={t.rich('skills.empty', {
+                link: (chunks) => <SkillsAdminLink>{chunks}</SkillsAdminLink>,
+              })}
+              limitNote={t('skills.limit', { max: SKILLS_PER_LINK_MAX })}
+              error={errorText(fieldState.error?.message)}
+            />
+          )}
         />
         <Controller
           control={form.control}

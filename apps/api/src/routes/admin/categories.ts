@@ -11,6 +11,7 @@ import {
   createSubtypeSchema,
   reorderBodySchema,
   setCategoryFieldsSchema,
+  setSkillsSchema,
   subtypeResponseSchema,
   updateCategorySchema,
   updateSubtypeSchema,
@@ -129,6 +130,22 @@ export const categoriesAdminRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => ({ item: await svc().setFields(adminContext(req), req.params.id, req.body) }),
+  );
+
+  app.put(
+    '/:id/skills',
+    {
+      schema: {
+        ...adminSchema(
+          'Set the skills a category needs',
+          'The complete list: it replaces the current one ([] = no automatic assignment for this category). Only active skills can be added (400 `validation.skillArchived`); one that is already linked may stay. Uses the category’s `updatedAt` (and moves it).',
+        ),
+        params: adminIdParamSchema,
+        body: setSkillsSchema,
+        response: { 200: categoryResponseSchema, ...adminErrorResponses },
+      },
+    },
+    async (req) => ({ item: await svc().setSkills(adminContext(req), req.params.id, req.body) }),
   );
 
   app.post(

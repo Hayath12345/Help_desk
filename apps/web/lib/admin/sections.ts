@@ -7,8 +7,8 @@ import {
   type Role,
 } from '@loons/shared';
 
-// The admin panel's sections (docs/PHASE4_CONTRACT.md E1, E7, E8): the shared ADMIN_SECTIONS (13,
-// incl. Staff and General settings) in their navigation groups. Every place that lists or gates
+// The admin panel's sections (docs/PHASE4_CONTRACT.md E1, E7, E8): the shared ADMIN_SECTIONS (14,
+// incl. Staff, Skills and General settings) in their navigation groups. Every place that lists or gates
 // admin sections in the web app goes through this file (also the proxy's routing rules), so it
 // stays free of UI imports.
 
@@ -37,6 +37,7 @@ export const ADMIN_SECTION_NAMESPACE = {
   settings: 'admin-sla',
   teams: 'admin-people',
   staff: 'admin-people',
+  skills: 'admin-people',
   clients: 'admin-people',
   'email-templates': 'admin-comms',
   'help-center': 'admin-comms',

@@ -8,6 +8,7 @@ import BusinessHoursSection from './business-hours';
 import EscalationSection from './escalation';
 import TeamsSection from './teams';
 import StaffSection from './staff';
+import SkillsSection from './skills';
 import ClientsSection from './clients';
 import EmailTemplatesSection from './email-templates';
 import HelpCenterSection from './help-center';
@@ -25,6 +26,7 @@ export const ADMIN_SECTION_COMPONENTS: Record<AdminSlug, ComponentType<AdminSect
   escalation: EscalationSection,
   teams: TeamsSection,
   staff: StaffSection,
+  skills: SkillsSection,
   clients: ClientsSection,
   'email-templates': EmailTemplatesSection,
   'help-center': HelpCenterSection,

@@ -39,6 +39,7 @@ export const ADMIN_SECTIONS = [
   'escalation',
   'teams',
   'staff',
+  'skills',
   'clients',
   'email-templates',
   'help-center',
@@ -54,7 +55,7 @@ export type AdminSection = (typeof ADMIN_SECTIONS)[number];
 export const ADMIN_SECTION_GROUPS = [
   { key: 'ticket-setup', sections: ['categories', 'custom-fields', 'macros'] },
   { key: 'sla-escalation', sections: ['sla', 'business-hours', 'escalation'] },
-  { key: 'people', sections: ['teams', 'staff', 'clients'] },
+  { key: 'people', sections: ['teams', 'staff', 'skills', 'clients'] },
   { key: 'communication', sections: ['email-templates', 'help-center'] },
   { key: 'system', sections: ['settings', 'audit-log'] },
 ] as const satisfies ReadonlyArray<{ key: string; sections: readonly AdminSection[] }>;

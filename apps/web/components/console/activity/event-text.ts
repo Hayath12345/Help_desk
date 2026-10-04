@@ -134,7 +134,8 @@ export function useActivityText(): ActivityText {
           const from = value(event.from, event.type);
           const to = value(event.to, event.type);
           if (from && to) return t('reassigned', { from, to });
-          if (to) return t('assigned', { to });
+          // `meta.auto`: the system picked the assignee from the category's skills (no actor).
+          if (to) return t(meta.auto && !from ? 'assignedAuto' : 'assigned', { to });
           if (from) return t('unassigned', { from });
           return t('assigneeChanged');
         }

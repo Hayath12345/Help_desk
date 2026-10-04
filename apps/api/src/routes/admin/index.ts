@@ -14,6 +14,7 @@ import { macrosAdminRoutes } from './macros.ts';
 import { settingsAdminRoutes } from './settings.ts';
 import { slaAdminRoutes } from './sla.ts';
 import { staffDirectoryRoutes } from './staff-directory.ts';
+import { skillsAdminRoutes } from './skills.ts';
 import { staffAdminRoutes } from './staff.ts';
 import { teamsAdminRoutes } from './teams.ts';
 
@@ -43,6 +44,7 @@ export const ADMIN_SECTION_ROUTES: Record<AdminSection, FastifyPluginAsyncZod> =
   escalation: escalationAdminRoutes,
   teams: teamsAdminRoutes,
   staff: staffAdminRoutes,
+  skills: skillsAdminRoutes,
   clients: clientsAdminRoutes,
   'email-templates': emailTemplatesAdminRoutes,
   'help-center': helpCenterAdminRoutes,

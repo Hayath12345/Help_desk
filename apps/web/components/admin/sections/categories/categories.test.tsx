@@ -11,6 +11,7 @@ import {
   choose,
   fieldRow,
   renderSetup,
+  skillRow,
   stale,
   stubBrowserApis,
   type,
@@ -53,10 +54,23 @@ const FIELD_B = fieldRow(2, {
 });
 const ARCHIVED_FIELD = fieldRow(3, { labelEn: 'Legacy field', isActive: false });
 
-function withList(rows = [categoryRow(1), categoryRow(2)]) {
+const SKILL_NET = skillRow(1, { labelEn: 'Network', labelAr: 'الشبكات' });
+const SKILL_CCTV = skillRow(2, { labelEn: 'CCTV', labelAr: 'كاميرات المراقبة' });
+const SKILL_OLD = skillRow(3, { labelEn: 'Legacy PBX', labelAr: 'مقسم قديم', isActive: false });
+/** A skill as a category row carries it. */
+const ref = ({ id, key, labelEn, labelAr, isActive }: ReturnType<typeof skillRow>) => ({
+  id,
+  key,
+  labelEn,
+  labelAr,
+  isActive,
+});
+
+function withList(rows = [categoryRow(1), categoryRow(2)], catalog = [SKILL_CCTV, SKILL_NET]) {
   let items = rows;
   fake.api
     .on('GET', /^\/admin\/categories\?status=all$/, () => ({ items }))
+    .on('GET', /^\/admin\/skills\?status=active$/, () => ({ items: catalog }))
     .on('GET', /^\/admin\/custom-fields\?status=all$/, {
       items: [FIELD_A, FIELD_B, ARCHIVED_FIELD],
     });
@@ -118,6 +132,13 @@ describe('Categories section', () => {
     fireEvent.keyDown(screen.getByRole('option', { name: /^Door side/ }), { key: 'Enter' });
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
     await choose(within(dialog).getByRole('combobox', { name: 'Add a field…' }), 'Camera ID');
+    // Skills needed: the active catalog (never the archived one), explained, ticked like a list.
+    const skills = within(dialog).getByRole('group', { name: 'Skills needed' });
+    expect(within(dialog).getByText(/fewest open tickets/)).toBeTruthy();
+    expect(within(dialog).getByText(/P1 tickets are never assigned automatically/)).toBeTruthy();
+    fireEvent.click(await within(skills).findByRole('checkbox', { name: 'Network' }));
+    fireEvent.click(within(skills).getByRole('checkbox', { name: 'CCTV' }));
+    expect(within(skills).getAllByRole('checkbox')).toHaveLength(2);
 
     // E16: the preview shows the draft — name, sub-type, default priority, fields in order.
     const preview = within(dialog).getByRole('region', { name: 'New ticket preview' });
@@ -142,6 +163,7 @@ describe('Categories section', () => {
       teamId: TEAMS.soc.id,
       firstSubtype: { labelEn: 'Card reader', labelAr: '', defaultPriority: 'P2' },
       fieldIds: [FIELD_B.id, FIELD_A.id],
+      skillIds: [SKILL_NET.id, SKILL_CCTV.id].sort(),
     });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Door Access created'));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -199,6 +221,148 @@ describe('Categories section', () => {
       { expectedUpdatedAt: patched.updatedAt, fieldIds: [FIELD_B.id, FIELD_A.id] },
     ]);
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Changes saved'));
+  });
+
+  it('saves the skills after the category and its fields, each from the version the last write returned', async () => {
+    const row = categoryRow(1, { skills: [ref(SKILL_NET), ref(SKILL_OLD)] });
+    withList([row]);
+    const T1 = '2026-09-29T11:00:00.000Z';
+    const T2 = '2026-09-29T11:00:01.000Z';
+    const T3 = '2026-09-29T11:00:02.000Z';
+    const patched = { ...row, labelEn: 'Renamed', updatedAt: T1 };
+    fake.api
+      .on('PATCH', /^\/admin\/categories\/[^/]+$/, { item: patched })
+      .on('PUT', /\/fields$/, { item: { ...patched, updatedAt: T2 } })
+      .on('PUT', /\/skills$/, { item: { ...patched, updatedAt: T3 } });
+    renderSetup(<CategoriesSection role="SUPER_ADMIN" userId={IDS.staff} />);
+    fireEvent.click(await within(table()).findByRole('button', { name: /^Category 1/ }));
+    const dialog = sheet();
+    type(within(dialog).getByRole('textbox', { name: 'Name English' }), 'Renamed');
+    const add = within(dialog).getByRole('combobox', { name: 'Add a field…' });
+    await waitFor(() => expect(add.hasAttribute('disabled')).toBe(false)); // catalog loaded
+    await choose(add, 'Door side');
+
+    // The archived skill the category still needs stays listed, ticked and flagged; it can go.
+    const skills = within(dialog).getByRole('group', { name: 'Skills needed' });
+    const legacy = await within(skills).findByRole('checkbox', { name: /Legacy PBX/ });
+    expect(legacy.getAttribute('aria-checked')).toBe('true');
+    expect(within(skills).getByText('Archived')).toBeTruthy();
+    fireEvent.click(legacy);
+    fireEvent.click(within(skills).getByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(fake.api.sent('PUT', /\/skills$/)).toHaveLength(1));
+    expect(fake.api.sent('PATCH', /^\/admin\/categories\//)).toEqual([
+      { labelEn: 'Renamed', expectedUpdatedAt: row.updatedAt },
+    ]);
+    expect(fake.api.sent('PUT', /\/fields$/)).toEqual([
+      { expectedUpdatedAt: T1, fieldIds: [FIELD_B.id] },
+    ]);
+    expect(fake.api.sent('PUT', /\/skills$/)).toEqual([
+      { expectedUpdatedAt: T2, skillIds: [SKILL_NET.id, SKILL_CCTV.id].sort() },
+    ]);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Changes saved'));
+  });
+
+  it('a skills-only edit sends just PUT /skills with the row’s own updatedAt', async () => {
+    const row = categoryRow(1, { skills: [ref(SKILL_NET)] });
+    withList([row]);
+    fake.api.on('PUT', /\/skills$/, {
+      item: { ...row, skills: [], updatedAt: '2026-09-29T11:00:00.000Z' },
+    });
+    renderSetup(<CategoriesSection role="SUPER_ADMIN" userId={IDS.staff} />);
+    fireEvent.click(await within(table()).findByRole('button', { name: /^Category 1/ }));
+    const skills = within(sheet()).getByRole('group', { name: 'Skills needed' });
+    // Unticking the last skill clears the list: tickets stay in the team queue.
+    fireEvent.click(await within(skills).findByRole('checkbox', { name: 'Network' }));
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fake.api.sent('PUT', /\/skills$/)).toHaveLength(1));
+    expect(fake.api.sent('PUT', /\/skills$/)).toEqual([
+      { expectedUpdatedAt: row.updatedAt, skillIds: [] },
+    ]);
+    expect(fake.api.sent('PATCH', /^\/admin\/categories\//)).toEqual([]);
+    expect(fake.api.sent('PUT', /\/fields$/)).toEqual([]);
+  });
+
+  it('saving without a change to the skills never calls PUT /skills', async () => {
+    const row = categoryRow(1, { skills: [ref(SKILL_NET), ref(SKILL_CCTV)] });
+    withList([row]);
+    fake.api.on('PATCH', /^\/admin\/categories\/[^/]+$/, {
+      item: { ...row, labelEn: 'Renamed', updatedAt: '2026-09-29T11:00:00.000Z' },
+    });
+    renderSetup(<CategoriesSection role="SUPER_ADMIN" userId={IDS.staff} />);
+    fireEvent.click(await within(table()).findByRole('button', { name: /^Category 1/ }));
+    const skills = within(sheet()).getByRole('group', { name: 'Skills needed' });
+    // Unticking and ticking again is no change.
+    const cctv = await within(skills).findByRole('checkbox', { name: 'CCTV' });
+    fireEvent.click(cctv);
+    fireEvent.click(cctv);
+    type(within(sheet()).getByRole('textbox', { name: 'Name English' }), 'Renamed');
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(fake.api.sent('PATCH', /^\/admin\/categories\//)).toHaveLength(1));
+    expect(fake.api.sent('PUT', /\/skills$/)).toEqual([]);
+  });
+
+  it('a stale skills save shows the reload state; an archived skill is refused on the list', async () => {
+    const row = categoryRow(1);
+    withList([row]);
+    let answer: Error = stale();
+    fake.api.on('PUT', /\/skills$/, () => {
+      throw answer;
+    });
+    renderSetup(<CategoriesSection role="SUPER_ADMIN" userId={IDS.staff} />);
+    fireEvent.click(await within(table()).findByRole('button', { name: /^Category 1/ }));
+    const skills = within(sheet()).getByRole('group', { name: 'Skills needed' });
+    fireEvent.click(await within(skills).findByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Save' }));
+    expect(await within(sheet()).findByText('Someone else changed this — reload')).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // After a reload the API may still refuse a skill that was archived meanwhile: it is said
+    // on the list (400 validation.skillArchived), not as a toast.
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Reload' }));
+    await waitFor(() =>
+      expect(within(sheet()).queryByText('Someone else changed this — reload')).toBeNull(),
+    );
+    answer = apiError(400, 'VALIDATION_FAILED', [
+      { path: ['skillIds'], message: 'validation.skillArchived', location: 'body', code: 'custom' },
+    ]);
+    fireEvent.click(within(sheet()).getByRole('checkbox', { name: 'CCTV' }));
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Save' }));
+    expect(
+      await within(sheet()).findByText('This skill is archived — restore it first.'),
+    ).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('says how to add skills when the catalog is empty, and lists them as chips in the table', async () => {
+    const extra = [skillRow(4, { labelEn: 'VPN' }), skillRow(5, { labelEn: 'Wi-Fi' })].map(ref);
+    withList(
+      [
+        categoryRow(1, {
+          skills: [ref(SKILL_NET), ref(SKILL_CCTV), ...extra, ref(SKILL_OLD)],
+        }),
+        categoryRow(2),
+      ],
+      [],
+    );
+    renderSetup(<CategoriesSection role="SUPER_ADMIN" userId={IDS.staff} />);
+    const open = await within(table()).findByRole('button', { name: /^Category 1/ });
+    // The first three active skills and "+N" for the rest; the archived one is left out.
+    const row = within(open.closest('[role="row"]') as HTMLElement);
+    expect(row.getByText('Network')).toBeTruthy();
+    expect(row.getByText('CCTV')).toBeTruthy();
+    expect(row.getByText('VPN')).toBeTruthy();
+    expect(row.getByText('+1')).toBeTruthy();
+    expect(row.queryByText('Legacy PBX')).toBeNull();
+
+    fireEvent.click(within(table()).getByRole('button', { name: /^Category 2/ }));
+    const skills = within(sheet()).getByRole('group', { name: 'Skills needed' });
+    expect(await within(skills).findByText(/No skills yet/)).toBeTruthy();
+    expect(within(skills).getByRole('link', { name: 'Skills' }).getAttribute('href')).toBe(
+      '/admin/skills',
+    );
+    expect(within(skills).queryAllByRole('checkbox')).toHaveLength(0);
   });
 
   it('shows "Someone else changed this — reload" on a stale save, and reloads the latest', async () => {
@@ -533,5 +697,8 @@ describe('Categories section', () => {
       'rtl',
     );
     expect(within(dialog).getByRole('region', { name: 'معاينة التذكرة الجديدة' })).toBeTruthy();
+    const skills = within(dialog).getByRole('group', { name: 'المهارات المطلوبة' });
+    expect(await within(skills).findByRole('checkbox', { name: 'الشبكات' })).toBeTruthy();
+    expect(within(dialog).getByText(/لا تُسند تذاكر P1 تلقائيًا أبدًا/)).toBeTruthy();
   });
 });

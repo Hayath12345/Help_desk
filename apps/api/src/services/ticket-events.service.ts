@@ -380,6 +380,11 @@ export function createTicketEventsService(deps: { prisma: PrismaClient }): Ticke
         if (days !== undefined) out.days = days;
         break;
       }
+      case 'ASSIGNEE_CHANGED': {
+        // Picked by the system from the category's skills (docs/AUTO_ASSIGN.md).
+        if (meta.auto === true) out.auto = true;
+        break;
+      }
       default:
         break;
     }

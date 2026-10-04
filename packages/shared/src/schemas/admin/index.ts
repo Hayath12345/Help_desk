@@ -9,6 +9,7 @@ export * from './business-hours.ts';
 export * from './escalation.ts';
 export * from './teams.ts';
 export * from './staff.ts';
+export * from './skills.ts';
 export * from './clients.ts';
 export * from './email-templates.ts';
 export * from './help-center.ts';
