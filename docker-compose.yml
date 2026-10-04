@@ -42,7 +42,7 @@ services:
       retries: 20
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio:latest # MinIO's own images were withdrawn from quay.io/Docker Hub
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: loons
@@ -52,11 +52,6 @@ services:
       - '9001:9001' # web console → http://localhost:9001
     volumes:
       - minio-data:/data
-    healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   # One-shot: creates the attachments bucket (private) and a CORS-friendly policy for pre-signed
   # uploads, and expires browser uploads (`attachments/…`) after a day: `complete` copies a checked
@@ -67,16 +62,15 @@ services:
   # with this fixed document (rule ID expire-browser-uploads) on every run, whatever was there —
   # a disabled or longer rule on the prefix no longer passes for the real one.
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    build: ./deploy/minio-init
     depends_on:
-      minio:
-        condition: service_healthy
+      - minio
     entrypoint:
       - /bin/sh
       - -c
       - |
         set -e
-        mc alias set local http://minio:9000 loons loons-local-secret
+        until mc alias set local http://minio:9000 loons loons-local-secret; do sleep 2; done
         mc mb --ignore-existing local/loons-helpdesk-attachments
         mc anonymous set none local/loons-helpdesk-attachments
         mc ilm import local/loons-helpdesk-attachments <<'LIFECYCLE'

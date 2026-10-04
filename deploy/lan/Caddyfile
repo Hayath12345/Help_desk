@@ -1,0 +1,21 @@
+# HTTPS for the LAN. Google sign-in refuses plain-http redirect URIs that are not localhost, so Caddy puts
+# a certificate (from its own local CA) in front of the web app, the API and MinIO.
+# 192-168-1-22.sslip.io is a public DNS name that resolves to 192.168.1.22; change both if your IP differs.
+{
+	local_certs
+}
+
+192-168-1-22.sslip.io {
+	tls internal
+	reverse_proxy localhost:3000
+}
+
+192-168-1-22.sslip.io:4443 {
+	tls internal
+	reverse_proxy localhost:4000
+}
+
+192-168-1-22.sslip.io:9443 {
+	tls internal
+	reverse_proxy localhost:9000
+}

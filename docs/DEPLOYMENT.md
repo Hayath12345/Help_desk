@@ -393,6 +393,7 @@ Grouped as in `.env.production.example`. "Read by" lists the services that need 
 | `API_INTERNAL_URL`          | web        | plain | API base URL as seen from the web server: the internal address of the API service (service discovery / internal load balancer). Plain http inside the VPC is fine. |
 | `NEXT_PUBLIC_API_URL`       | web        | build | API base URL as seen from the browser (REST + Socket.IO): the https address of the API on the load balancer. Also allowed in the web CSP connect-src.              |
 | `NEXT_PUBLIC_UPLOAD_ORIGIN` | web        | build | Origin the browser uploads attachments to (pre-signed POST): `https://<bucket>.s3.<region>.amazonaws.com`                                                          |
+| `DEV_ALLOWED_ORIGINS`       | web        | plain | Development servers only (`next dev`): hostnames or IPs other devices use to reach it. Leave empty in production; the standalone server ignores it.                |
 | `CORS_ORIGINS`              | api worker | plain | Comma-separated https origins of the web app that may call the API from a browser. (The worker runs the same configuration check, so it needs the value too.)      |
 
 ### API server

@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   poweredByHeader: false,
   reactStrictMode: true,
+  // Dev server only: other devices on the LAN reach it by IP, and Next blocks their dev assets / HMR
+  // unless the host is listed. Comma-separated hostnames or IPs (e.g. 192.168.1.22).
+  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean),
   // CSP, anti-framing, nosniff, referrer and permissions policies (+ HSTS in production) on every
   // route. What the CSP allows, and why, is documented in security-headers.ts. connect-src also
   // allows the attachment storage origin (NEXT_PUBLIC_UPLOAD_ORIGIN): browsers POST files straight
